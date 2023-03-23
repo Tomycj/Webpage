@@ -1,0 +1,191 @@
+<head>
+    <title>Cells</title>
+	<link rel="icon" href="/images/logo.png" type="image/icon type">
+</head>
+
+<body style="background-color: black; color: white">
+
+<canvas id="life" width="1334" height="640"></canvas>
+<p id="info"></p>
+
+<a href="http://192.168.1.50/home.html">
+	<button> Volver </button> 
+</a>
+
+<script>
+
+const ha = 640,
+ba = 1334,
+slowfactor = .995,
+wind = 0,
+v0m = 0; //initialSpeedMultiplier
+
+m=document.getElementById("life").getContext('2d')
+
+
+beep3=()=> {
+  context = new AudioContext();
+  oscillator = context.createOscillator();
+  oscillator.type = "sine";
+  oscillator.frequency.value = 800;
+  oscillator.connect(context.destination);
+  oscillator.start(); 
+  // Beep for t milliseconds
+  setTimeout(function () {
+      oscillator.stop();
+  }, 4);
+}
+
+draw=(x,y,c,s)=>{
+	m.fillStyle=c
+	m.fillRect(x, y, s, s)
+}
+
+drawCircle=(x, y, radius, fill, stroke, strokeWidth)=> {
+	m.beginPath()
+	m.arc(x, y, radius, 0, 2 * Math.PI, false)
+	if (fill) {
+		m.fillStyle = fill
+		m.fill()
+	}
+	if (stroke) {
+		m.lineWidth = strokeWidth
+		m.strokeStyle = stroke
+		m.stroke()
+	}
+}
+
+ran2=(lim, margin)=> {
+	let min=margin,
+	max=lim-margin;
+  return Math.random() * (max - min) + min;
+}
+
+const particles = [];
+particle=(x,y,c,rad)=>{
+	return {"x":x, "y":y, 
+	"vx":(Math.random()-0.5)*v0m, "vy":(Math.random()-0.5)*v0m, 
+	"color":c, "rads":rad
+	}
+}
+
+create=(number, color, radius)=>{
+	const group = [];
+	for(i=0; i < number; i++){
+		group.push(particle(ran2(ba,ba/10),ran2(ha,ha/10), color, radius))
+		particles.push(group[i])
+	}
+	return group
+}
+
+rule=(particles1, particles2, g, rmin, rmax, q, qm)=>{
+	for(let i=0; i < particles1.length; i++){
+		fx = 0
+		fy = 0
+		for(let j=0; j < particles2.length; j++){
+			a = particles1[i]
+			b = particles2[j]
+			dx = a.x - b.x
+			dy = a.y - b.y
+			d = Math.sqrt(dx*dx + dy*dy)
+			if(d > rmin && d < rmax){
+				F = -g/(d*d)
+				fx += (F * dx)
+				fy += (F * dy)
+			}
+			//"quantum randomness" for close encounters
+			else if(d < rmin && q==true){
+				fx += (Math.random()-.5)*0.5*g*qm
+				fy += (Math.random()-.5)*0.5*g*qm
+			}
+			
+		}
+		a.vx = (a.vx + fx)*slowfactor - wind
+		a.vy = (a.vy + fy)*slowfactor - wind
+		//a.x += a.vx
+		//a.y += a.vy
+		//if(a.x <= ba/20 || a.x >= ba-ba/20){ a.vx *=-.8 }
+		//if(a.y <= ha/20 || a.y >= ha-ha/20){ a.vy *=-.8 }
+	}
+}
+
+
+const yellow = create(300, "yellow", 3),	//electrons  300
+red = create(80, "red", 4),					//nuclei  80
+purple = create(30, "purple", 5),			//virus  30 (disrupts cells)
+green = create(5, "green", 7); 				//food 5 (remove for less cell merging)
+
+let age = -1,
+time = Date.now(),
+timenow = 0,
+timestep = 0,
+counter = 0,
+fps = 0;
+
+
+update=()=>{
+
+	//Edad y fps
+	age++;
+	counter++;
+	timenow = Date.now();
+	if ( timenow - time > 1000){
+		timestep++;
+		fps = counter;
+		counter = 0;
+		time = timenow;
+	}
+	
+	document.getElementById("info").innerHTML = "Edad: "+ age + "<br>Rendimiento (fps): " + fps;
+	
+	//nuclei try to merge when close
+	rule(red, red,0.5 ,15 , 100, true,0.2)
+	
+	//electrons follow nuclei, but are fizzy
+	rule(yellow, red, 0.5, 60, 600, false,1)
+	rule(yellow, yellow, -0.1, 20, 600, true,1)
+	
+	//virus chase nuclei
+	rule(purple, red, 0.4, 0.1, 150, false, 1)
+	
+	//virus gets repelled by electrons
+	rule(purple, yellow, -0.2, 0.1, 100, true, 1)
+	
+	//electrons chase virus
+	rule(yellow, purple, 0.2, 0.1, 100, false, 1)
+	
+	//virus disrupts nuclei
+	rule(red, purple, 1, 0.1, 10, true, 1)
+	
+	//nuclei search for food, which moves a little and stabilizes cells
+	rule(red,green, 0.3, 50, 1000, false, 1)
+	rule(green,green, -0.2, 50, 500, true, 0.2)
+	//rule(green,yellow, -0.02, 50, 100, false, 1)
+	
+	//emerging: merging cells expulse viruses
+	
+	m.clearRect(0, 0, ba, ha)
+	//draw(0, 0, "white", ba)
+	
+	//update positions and draw
+	
+	for(i=0; i<particles.length; i++){
+		particles[i].x += particles[i].vx;
+		particles[i].y += particles[i].vy
+		if(particles[i].x <= ba/20 || particles[i].x >= ba-ba/20){ particles[i].vx *=-.8 }
+		if(particles[i].y <= ha/20 || particles[i].y >= ha-ha/20){ particles[i].vy *=-.8 }
+		//draw(particles[i].x, particles[i].y, particles[i].color, 4)
+		drawCircle(particles[i].x, particles[i].y, particles[i].rads, particles[i].color, 1)
+	}
+	
+	//m.font = "bold 18px Arial";
+	//m.fillStyle="black";
+	//m.fillText("Text", 50, 50);
+	
+	requestAnimationFrame(update)
+}
+
+update();
+	
+</script>
+</body>
