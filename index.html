@@ -1,8 +1,8 @@
 <html>
     <head>
-		<meta charset="UTF-8">
+	<meta charset="UTF-8">
         <title>Inicio</title>
-		<link rel="icon" href="./images/logo.png" type="image/icon type">
+	<link rel="icon" href="./images/logo.png" type="image/icon type">
     </head>
     <body style="background-color: #bbff99;">
 	
@@ -21,9 +21,12 @@
 	<script>
 
 		const beepsound = new Audio("./images/blop.mp3");
+		const beepsound2 = new Audio("./images/a.mp3");
 		beep=()=> {
-			//const beepsound = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
-			beepsound.play();  
+			if (Math.random() > 0.98){
+				beepsound2.play()} else {
+				beepsound.play();  
+			}
 		}
 	</script>
 
