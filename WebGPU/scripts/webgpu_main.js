@@ -3,7 +3,7 @@ const estatus = document.getElementById("estatus");
 
 //Revisar si existe el objeto que sirve como punto de partida para acceder a la GPU. Es para revisar si el dispositivo es compatible con WebGPU
 if (!navigator.gpu) {
-	estatus.innerText = "Error: Este navegador parece no ser compatible con WebGPU, verifique que esté actualizado";
+	estatus.innerText = "Error: Este navegador parece no ser  <a href='https://caniuse.com/webgpu' style='color: green'>compatible con WebGPU</a>, verifique que esté actualizado";
 	throw new Error("WebGPU not supported on this browser.");
 }
 
@@ -14,7 +14,7 @@ if (!adapter){
 	throw new Error("No se encontró GPUAdapter.");
 } // si no hay adapter, puede devolver null
 
-const canvas = document.querySelector("canvas");
+const canvas = document.querySelector("canvas"); canvas.hidden = false;
 const GRID_SIZE = 32;
 const UPDATE_INTERVAL = 60; // ms
 let step = 0; // simulation steps
