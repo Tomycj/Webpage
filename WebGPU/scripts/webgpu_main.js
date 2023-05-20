@@ -3,15 +3,15 @@ const estatus = document.getElementById("estatus");
 
 //Revisar si existe el objeto que sirve como punto de partida para acceder a la GPU. Es para revisar si el dispositivo es compatible con WebGPU
 if (!navigator.gpu) {
-	throw new Error("WebGPU not supported on this browser.");
 	estatus.innerText = "Error: Este navegador parece no ser compatible con WebGPU, verifique que esté actualizado";
+	throw new Error("WebGPU not supported on this browser.");
 }
 
 //Solicitar un GPUAdapter, que es cómo se representa una pieza del GPU. Devuelve un objeto tipo promesa, por eso se lo llama con await
 const adapter = await navigator.gpu.requestAdapter(); //puede recibir argumentos extra sobre qué clase de GPU prefiere usar (performance vs power etc)
 if (!adapter){
-	throw new Error("No se encontró GPUAdapter.");
 	estatus.innerText = "Error: No se detectó GPU. Asegúrese de usar un dispositivo con GPU (placa de video / acelerador de gráficos)";
+	throw new Error("No se encontró GPUAdapter.");
 } // si no hay adapter, puede devolver null
 
 const canvas = document.querySelector("canvas");
