@@ -14,7 +14,9 @@ if (!adapter){
 	throw new Error("No se encontró GPUAdapter.");
 } // si no hay adapter, puede devolver null
 
-const canvas = document.querySelector("canvas"); canvas.hidden = false;
+const canvas = document.querySelector("canvas"); canvas.hidden = false; 
+estatus.innerText = "La GPU de tu equipo está calculando y renderizando esto!"
+
 const GRID_SIZE = 32;
 const UPDATE_INTERVAL = 60; // ms
 let step = 0; // simulation steps
