@@ -1,0 +1,100 @@
+/* http://jsfiddle.net/bpt1mcv6/ */
+
+.overlayed {
+    position: relative;
+  }
+ 
+	
+ 
+.overlay {
+	text-align: left;
+	line-height: 2;
+	position: absolute;
+	left: 0;
+	top: 0;
+	padding: 10px;
+	padding-top: 2px;
+	background: rgba(0, 0, 0, 0.3);
+	width:20%;
+}
+#controlPanel span {
+  display: block;
+  text-align: center;
+  font-weight: bold;
+  	cursor: pointer;
+}
+
+
+
+
+.numberinput {
+	width: 7ch;
+	color: #fff;
+	background: rgba(0, 0, 0, 0);
+	border: 2px solid black;
+	border-color: rgba(255, 255, 255, 0.2);
+}
+
+.textinput {
+	width: 10ch;
+	color: #fff;
+	background: rgba(0, 0, 0, 0);
+	border: 2px solid black;
+	border-color: rgba(255, 255, 255, 0.2);
+}
+
+.colorinput {
+	width: 30%;
+	height: 2.5ch;
+	outline: none;
+	border-width: 0;
+	border-style: none;
+	cursor: pointer;
+}
+
+.button {
+  border: 2px solid black;
+  background-color: rgba(0, 0, 0, 0);
+  color: black;
+  cursor: pointer;
+}
+.ba {
+  border-color: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+.ba:hover {
+  background-color: white;
+  color: black;
+}
+#pausebutton {
+	width: 9ch;
+}
+
+.selector {
+	width: 8ch;
+	background-color: rgba(0, 0, 0, 0);
+	color: white;
+}
+.selector option {
+	color: black;
+}
+.selr {
+	width: 9ch;
+}
+
+  
+input::-webkit-color-swatch-wrapper {
+	padding: 0;
+}
+
+/* Chrome, Safari, Edge, Opera */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+-webkit-appearance: none;
+margin: 0;
+}
+
+/* Firefox */
+input[type=number] {
+-moz-appearance: textfield;
+}
