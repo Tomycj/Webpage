@@ -14,15 +14,113 @@
 	<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"> <!--Fuerza a re-cargar el cache-->
         <title>Inicio</title>
 	<link rel="icon" href="./images/logo.png" type="image/icon type">
-    </head>
+	    
+		<style>
+			#imageContainer {
+			  position: relative;
+			  display: inline-block;
+			}
+			#imageContainer img {
+			  display: block;
+			  max-width: 100%;
+			}
+			#imageContainer .imageLabel {
+			  position: absolute;
+			  top: 10px;
+			  left: 10px;
+			  background-color: rgba(0, 0, 0, 0.2);
+			  color: #fff;
+			  padding: 5px 10px;
+			  font-size: 14px;
+			}
+		</style>
+	    
+	</head>
     <body style="background-color: #bbff99;">
 	
-	<h1 style ="text-align: center">
+	<h1 href="./Cells.html" style ="text-align: center">
 		Hello World!<br>
 
-		<a href="./Cells.html">
+		<a hidden href="./Cells.html">
 			<img src="./images/meme.png" title="Ir a Cells">
 		</a>
+		  <div id="imageContainer" ></div>
+
+		  <script>
+			// Folder path where the images are located
+			const folderPath = './images/';
+
+			// Function to get a random image from the folder
+			function getRandomImage() {
+			  const images = [
+				"4.6 Billion Light Years por JWST.jpg",
+				"Advanced Inertial Reference System.jpg",
+				"Astronaut Under Engines.jpg",
+				"Buscando Respuestas.jpg",
+				"Cantos Rodados en Marte.jpg",
+				"Cielo Australiano.jpg",
+				"Espuma Marina.jpg",
+				"Falcon 9.jpg",
+				"Hojas y lámpara por u-scotthishswan.jpg",
+				"Imagen compuesta por Chandra.jpg",
+				"Inside the Large Hadron Collider.jpg"
+				"ITS.jpg",
+				"Júpiter.jpg",
+				"JWST.jpg",
+				"LHC.jpg",
+				"Nebulosa.jpg",
+				"Nixie RNG por skyliners_a340.jpg"
+				"Saturno.jpg"
+				"Semáforo por u-revraul.jpg"
+				"Starship.jpg",
+				"Toronto.jpg",
+				"Última misión Gémini.jpg",
+				// Add more image filenames here
+			  ];
+
+			  const randomIndex = Math.floor(Math.random() * images.length);
+			  return images[randomIndex];
+			}
+
+			// Function to extract the title from the filename
+			function getTitleFromFilename(filename) {
+			  return filename.split('.').slice(0, -1).join('.');
+			}
+
+			// Function to load the random image and add the label
+			function loadRandomImage() {
+			  const imageContainer = document.getElementById('imageContainer');
+			  const imageFilename = getRandomImage();
+			  const imageUrl = folderPath + imageFilename;
+			  const imageTitle = getTitleFromFilename(imageFilename);
+
+			  const img = new Image();
+			  img.src = imageUrl;
+
+			  img.onload = function() {
+				imageContainer.innerHTML = '';
+
+				if (img.width > 600) {
+				  const scaleFactor = img.width / img.height ;
+				  console.log(`Escala = ${scaleFactor}`);
+				  img.width = 600;
+				  img.height = 600 / scaleFactor;
+				}
+
+				imageContainer.appendChild(img);
+
+				const imageLabel = document.createElement('div');
+				imageLabel.classList.add('imageLabel');
+				imageLabel.innerText = imageTitle;
+				imageContainer.appendChild(imageLabel);
+			  };
+			}
+
+			// Load a random image initially
+			loadRandomImage();
+		  </script>
+
+		
 	</h1>
 	Esta es una simple página web de prueba. Capaz se puede hostear gratis de alguna otra forma o con un nombre de dominio personalizado.
 	<br>
