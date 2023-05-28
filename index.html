@@ -38,7 +38,7 @@
 	</head>
     <body style="background-color: #bbff99;">
 	
-	<h1 href="./Cells.html" style ="text-align: center">
+	<h1 style ="text-align: center">
 		Hello World!<br>
 
 		<a hidden href="./Cells.html">
@@ -61,7 +61,7 @@
 				"Cielo Australiano.jpg",
 				"Espuma Marina.jpg",
 				"Falcon 9.jpg",
-				"Hojas y lámpara por u-scotthishswan.jpg",
+				"Hojas y lámpara por u-scottishswan.jpg",
 				"Imagen compuesta por Chandra.jpg",
 				"Inside the Large Hadron Collider.jpg",
 				"ITS.jpg",
@@ -107,7 +107,11 @@
 				  img.height = 600 / scaleFactor;
 				}
 
-				imageContainer.appendChild(img);
+				const imageLink = document.createElement('a');
+				imageLink.href = './Cells.html';
+				imageLink.title = 'Ir a Cells'
+				imageLink.appendChild(img);
+				imageContainer.appendChild(imageLink);
 
 				const imageLabel = document.createElement('div');
 				imageLabel.classList.add('imageLabel');
