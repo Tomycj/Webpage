@@ -51,12 +51,6 @@ function loadRandomImage() {
   img.onload = function() {
 	imageContainer.innerHTML = '';
 
-	if (img.width > 600) {
-	  const scaleFactor = img.width / img.height ;
-	  img.width = 600;
-	  img.height = 600 / scaleFactor;
-	}
-
 	const imageLink = document.createElement('a');
 	imageLink.href = './Cells.html';
 	imageLink.title = 'Ir a Cells'

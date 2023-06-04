@@ -8,7 +8,8 @@ body {
 }
 #imageContainer img {
 	display: block;
-	max-width: 100%;
+	max-width: 600px;
+	height: auto;
 }
 #imageContainer .imageLabel {
 	position: absolute;
