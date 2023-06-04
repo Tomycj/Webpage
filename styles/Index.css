@@ -1,0 +1,27 @@
+body {
+	font-family: "Asap", Arial, sans-serif;
+}
+
+#imageContainer {
+	position: relative;
+	display: inline-block;
+}
+#imageContainer img {
+	display: block;
+	max-width: 100%;
+}
+#imageContainer .imageLabel {
+	position: absolute;
+	top: 4px;
+	left: 4px;
+	background-color: rgba(0, 0, 0, 0.2);
+	color: #fff;
+	padding: 4px 8px;
+	font-size: 10px;
+}
+#btclogo {
+	position: fixed;
+	bottom: 20px;
+	right: 20px;
+	cursor: pointer;
+}
