@@ -1,5 +1,5 @@
 // Carpeta con las imágenes
-const folderPath = "../images/fotos/";
+const folderPath = "./images/fotos/"; // Path relativo DESDE INDEX.HTML (la página que llama al script)
 
 // Función que obtiene foto random
 function getRandomImage() {
