@@ -1,177 +1,76 @@
+<!doctype html>
 <html>
-    <!-- Felicidades por apretar F12! -->
+    <!-- Hola -->
     <head>
-    <!-- Google tag (gtag.js) - Esto simplemente cuenta cuánta gente visió esta página, es un servicio de Google Analytics-->
-	<script async src="https://www.googletagmanager.com/gtag/js?id=G-VTYL3XCLEJ"></script>
-	<script>
-  		window.dataLayer = window.dataLayer || [];
-  		function gtag(){dataLayer.push(arguments);}
-  		gtag('js', new Date());
-	
-		gtag('config', 'G-VTYL3XCLEJ');
-	</script>
-	<meta charset="UTF-8">
-	<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"> <!--Fuerza a re-cargar el cache-->
-        <title>Inicio</title>
-	<link rel="icon" href="./images/logo.png" type="image/icon type">
-	    
-		<style>
-			#imageContainer {
-			  position: relative;
-			  display: inline-block;
-			}
-			#imageContainer img {
-			  display: block;
-			  max-width: 100%;
-			}
-			#imageContainer .imageLabel {
-			  position: absolute;
-			  top: 4px;
-			  left: 4px;
-			  background-color: rgba(0, 0, 0, 0.2);
-			  color: #fff;
-			  padding: 4px 8px;
-			  font-size: 10px;
-			}
-		</style>
-	    
+		<title>Inicio</title>
+		<!-- Google tag (gtag.js) - Esto simplemente cuenta cuánta gente visitó esta página, es un servicio de Google Analytics-->
+		<script async src="https://www.googletagmanager.com/gtag/js?id=G-VTYL3XCLEJ"></script>
+		<script>
+			window.dataLayer = window.dataLayer || [];
+			function gtag(){dataLayer.push(arguments);}
+			gtag('js', new Date());
+			gtag('config', 'G-VTYL3XCLEJ');
+		</script>
+		<meta charset="UTF-8">
+		<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"> <!--Fuerza a re-cargar el cache-->
+		<link rel="icon" href="./images/logo.png" type="image/icon type">
+		<link rel="stylesheet" href="./styles/Index.css">
 	</head>
-    <body style="background-color: #bbff99;">
+
+    <body style="background-color: #94e06e;">
 	
-	<h1 style ="text-align: center">
-		Hello World!<br>
+		<h1 style ="text-align: center">
+			Hello World!<br>
+			<div id="imageContainer" ></div>
+			<script type="module" src="./scripts/cargarImagen.js"></script>
+		</h1>
 
-		<a hidden href="./Cells.html">
-			<img src="./images/meme.png" title="Ir a Cells">
-		</a>
-		  <div id="imageContainer" ></div>
+		<div>
+			Esta es una simple página web de prueba. Capaz se puede hostear gratis de alguna otra forma o con un nombre de dominio personalizado.
+			<br>
+			Funciona bien en móvil pero para cierta feature es más cómodo desde una PC.
+			
 
-		  <script>
-			// Folder path where the images are located
-			const folderPath = './images/';
+			<br><br>
+			<button onclick="location.href = './WebGPU/GoL_Main.html';">Ir a GoL en GPU</button>
+			<br><br>
+			<button onclick="location.href = './WebGPU/Cells%20GPU/Bouncers_GPU.html';">Ir a Bouncers</button>
+			<br><br>
+			<button onclick="location.href = './WebGPU/Cells%20GPU/Cells_GPU.html';">EN DESARROLLO: Cells GPU - Alfa 0.5 </button>
+		</div>
 
-			// Function to get a random image from the folder
-			function getRandomImage() {
-			  const images = [
-				"4.6 Billion Light Years por JWST.jpg",
-				"Advanced Inertial Reference System.jpg",
-				"Astronaut Under Engines.jpg",
-				"Buscando Respuestas.jpg",
-				"Cantos Rodados en Marte.jpg",
-				"Cielo Australiano.jpg",
-				"Espuma Marina.jpg",
-				"Falcon 9.jpg",
-				"Hojas y lámpara por u-scottishswan.jpg",
-				"Imagen compuesta por Chandra.jpg",
-				"Inside the Large Hadron Collider.jpg",
-				"ITS.jpg",
-				"Júpiter.jpg",
-				"JWST.jpg",
-				"LHC.jpg",
-				"Nebulosa.jpg",
-				"Nixie RNG por skyliners_a340.jpg",
-				"Saturno.jpg",
-				"Semáforo por u-revraul.jpg",
-				"Starship.jpg",
-				"Toronto.jpg",
-				"Última misión Gémini.jpg",
-				// Add more image filenames here
-			  ];
+		<br>
+		<button onclick="beep()"> &#128266; Boop! </button> 
+		<p>Cuenta la leyenda que si el botón funciona vas a tener 10 segundos de buena suerte, seguidos de 3 segundos de MUY mala suerte, 
+			seguidos de 1 segundo de suerte ligeramente buena. Pero sólo a veces.</p>
+		<img id="btclogo"
+		src="https://icons.iconarchive.com/icons/cjdowner/cryptocurrency-flat/48/Bitcoin-BTC-icon.png" 
+		title="BTC gratis disponible: 0,01024 btc" alt="bitcoin logo" onclick="swap_play()">
+		
+		<script>
 
-			  const randomIndex = Math.floor(Math.random() * images.length);
-			  return images[randomIndex];
-			}
-
-			// Function to extract the title from the filename
-			function getTitleFromFilename(filename) {
-			  return filename.split('.').slice(0, -1).join('.');
-			}
-
-			// Function to load the random image and add the label
-			function loadRandomImage() {
-			  const imageContainer = document.getElementById('imageContainer');
-			  const imageFilename = getRandomImage();
-			  const imageUrl = folderPath + imageFilename;
-			  const imageTitle = getTitleFromFilename(imageFilename);
-
-			  const img = new Image();
-			  img.src = imageUrl;
-
-			  img.onload = function() {
-				imageContainer.innerHTML = '';
-
-				if (img.width > 600) {
-				  const scaleFactor = img.width / img.height ;
-				  img.width = 600;
-				  img.height = 600 / scaleFactor;
+			const beepsound = new Audio("./images/blop.mp3");
+			const beepsound2 = new Audio("./images/a.mp3");
+			const clownsound = new Audio("https://bigsoundbank.com/UPLOAD/mp3/1832.mp3");
+			let swapped = false;
+			
+			beep=()=> {
+				if (Math.random() > 0.98){
+					beepsound2.play()} else {
+					beepsound.play();  
 				}
-
-				const imageLink = document.createElement('a');
-				imageLink.href = './Cells.html';
-				imageLink.title = 'Ir a Cells'
-				imageLink.appendChild(img);
-				imageContainer.appendChild(imageLink);
-
-				const imageLabel = document.createElement('div');
-				imageLabel.classList.add('imageLabel');
-				imageLabel.innerText = imageTitle;
-				imageContainer.appendChild(imageLabel);
-			  };
 			}
-
-			// Load a random image initially
-			loadRandomImage();
-		  </script>
-
-		
-	</h1>
-	Esta es una simple página web de prueba. Capaz se puede hostear gratis de alguna otra forma o con un nombre de dominio personalizado.
-	<br>
-	Funciona bien en móvil pero para cierta feature es más cómodo desde una PC.
-	
-	<br><br>
-	<button onclick="beep()"> &#128266; Boop! </button> 
-	<br> Cuenta la leyenda que si el botón funciona vas a tener 10 segundos de buena suerte, seguidos de 3 segundos de MUY mala suerte, seguidos de 1 segundo de suerte ligeramente buena. Pero sólo a veces.
-	
-	<br><br>
-	<button onclick="location.href = './WebGPU/GoL_Main.html';">Ir a GoL en GPU</button>
-	<br><br>
-	<button onclick="location.href = './WebGPU/Cells%20GPU/Bouncers_GPU.html';">Ir a Bouncers</button>
-	<br><br>
-	<button onclick="location.href = './WebGPU/Cells%20GPU/Cells_GPU.html';">EN DESARROLLO: Cells GPU - Alfa 0.5 </button>
-
-	    
-	<img id="btclogo"
-	src="https://icons.iconarchive.com/icons/cjdowner/cryptocurrency-flat/48/Bitcoin-BTC-icon.png" 
-	title="BTC gratis disponible: 0,01024 btc"
-	alt="bitcoin logo"
-	style="position:fixed; bottom:20px; right:20px; cursor:pointer;"
-	onclick="swap_play()">
-	
-	<script>
-
-		const beepsound = new Audio("./images/blop.mp3");
-		const beepsound2 = new Audio("./images/a.mp3");
-		const clownsound = new Audio("https://bigsoundbank.com/UPLOAD/mp3/1832.mp3");
-		let swapped = false;
-		
-		beep=()=> {
-			if (Math.random() > 0.98){
-				beepsound2.play()} else {
-				beepsound.play();  
+			
+			swap_play=()=> {
+				if (swapped == false){
+					document.getElementById("btclogo").src = "https://cdn.betterttv.net/emote/5c50edcb5e0cb51b417faf37/3x.webp";
+					document.getElementById("btclogo").title = "";
+					swapped = true;	
+				} 
+				clownsound.play();
 			}
-		}
-		
-		swap_play=()=> {
-			if (swapped == false){
-				document.getElementById("btclogo").src = "https://cdn.betterttv.net/emote/5c50edcb5e0cb51b417faf37/3x.webp";
-				document.getElementById("btclogo").title = "";
-				swapped = true;	
-			} 
-			clownsound.play();
-		}
-		
-	</script>
+			
+		</script>
 
     </body>
 
