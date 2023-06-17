@@ -3,7 +3,7 @@ import { renderShader } from "../shaders/shadersCellsGPU.js";
 import { computeShader } from "../shaders/shadersCellsGPU.js";
 // ref https://www.cg.tuwien.ac.at/research/publications/2023/PETER-2023-PSW/PETER-2023-PSW-.pdf
 // INITIAL VARIABLES
-const [device, canvas, canvasFormat, context, timer] = await inicializarCells(); //TODO: ver en misFunciones
+const [device, canvas, canvasFormat, context, timer] = await inicializarCells();
 let N = 10000; // number of particles
 var rng;
 const VELOCITY_FACTOR = 0.1;
@@ -12,14 +12,13 @@ let animationId, paused = true;
 const WORKGROUP_SIZE = 64;
 const canvasDims = new Float32Array ([canvas.width, canvas.height]);
 let elementaries = []; // array donde cada elemento es un array de las partículas de un tipo determinado
-let colores = []; // cada elemento es un color, el de cada tipo de part.
-let radios = [];  // cada elemento es un radio, el de cada tipo de part.
-let nombres = []; // cada elemento es el nombre de cada tipo de part.
 let rules = [];   // cada elemento es una regla, formada por un array de 6 números (parámetros de la regla)
 let D = []; // diccionario que asocia cada indice de una matriz al indice de cada familia que tenga interacciones
 let m = []; // matriz booleana con familias que interaccionan
+let bytesDist = []; // bytes ocupados por cada una de las tablas de distancias entre partículas a computar
 
 let updatingParameters = true;
+let editingBuffers = false;
 let stepping = false;
 let uiSettings = {
 	bgColor : [0, 0, 0, 1],
@@ -83,18 +82,18 @@ function randomPosition(margin=0){
 function randomVelocity(){
 	return new Float32Array([
 		(rng() - 0.5)*VELOCITY_FACTOR,
-		(rng() - 0.5)*VELOCITY_FACTOR
+		(rng() - 0.5)*VELOCITY_FACTOR,
+		0
 	]);
 }
-function crearElementary(submission){
-	// crea un array de n partículas. Submission es un diccionario como particleCreatorSubmission
-	const n = submission.cantidad;
-	const particulas = new Array(n);
+function crearPosiVel(n){
+	// crea un array de n elementos, cada uno describe la posición y velocidad de una partícula.
+	const posiVel = new Array(n);
 	rng = new alea(getSeed(seedInput)); // Resetear la seed
-	for (let i=0 ; i < n ; i++ ){
-		particulas[i] = [randomPosition(), randomVelocity()] // randomPosition es vec4f y randomVel es vec2f
+	for (let i=0 ; i < n ; i++ ) {
+		posiVel[i] = [randomPosition(), randomVelocity()] // randomPosition es vec4f y randomVel es vec3f
 	}
-	return particulas;
+	return posiVel;
 }
 function validarNumberInput(input){
 	// input es un objeto representando un html element input de type number
@@ -109,13 +108,13 @@ function validarNumberInput(input){
 	return true;
 
 }
-	function includesIn2nd(array, num){ // busca num entre el 2do elemento de los subarrays dentro de array
-		return array.some(subarray => subarray[1] == num);
-	}
-	function findIndexOf2nd(array, num){ // devuelve el índice del subarray que cumple includesIn2nd
-		return array.findIndex(subarray => subarray[1] == num);
-	}
-function expandir(m) { // agrega una olumna y fila de ceros a una matriz
+function includesIn2nd(array, num){ // busca num entre el 2do elemento de los subarrays dentro de array
+	return array.some(subarray => subarray[1] == num);
+}
+function findIndexOf2nd(array, num){ // devuelve el índice del subarray que cumple includesIn2nd
+	return array.findIndex(subarray => subarray[1] == num);
+}
+function expandir(m) { // agrega una columna y fila de ceros a una matriz
 	const newFil = Array(m.length).fill(0);
 	m.push(newFil);
 	m.forEach(fil => fil.push(0));
@@ -187,58 +186,67 @@ stepButton.onclick = function() {
 // botón de info debug
 const infoButton = document.getElementById("mostrarinfo");
 infoButton.onclick = function() { document.getElementById("infopanel").hidden ^= true; }
-// Creador de partículas
-const submitElementaryButton = document.getElementById("c.elemsubmit");
-const afectaSelector = document.getElementById("targetselect");
-const ejercidaSelector = document.getElementById("sourceselect");
-const particleSelector = document.getElementById("particleselect");
-const c_nom = document.getElementById("c.nom");  
-const c_col = document.getElementById("c.col");   
-const c_cant = document.getElementById("c.cant"); 
-const c_radius = document.getElementById("c.radius"); 
 
-submitElementaryButton.onclick = function(){
+// Creador de partículas
+
+const ruleControls = {
+	nameInput: document.getElementById("rulename"),
+	targetSelector: document.getElementById("targetselect"),
+	sourceSelector: document.getElementById("sourceselect"),
+	intens: document.getElementById("r.intens"),
+	qm: document.getElementById("r.qm"),
+	dmin: document.getElementById("r.dmin"),
+	dmax: document.getElementById("r.dmax"),
+	selector: document.getElementById("ruleselect"),
+	submitButton: document.getElementById("r.submit"),
+}
+
+const partiControls = {
+	nameInput: document.getElementById("c.nom"),
+	colorInput: document.getElementById("c.col"),
+	cantInput: document.getElementById("c.cant"),
+	radiusInput:document.getElementById("c.radius"),
+	selector: document.getElementById("particleselect"),
+	submitButton: document.getElementById("c.elemsubmit"),
+}
+
+partiControls.submitButton.onclick = function(){
 
 	// Validacióm
-	if ( !validarNumberInput(c_cant) || !validarNumberInput(c_radius) || ( c_nom.value == "" ) ) {
+	if ( !validarNumberInput(partiControls.cantInput) || !validarNumberInput(partiControls.radiusInput) || ( partiControls.nameInput.value == "" ) ) {
 		return;
 	}
 
 	// Una vez validado todo:
-	const particleCreatorSubmission = {
-		nombre: c_nom.value,					// string
-		color: hexString_to_rgba(c_col.value),  // vec4f    (orig. string like "#000000")
-		cantidad: parseInt(c_cant.value),		// integer (originalmente string)
-		radio: parseFloat(c_radius.value),		// float   (originalmente string)
+	const cant = parseInt(partiControls.cantInput.value)
+	const newElementary = {
+		nombre: partiControls.nameInput.value,					// string
+		color: hexString_to_rgba(partiControls.colorInput.value, 1),  // vec4f    (orig. string like "#000000")
+		cantidad: cant,		// integer (originalmente string)
+		radio: parseFloat(partiControls.radiusInput.value),		// float   (originalmente string)
+		posiVel: crearPosiVel(cant),
 	}
 
-	if ( nombres.includes(particleCreatorSubmission.nombre) ){
+	if ( elementaries.some(dict => dict.nombre == newElementary.nombre) ){
 		console.log("Reemplazando partículas del mismo nombre...")
-
-		const i = nombres.indexOf(particleCreatorSubmission.nombre);
-
-		elementaries[i] = ( crearElementary(particleCreatorSubmission) ); //agregar array con posiciones y velocidades
-		nombres[i] = (particleCreatorSubmission.nombre);
-		colores[i] = (particleCreatorSubmission.color);
-		radios[i] = (particleCreatorSubmission.radio);
+		const i = elementaries.findIndex(dict => dict.nombre == newElementary.nombre);
+		elementaries [i] = newElementary;
 
 	} else {
-		elementaries.push( crearElementary(particleCreatorSubmission) ); //agregar array con posiciones y velocidades
-		nombres.push(particleCreatorSubmission.nombre);
-		colores.push(particleCreatorSubmission.color);
-		radios.push(particleCreatorSubmission.radio);
-
+		elementaries.push( newElementary );
 		// actualizar lista de nombres en el creador de reglas de interacción
 		const option = document.createElement("option");
-		option.value = particleCreatorSubmission.nombre;
-		option.text = particleCreatorSubmission.nombre;
-		afectaSelector.appendChild(option);
+
+		option.value = newElementary.nombre;
+		option.text = newElementary.nombre;
+
+		ruleControls.targetSelector.appendChild(option);
 
 		const option2 = option.cloneNode(true);
-		ejercidaSelector.appendChild(option2);
+		ruleControls.sourceSelector.appendChild(option2);
 
 		const option3 = option.cloneNode(true);
-		particleSelector.appendChild(option3);
+		partiControls.selector.appendChild(option3);
 
 	}
 
@@ -248,87 +256,125 @@ submitElementaryButton.onclick = function(){
 }
 
 // Creador de reglas de interacción
-const submitRuleButton = document.getElementById("r.submit");
-const ruleSelector = document.getElementById("ruleselect");
-
-const r_intens = document.getElementById("r.intens");  
-const r_qm = document.getElementById("r.qm");
-const r_dmin = document.getElementById("r.dmin");  
-const r_dmax = document.getElementById("r.dmax");    
-
-
-submitRuleButton.onclick = function(){
+ruleControls.submitButton.onclick = function(){
 
 	// validación
-	if ( !validarNumberInput(r_intens) || !validarNumberInput(r_qm) || !validarNumberInput(r_dmin) || !validarNumberInput(r_dmax) ){
+	if ( 	!validarNumberInput(ruleControls.intens) || !validarNumberInput(ruleControls.qm) || 
+			!validarNumberInput(ruleControls.dmin) || !validarNumberInput(ruleControls.dmax) ){
 		return;
 	}
 
-	const targetIndex = afectaSelector.selectedIndex;
-	const sourceIndex = ejercidaSelector.selectedIndex;
-	const newRule = [
-		targetIndex,
-		sourceIndex,
-		parseFloat(r_intens.value),
-		parseFloat(r_qm.value),
-		parseFloat(r_dmin.value),
-		parseFloat(r_dmax.value),
-	];
+	const targetIndex = ruleControls.targetSelector.selectedIndex;
+	const sourceIndex = ruleControls.sourceSelector.selectedIndex;
+	let newRuleName = ruleControls.nameInput.value;
 
+	if (!newRuleName) { // Si el campo del nombre está vacío, usa el nombre estándar
+		newRuleName = `${ruleControls.targetSelector.options[targetIndex].value} ← ${ruleControls.sourceSelector.options[sourceIndex].value}`;
+	}
+
+	while (rules.some(rule => rule.ruleName == newRuleName)) { // Mientras sea nombre repetido, añade (n)
+
+		if (/\(\d+\)$/.test(newRuleName)) {
+			newRuleName = newRuleName.replace(/\((\d+)\)$/, (_, number) => {
+				return "(" + (parseInt(number) + 1) + ")";
+			});
+
+		} else {
+			newRuleName += " (1)";
+		}
+	}
+	
+	const newRule = {
+		ruleName: newRuleName,
+		targetName: ruleControls.targetSelector.value,
+		sourceName: ruleControls.sourceSelector.value,
+		intensity: parseFloat(ruleControls.intens.value),
+		quantumForce: parseFloat(ruleControls.qm.value),
+		minDist: parseFloat(ruleControls.dmin.value),
+		maxDist: parseFloat(ruleControls.dmax.value),
+	};
+	//console.log(newRule);
 	rules.push(newRule)
 
-	//  Agregar familias a lista de familias que interactúan, si no lo estaban ya. Activar el par en la matriz triangular booleana de interacciones
-
-	let fil, col;
-	if (!includesIn2nd(D,targetIndex)) {
-		fil = D.length;
-		D.push([fil, targetIndex]);
-		expandir(m);
-	} else { fil = findIndexOf2nd(D, targetIndex) }
-
-	if (!includesIn2nd(D,sourceIndex)) {
-		col = D.length;
-		D.push([col, sourceIndex]);
-		expandir(m);
-	} else { col = findIndexOf2nd(D, sourceIndex) }
-
-	if (fil>col) { // Me aseguro que fil <= col, para trabajar con la matriz triangular superior
-		const t = fil;
-		fil = col;
-		col = t;
-	}
-	console.log("Índices:");
-	console.log(D);
-	m[ D[fil][0] ] [ D[col][0] ] ++;
-	console.log("Matriz de interacciones:");
-	console.log(m); 
-
-	//TODO: Completar proceso de borrado de reglas y/o partículas
-
-
+	// Agregar regla al selector de reglas.
 	const option = document.createElement("option");
-	option.text = `${afectaSelector.options[targetIndex].value} ← ${ejercidaSelector.options[sourceIndex].value}`;
-	ruleSelector.appendChild(option);
+	option.text = newRule.ruleName;
+	ruleControls.selector.appendChild(option);
+
+	// Si es una regla activa (si incluye partículas con nombres existentes), hay que agregar la interacción.
+	// aquí siempre va a ser una regla activa porque sólo se pueden crear reglas entre partículas existentes.
+
+	let esReglaActiva = elementaries.some(dict => dict.nombre == newRule.targetName || dict.nombre == newRule.sourceName) 
+
+	if (esReglaActiva) {
+		/*	Agregar familias a lista D de familias que interactúan de alguna forma, si no lo estaban ya.
+		*	La lista D también asocia cada familia interactuante (su índice en la lista de los selectores) 
+		*	con su índice en la matriz de interacciones.
+		*/
+		let a, b;
+		if (!includesIn2nd(D,targetIndex)) {
+			// Nueva familia que tendrá interacciones
+			a = D.length;
+			D.push([a, targetIndex, ruleControls.targetSelector.value]);
+			expandir(m);
+		} else { a = findIndexOf2nd(D, targetIndex) }
+
+		if (!includesIn2nd(D,sourceIndex)) {
+			// Nueva familia que tendrá interacciones
+			b = D.length;
+			D.push([b, sourceIndex, ruleControls.sourceSelector.value]);
+			expandir(m);
+		} else { b = findIndexOf2nd(D, sourceIndex) }
+
+		if (a>b) { // Me aseguro que a <= b, para trabajar con la matriz triangular superior
+			const temp = a;
+			a = b;
+			b = temp;
+		}
+		//console.table(D);
+
+		// Agregar la nueva interacción a la matriz triangular de interacciones (Se le suma 1 a la casilla correspondiente)
+
+		const fil = D[a][0];
+		const col = D[b][0];
+		m[ fil ] [ col ] ++;
+		//console.table(m); 
+
+		// Si es una interacción nueva, habrá que añadir al buffer espacio para esas distancias
+		if (m[fil][col] == 1) {
+			//console.log("Interacción nueva");
+			const nTargets = elementaries[targetIndex].length;	// 4 bytes (1 float) por cada partícula de la flia target
+			const nSources = elementaries[sourceIndex].length;	// 4 bytes (1 float) por cada partícula de la flia source
+
+			bytesDist.push(nTargets * nSources * 4); // 4 bytes (1 float, 1 distancia) por cada par target-source.
+		}
+	}
+
+	/* TODO: Completar proceso de borrado de reglas y/o partículas. Al borrar una regla hay que actualizar elementaries, 
+	D, m, bytesDist...
+	* Alternativa: usar una sparse matrix y listo
+	*/
 
 }
 
 // Rule manager
 const borraRuleButton = document.getElementById("borrarule");
 borraRuleButton.onclick = function(){
-	const indexToDelete = ruleSelector.selectedIndex;
+	const indexToDelete = ruleControls.selector.selectedIndex;
 	rules.splice(indexToDelete,1);
-	ruleSelector.options[indexToDelete].remove();
+	ruleControls.selector.options[indexToDelete].remove();
 }
 // Particle manager
 const borraParticleButton = document.getElementById("borraparticula");
 borraParticleButton.onclick = function(){
-	const indexToDelete = particleSelector.selectedIndex;
+	const indexToDelete = partiControls.selector.selectedIndex;
 	elementaries.splice(indexToDelete,1);
-	particleSelector.options[indexToDelete].remove();
-	afectaSelector.options[indexToDelete].remove();
-	ejercidaSelector.options[indexToDelete].remove();
-	console.log(elementaries);
-	//TODO: Ver qué hacer con las reglas de elementaries borrados
+	partiControls.selector.options[indexToDelete].remove();
+	ruleControls.targetSelector.options[indexToDelete].remove();
+	ruleControls.sourceSelector.options[indexToDelete].remove();
+	//console.log(elementaries);
+	
+	// TODO: actualizar reglas activas y buffers si hace falta
 }
 
 
@@ -367,6 +413,23 @@ let bindGroups;
 let particleRenderPipeline;
 
 // ARMAR BUFFERS Y PIPELINES
+
+
+function editBuffers(){
+
+	// Distancias
+
+	const distanciasBuffer = device.createBuffer({
+		label: "Distancias",
+		size: sum(listadebytesizesdecadamatrizdedistancias), 
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, // storage porque entre cada frame las distancias cambian
+	});
+
+
+
+}
+
+
 
 
 function updateSimulationParameters(){
@@ -552,6 +615,15 @@ async function newFrame(){
 		console.log("updated!");
 		updatingParameters = false;
 	}
+
+	if ( editingBuffers ) {
+		editBuffers();
+		editingBuffers = false;
+	}
+
+
+
+
 
 	const encoder = device.createCommandEncoder();
 
