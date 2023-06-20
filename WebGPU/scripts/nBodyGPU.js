@@ -401,6 +401,12 @@ function updateSimulationParameters(){
 		}]
 	});
 
+	/* 	dictionary GPUBufferBinding {
+		required GPUBuffer buffer;
+		GPUSize64 offset = 0; // en bytes (default 0)
+		GPUSize64 size; // en bytes (default: desde offset hasta el final de buffer)
+	}; */
+
 	bindGroups = [
 		device.createBindGroup({
 			label: "Particle renderer bind group A",

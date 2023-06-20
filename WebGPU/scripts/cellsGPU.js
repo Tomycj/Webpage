@@ -4,7 +4,7 @@ import { computeShader } from "../shaders/shadersCellsGPU.js";
 // ref https://www.cg.tuwien.ac.at/research/publications/2023/PETER-2023-PSW/PETER-2023-PSW-.pdf
 // INITIAL VARIABLES
 const [device, canvas, canvasFormat, context, timer] = await inicializarCells();
-let N = 10000; // number of particles
+let N = 0; // number of particles
 var rng;
 const VELOCITY_FACTOR = 0.1;
 let frame = 0; // simulation steps
@@ -18,6 +18,7 @@ let m = []; // matriz booleana con familias que interaccionan
 let bytesDist = []; // bytes ocupados por cada una de las tablas de distancias entre partículas a computar
 
 let updatingParameters = true;
+let resetPositions = true;
 let editingBuffers = false;
 let stepping = false;
 let uiSettings = {
@@ -87,13 +88,23 @@ function randomVelocity(){
 	]);
 }
 function crearPosiVel(n){
-	// crea un array de n elementos, cada uno describe la posición y velocidad de una partícula.
-	const posiVel = new Array(n);
+
 	rng = new alea(getSeed(seedInput)); // Resetear la seed
-	for (let i=0 ; i < n ; i++ ) {
-		posiVel[i] = [randomPosition(), randomVelocity()] // randomPosition es vec4f y randomVel es vec3f
+
+	const buffer = new ArrayBuffer(n * 7 * 4) // n partículas, cada una tiene 28B (4*4B para la pos y 3*4B para la vel)
+
+	const pos = new Float32Array(buffer, 0, n*4); // buffer al que hace referencia, byte offset, number of elements. [x1, y1, z1, w1, x2, y2, ...]
+	const vel = new Float32Array(buffer, n*4*4, n*3);
+
+	for (let i=0 ; i < n*4 ; i += 4) {
+		[ pos [i], pos[i+1], pos [i+2], pos[i+3] ] = randomPosition() // randomPosition devuelve un array [x,y,z,w]
 	}
-	return posiVel;
+
+	for (let i=0 ; i < n*3 ; i += 3) {
+		[ vel [i], vel[i+1], vel [i+2] ] = randomVelocity() // randomVelocity devuelve un array [x,y,]
+	}
+
+	return [pos, vel]
 }
 function validarNumberInput(input){
 	// input es un objeto representando un html element input de type number
@@ -119,7 +130,55 @@ function expandir(m) { // agrega una columna y fila de ceros a una matriz
 	m.push(newFil);
 	m.forEach(fil => fil.push(0));
 }
+function matrizDistancias(rule) { // actualiza la matriz triangular de interacciones con la regla proporcionada
 
+	const targetIndex = elementaries.findIndex(elementary => {return elementary.nombre == rule.targetName});
+	const sourceIndex = elementaries.findIndex(elementary => {return elementary.nombre == rule.sourceName});
+	
+	/*	Agregar familias a lista D de familias que interactúan de alguna forma, si no lo estaban ya.
+	*	La lista D también asocia cada familia interactuante (su índice en la lista de los selectores) 
+	*	con su índice en la matriz de interacciones.
+	*/
+	let a, b;
+	if (!includesIn2nd(D,targetIndex)) {
+		// Nueva familia que tendrá interacciones
+		a = D.length;
+		D.push([a, targetIndex, rule.targetName]);
+		expandir(m);
+	} else { a = findIndexOf2nd(D, targetIndex) }
+
+	if (!includesIn2nd(D,sourceIndex)) {
+		// Nueva familia que tendrá interacciones
+		b = D.length;
+		D.push([b, sourceIndex, rule.sourceName]);
+		expandir(m);
+	} else { b = findIndexOf2nd(D, sourceIndex) }
+
+	if (a>b) { // Me aseguro que a <= b, para trabajar con la matriz triangular superior
+		const temp = a;
+		a = b;
+		b = temp;
+	}
+	//console.table(D);
+
+	// Agregar la nueva interacción a la matriz triangular de interacciones (Se le suma 1 a la casilla correspondiente)
+
+	const fil = D[a][0];
+	const col = D[b][0];
+	m[ fil ] [ col ] ++;
+	//console.table(m);
+
+	// Si es una interacción nueva, habrá que añadir al buffer espacio para esas distancias
+	if (m[fil][col] == 1) {
+		//console.log("Interacción nueva");
+		const nTargets = elementaries[targetIndex].posiciones.length / 4;	// cantidad de partículas de la familia target
+		const nSources = elementaries[sourceIndex].posiciones.length / 4;
+
+		bytesDist.push(nTargets * nSources * 4); // 4 bytes (1 float, 1 distancia) por cada par target-source.
+
+	}
+
+}
 
 // EVENT HANDLING
 
@@ -200,7 +259,6 @@ const ruleControls = {
 	selector: document.getElementById("ruleselect"),
 	submitButton: document.getElementById("r.submit"),
 }
-
 const partiControls = {
 	nameInput: document.getElementById("c.nom"),
 	colorInput: document.getElementById("c.col"),
@@ -219,12 +277,14 @@ partiControls.submitButton.onclick = function(){
 
 	// Una vez validado todo:
 	const cant = parseInt(partiControls.cantInput.value)
+	const [pos, vel] = crearPosiVel(cant);
 	const newElementary = {
-		nombre: partiControls.nameInput.value,					// string
-		color: hexString_to_rgba(partiControls.colorInput.value, 1),  // vec4f    (orig. string like "#000000")
-		cantidad: cant,		// integer (originalmente string)
-		radio: parseFloat(partiControls.radiusInput.value),		// float   (originalmente string)
-		posiVel: crearPosiVel(cant),
+		nombre: partiControls.nameInput.value,							// string
+		color: hexString_to_rgba(partiControls.colorInput.value, 1),  	// vec4f    (orig. string like "#000000")
+		cantidad: cant,													// integer (originalmente string)
+		radio: parseFloat(partiControls.radiusInput.value),				// float   (originalmente string)
+		posiciones: pos,												// [x,y,z,w]
+		velocidades: vel,												// [x,y,z]
 	}
 
 	if ( elementaries.some(dict => dict.nombre == newElementary.nombre) ){
@@ -251,7 +311,7 @@ partiControls.submitButton.onclick = function(){
 	}
 
 	//console.log("Elementaries (todas las partículas):");
-	//console.log(elementaries);
+	console.log(elementaries);
 
 }
 
@@ -259,8 +319,8 @@ partiControls.submitButton.onclick = function(){
 ruleControls.submitButton.onclick = function(){
 
 	// validación
-	if ( 	!validarNumberInput(ruleControls.intens) || !validarNumberInput(ruleControls.qm) || 
-			!validarNumberInput(ruleControls.dmin) || !validarNumberInput(ruleControls.dmax) ){
+	if ( !validarNumberInput(ruleControls.intens) || !validarNumberInput(ruleControls.qm) || 
+		 !validarNumberInput(ruleControls.dmin) || !validarNumberInput(ruleControls.dmax) ){
 		return;
 	}
 
@@ -301,16 +361,18 @@ ruleControls.submitButton.onclick = function(){
 	option.text = newRule.ruleName;
 	ruleControls.selector.appendChild(option);
 
+	/*
+
 	// Si es una regla activa (si incluye partículas con nombres existentes), hay que agregar la interacción.
 	// aquí siempre va a ser una regla activa porque sólo se pueden crear reglas entre partículas existentes.
 
-	let esReglaActiva = elementaries.some(dict => dict.nombre == newRule.targetName || dict.nombre == newRule.sourceName) 
+	let esReglaActiva = elementaries.some(dict => dict.nombre == newRule.targetName) && elementaries.some(dict => dict.nombre == newRule.sourceName) 
 
 	if (esReglaActiva) {
-		/*	Agregar familias a lista D de familias que interactúan de alguna forma, si no lo estaban ya.
-		*	La lista D también asocia cada familia interactuante (su índice en la lista de los selectores) 
-		*	con su índice en la matriz de interacciones.
-		*/
+		//	Agregar familias a lista D de familias que interactúan de alguna forma, si no lo estaban ya.
+		//	La lista D también asocia cada familia interactuante (su índice en la lista de los selectores) 
+		//	con su índice en la matriz de interacciones.
+		
 		let a, b;
 		if (!includesIn2nd(D,targetIndex)) {
 			// Nueva familia que tendrá interacciones
@@ -349,6 +411,9 @@ ruleControls.submitButton.onclick = function(){
 			bytesDist.push(nTargets * nSources * 4); // 4 bytes (1 float, 1 distancia) por cada par target-source.
 		}
 	}
+
+	*/
+
 
 	/* TODO: Completar proceso de borrado de reglas y/o partículas. Al borrar una regla hay que actualizar elementaries, 
 	D, m, bytesDist...
@@ -409,28 +474,149 @@ const vertexBufferLayout = {
 };
 
 let simulationPipeline;
-let bindGroups;
+let bindGroups = [];
 let particleRenderPipeline;
 
 // ARMAR BUFFERS Y PIPELINES
 
+let positionBuffers = [];
+let velocitiesBuffer = [];
 
-function editBuffers(){
+function editBuffers(resetPosiVels) {
+
+	const Ne = elementaries.length;
+	N = 0;
+	for (let elementary of elementaries) { N += elementary.cantidad; }
+
+	// Colores, radios y canvas
+	const colsYRads = new ArrayBuffer(Ne*5*4 + 8 + 4); 			// Ne*4 colores + Ne*1 radios, cada uno de éstos tiene 4 bytes. 8 bytes para los 2 límites
+
+	const cantParticulas = new Float32Array(colsYRads, 0, 1);
+	cantParticulas.set([N]);
+	const canvasDims = new Float32Array(colsYRads, 4, 2); 	// canvasDims. Podría hacerse aparte si hace falta.
+	canvasDims.set([canvas.width, canvas.height]);
+	const colores = new Float32Array(colsYRads, 4 + 8,  Ne*4);				// 4 elementos por cada color: [R1 G1 B1 A1, R2, G2, B2, A2, ...]
+	const radios = new Float32Array(colsYRads, 4 + 8 + Ne*4*4, Ne);			// byte offset de 16Ne, Ne radios: [r1, r2, r3, ...]
+
+	const colsYRadsArray = new Float32Array(colsYRads); // F32Array que referencia al buffer
+
+	for (let i=0; i < Ne ; i++) { // Llenar los arrays de colores y radios
+		colores.set(elementaries[i].color, i*4);
+		radios.set(elementaries[i].radio, i)
+	}
+
+	const uniformBuffer = device.createBuffer({
+		label: "Colores, radios y canvasDims",
+		size: colsYRadsArray.byteLength,
+		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+	});
+	device.queue.writeBuffer(uniformBuffer, 0, colsYRadsArray)
 
 	// Distancias
 
+	// genero la lista de matrices de distancias? capaz en la gpu eso
+	D = [];
+	m = [];
+	bytesDist = [];
+	let reglasActivas = [];
+
+	for (let rule of rules) {
+		//verificar si esta regla está en uso (ambos target y source tienen que estar en elementaries)
+		const esReglaActiva = elementaries.some(elem => elem.nombre == rule.targetName) && elementaries.some(elem => elem.nombre == rule.sourceName)
+
+		if ( !esReglaActiva ) { continue; }
+		// si es una regla "activa":
+		reglasActivas.push(rule);
+		matrizDistancias(rule);
+		
+	}
+	console.log(bytesDist)
+	console.table(m); 
+	console.table(D);
+
+	//const distanciasArray = new Float32Array()
+
 	const distanciasBuffer = device.createBuffer({
 		label: "Distancias",
-		size: sum(listadebytesizesdecadamatrizdedistancias), 
+		size: bytesDist.reduce((a, b) => a + b, 0), // suma de todos los bytes de cada una de las matrices distancia
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, // storage porque entre cada frame las distancias cambian
 	});
+	//device.queue.writeBuffer(distanciasBuffer, 0, distanciasArray); // veo si puedo pasar el buffer vacío para rellenarlo en GPU.
 
+	// Reglas
 
+	const rulesArray = new Float32Array(reglasActivas.length * 6);
 
+	for (let i = 0; i < reglasActivas.length; i++) { // llenar el array de reglas
+		rulesArray.set([
+			reglasActivas[i].targetIndex, // índice de elementary en elementaries
+			reglasActivas[i].sourceIndex,
+			reglasActivas[i].intensity,
+			reglasActivas[i].quantumForce,
+			reglasActivas[i].minDist,
+			reglasActivas[i].maxDist,
+		], 6*i)
+	}
+
+	const reglasBuffer = device.createBuffer({
+		label: "Reglas",
+		size: rulesArray.byteLength,
+		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+	});
+	device.queue.writeBuffer(reglasBuffer, 0, rulesArray)
+
+	// Posiciones y velocidades
+
+	if (resetPositions) {
+		let posBytes = 0;
+		for (let elementary of elementaries) { posBytes += elementary.posiciones.byteLength; } // bytesize de todas las posiciones
+		const positionsArrBuffer = new ArrayBuffer(posBytes);
+		const velocitiesArrBuffer = new ArrayBuffer(posBytes*3/4);
+		const positionsArray = new Float32Array(positionsArrBuffer);
+		const velocitiesArray = new Float32Array(velocitiesArrBuffer);
+
+		let offsetPos = 0, offsetVel = 0;
+		for (let elementary of elementaries) { // llenar los arrays de posiciones y velocidades
+
+			positionsArray.set(elementary.posiciones, offsetPos);
+			velocitiesArray.set(elementary.velocidades, offsetVel)
+			offsetPos += elementary.posiciones.length;
+			offsetVel += elementary.velocidades.length;
+
+		}
+
+		positionBuffers = [
+			device.createBuffer({
+				label: "Positions buffer IN",
+				size: positionsArray.byteLength,
+				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+			}),
+			device.createBuffer({
+				label: "Positions buffer OUT",
+				size: positionsArray.byteLength,
+				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+			})
+		];
+		device.queue.writeBuffer(positionBuffers[0], 0, positionsArray);
+
+		velocitiesBuffer = device.createBuffer({
+			label: "Velocities buffer",
+			size: velocitiesArray.byteLength,
+			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+		});
+		device.queue.writeBuffer(velocitiesBuffer, 0, velocitiesArray);
+
+		resetPositions = false;
+	}
+
+	return {
+		positionBuffers,
+		velocitiesBuffer,
+		uniformBuffer, 
+		distanciasBuffer,
+		reglasBuffer,
+	}
 }
-
-
-
 
 function updateSimulationParameters(){
 
@@ -449,110 +635,83 @@ function updateSimulationParameters(){
 		code: computeShader(WORKGROUP_SIZE, N),
 	})
 
-
 	// CREACIÓN DE BUFFERS
-
-	// dimensiones del canvas
-	const uniformBuffer = device.createBuffer({
-		label: "Particles Uniforms",
-		size: canvasDims.byteLength,
-		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-	});
-	device.queue.writeBuffer(uniformBuffer, 0, canvasDims);
-
-	// posiciones de las partículas
-	const positions = new Float32Array(N*4); // crea un array obj que apunta a la misma memoria que el ArrayBuffer devuelto por .get///
-	for (let i = 0; i < N; i++) {
-		positions[i * 4 + 0] = (rng() - 0.5)*2*canvas.width;
-		positions[i * 4 + 1] = (rng() - 0.5)*2*canvas.height;
-		positions[i * 4 + 2] = 0.0;
-		positions[i * 4 + 3] = 1.0;
-	}
-
-	const positionBuffers = [
-		device.createBuffer({
-			label: "Positions buffer IN",
-			size: positions.byteLength, //N * 4 * 4,
-			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-		}),
-		device.createBuffer({
-			label: "Positions buffer OUT",
-			size: positions.byteLength, //N * 4 * 4,
-			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-		})
-	];
-	device.queue.writeBuffer(positionBuffers[0], 0, positions);
-
-	// velocidades de las particulas
-
-	const velocities = new Float32Array(N*2);
-	for (let i = 0; i < N; i++) {
-		velocities[i * 2 + 0] = (rng() - 0.5)*VELOCITY_FACTOR;
-		velocities[i * 2 + 1] = (rng() - 0.5)*VELOCITY_FACTOR;
-	}
-	const velocityBuffer = device.createBuffer({
-		label: "Velocities buffer",
-		size: velocities.byteLength,
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-	});
-	device.queue.writeBuffer(velocityBuffer, 0, velocities);
-
+	const GPUBuffers = editBuffers(true); // diccionario con todos los buffers
+	console.log(GPUBuffers)
 
 	// BIND GROUP SETUP
-	const bindGroupLayout = device.createBindGroupLayout({
-		label: "Particle Bind Group Layout",
+	const bindGroupLayoutPos = device.createBindGroupLayout({
+		label: "Positions Bind Group Layout",
 		entries: [{
-			binding: 0,
-			visibility: GPUShaderStage.VERTEX | GPUShaderStage.COMPUTE | GPUShaderStage.FRAGMENT,
-			buffer: {}  // Grid uniform buffer, el default
-		}, {
-			binding: 1,
+			binding: 0, // entrada
 			visibility: GPUShaderStage.VERTEX | GPUShaderStage.COMPUTE,
-			buffer: { type: "read-only-storage" } // Initial state input buffer
+			buffer: { type: "read-only-storage" }
 		}, {
-			binding: 2,
+			binding: 1, // salida
 			visibility: GPUShaderStage.COMPUTE,
-			buffer: { type: "storage" }	// Final state output buffer (storage = read_write)
+			buffer: { type: "storage" }
+		}]
+	});
+
+	const bindGroupLayoutResto = device.createBindGroupLayout({
+		label: "Resto Bind Group Layout",
+		entries: [{
+			binding: 0, // colores, radios y canvas
+			visibility: GPUShaderStage.VERTEX | GPUShaderStage.COMPUTE | GPUShaderStage.FRAGMENT,
+			buffer: {}
 		}, {
-			binding: 3, //velocidades
+			binding: 1, // velocidades
+			visibility: GPUShaderStage.COMPUTE,
+			buffer: { type: "storage" } // Initial state input buffer
+		}, {
+			binding: 2, // reglas
+			visibility: GPUShaderStage.COMPUTE,
+			buffer: {}
+		}, {
+			binding: 3, // distancias
 			visibility: GPUShaderStage.COMPUTE,
 			buffer: { type: "storage" }
 		}]
 	});
 
 	bindGroups = [
-		device.createBindGroup({
-			label: "Particle renderer bind group A",
-			layout: bindGroupLayout,
+		device.createBindGroup({ // posiciones A
+			label: "Particle positions bind group A",
+			layout: bindGroupLayoutPos,
 			entries: [{
 				binding: 0,
-				resource: { buffer: uniformBuffer }
+				resource: { buffer: GPUBuffers.positionBuffers[0] }
 			}, {
 				binding: 1,
-				resource: { buffer: positionBuffers[0] }
-			}, {
-				binding: 2,
-				resource: { buffer: positionBuffers[1] }
-			},{
-				binding: 3,
-				resource: { buffer: velocityBuffer }
+				resource: { buffer: GPUBuffers.positionBuffers[1] }
 			}],
 		}),
-		device.createBindGroup({
-			label: "Particle renderer bind group B",
-			layout: bindGroupLayout,
+		device.createBindGroup({ // posiciones B
+			label: "Particle positions bind group B",
+			layout: bindGroupLayoutPos,
 			entries: [{
 				binding: 0,
-				resource: { buffer: uniformBuffer }
+				resource: { buffer: GPUBuffers.positionBuffers[1] }
 			}, {
 				binding: 1,
-				resource: { buffer: positionBuffers[1] }
+				resource: { buffer: GPUBuffers.positionBuffers[0] }
+			}],
+		}),
+		device.createBindGroup({ // el resto de bind groups
+			label: "Resto bind group",
+			layout: bindGroupLayoutResto,
+			entries: [{
+				binding: 0,
+				resource: { buffer: GPUBuffers.uniformBuffer } // colores, radios y canvas
+			}, {
+				binding: 1,
+				resource: { buffer: GPUBuffers.velocitiesBuffer }
 			}, {
 				binding: 2,
-				resource: { buffer: positionBuffers[0] }
+				resource: { buffer: GPUBuffers.reglasBuffer }
 			}, {
 				binding: 3,
-				resource: { buffer: velocityBuffer }
+				resource: { buffer: GPUBuffers.distanciasBuffer }
 			}],
 		})
 	];
@@ -560,9 +719,9 @@ function updateSimulationParameters(){
 	// PIPELINE SETUP
 
 	const pipelineLayout = device.createPipelineLayout({
-		label: "Particle Pipeline Layout",
-		bindGroupLayouts: [ bindGroupLayout ],
-	}); // El orden de los bind group layours tiene que coincider con los atributos @group en el shader
+		label: "Pipeline Layout",
+		bindGroupLayouts: [ bindGroupLayoutPos, bindGroupLayoutResto ],
+	}); // El orden de los bind group layouts tiene que coincider con los atributos @group en el shader
 
 	// Crear una render pipeline (para usar vertex y fragment shaders)
 	particleRenderPipeline = device.createRenderPipeline({
@@ -621,23 +780,17 @@ async function newFrame(){
 		editingBuffers = false;
 	}
 
-
-
-
-
 	const encoder = device.createCommandEncoder();
 
 	if (timer) {	 // Initial timestamp - before compute pass
 		encoder.writeTimestamp(querySet, 0);
-	} else {
-		t0 = window.performance.now();
-	}
+	} else { t0 = window.performance.now(); }
 
 	const computePass = encoder.beginComputePass();
 	
-
 	computePass.setPipeline(simulationPipeline);
-	computePass.setBindGroup(0, bindGroups[frame % 2]);
+	computePass.setBindGroup(0, bindGroups[frame % 2]); // posiciones alternantes
+	computePass.setBindGroup(1, bindGroups[2]); // lo demás
 
 	/* El compute shader se ejecutará N veces. El workgroup size es 64, entonces despacho ceil(N/64) workgroups, todos en el eje x. */
 
@@ -645,6 +798,7 @@ async function newFrame(){
 	computePass.dispatchWorkgroups(workgroupCount, 1, 1); // Este vec3<u32> tiene su propio @builtin en el compute shader.
 
 	computePass.end();
+
 	if (timer) {	 // Timestamp - after compute pass
 		encoder.writeTimestamp(querySet, 1);
 	} else {
