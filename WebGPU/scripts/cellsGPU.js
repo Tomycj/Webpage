@@ -4,19 +4,51 @@ import { computeShader } from "../shaders/shadersCellsGPU.js";
 // ref https://www.cg.tuwien.ac.at/research/publications/2023/PETER-2023-PSW/PETER-2023-PSW-.pdf
 // INITIAL VARIABLES
 const [device, canvas, canvasFormat, context, timer] = await inicializarCells();
+
+/* Forzar color canvas para UI testing
+const canvas = document.querySelector("canvas");
+const ctx = canvas.getContext("2d");
+ctx.rect(1, 1, 2000, 2000);
+ctx.fillStyle = "red";
+ctx.fill();
+let timer; */
+
+const VELOCITY_FACTOR = 0.1;
+const WORKGROUP_SIZE = 64;
+const SAMPLE_SETUP = {
+	seed: "sampleSeed",
+	elementaries: [
+		{
+			nombre: "sampleName",
+			color: [1.0, 2.0, 3.0, 4.0],
+			cantidad: 2,
+			radio: 2.0,
+			posiciones: [],
+			velocidades: [],
+		},
+	],
+	rules: [
+		{
+			ruleName: "sampleName",
+			targetName: "sampleName",
+			sourceName: "sampleName",
+			intensity: 2.0,
+			quantumForce: 2.0,
+			minDist: 2.0,
+			maxDist: 2.0,
+		},
+	]
+}
 let N = 0; // number of particles
 var rng;
-const VELOCITY_FACTOR = 0.1;
 let frame = 0; // simulation steps
 let animationId, paused = true;
-const WORKGROUP_SIZE = 64;
 const canvasDims = new Float32Array ([canvas.width, canvas.height]);
-let elementaries = []; // array donde cada elemento es un array de las partículas de un tipo determinado
-let rules = [];   // cada elemento es una regla, formada por un array de 6 números (parámetros de la regla)
-let D = []; // diccionario que asocia cada indice de una matriz al indice de cada familia que tenga interacciones
-let m = []; // matriz booleana con familias que interaccionan
-let bytesDist = []; // bytes ocupados por cada una de las tablas de distancias entre partículas a computar
-
+let elementaries = []; // cada elemento es un objeto que almacena toda la info de una familia de parts.
+let rules = [];   // cada elemento es una regla, formada por un objeto que la define.
+let D = []; // "diccionario" que asocia cada indice de una matriz al indice de cada familia que tenga interacciones.
+let m = []; // matriz triangular que codifica las interacciones entre familias.
+let bytesDist = []; // bytes ocupados por cada una de las tablas de distancias entre partículas a computar.
 let updatingParameters = true;
 let resetPositions = true;
 let editingBuffers = false;
@@ -54,7 +86,7 @@ async function readBuffer(device, buffer) {
 function getSeed(htmlElement){
 	if (htmlElement.value == "") {
 		const seed = Math.random().toFixed(7).toString();
-		htmlElement.placeholder = seed;
+		htmlElement.value = seed;
 		return seed;
 	}
 	return htmlElement.value;
@@ -179,13 +211,238 @@ function matrizDistancias(rule) { // actualiza la matriz triangular de interacci
 	}
 
 }
+function crearElementary(nombre, color, cantidad, radio, posiciones, velocidades) {
+	if ( 
+		typeof nombre === "string" && 
+		color.constructor === Float32Array && color.length === 4 &&
+		Number.isInteger(cantidad) && cantidad > 0 &&
+		typeof radio === "number" && radio > 0  &&
+		posiciones.constructor === Float32Array && 
+		velocidades.constructor === Float32Array
+	) {
+		return {
+			nombre,			// string
+			color,  		// vec4f    (orig. string like "#000000")
+			cantidad,		// integer (originalmente string)
+			radio,			// float   (originalmente string)
+			posiciones,		// [x,y,z,w]
+			velocidades,	// [x,y,z]
+		};
+	}
+
+	throw new Error("Detectado parámetro inválido");
+
+}
+function cargarElementary(newElementary) {  // añade una familia a la lista.
+	if ( elementaries.some(dict => dict.nombre == newElementary.nombre) ){
+		console.log("Reemplazando partículas del mismo nombre...")
+		const i = elementaries.findIndex(dict => dict.nombre == newElementary.nombre);
+		elementaries [i] = newElementary;
+
+	} else {
+		elementaries.push( newElementary );
+		// actualizar lista de nombres en el creador de reglas de interacción
+		actualizarElemSelectors(newElementary);
+	}
+}
+function exportarElementary(elementary) {
+
+	elementary.posiciones = Array.from(elementary.posiciones);
+	elementary.velocidades = Array.from(elementary.velocidades);
+
+	const jsonString = JSON.stringify(elementary, null, 2);
+
+	const blob = new Blob([jsonString], { type: "application/json" });
+	const url = URL.createObjectURL(blob);
+	
+	const a = document.createElement("a");
+	a.href = url;
+	a.download = elementary.nombre;
+	document.body.appendChild(a);
+	a.click();
+	
+	document.body.removeChild(a);
+	URL.revokeObjectURL(url);
+}
+function exportarSetup(elementaries, rules, seed, filename = "Cells GPU setup", full = false) {
+
+	if (full) {
+		for (let elem of elementaries) {
+			elem.posiciones = Array.from(elem.posiciones);
+			elem.velocidades = Array.from(elem.velocidades);
+			elem.color = Array.from(elem.color);
+		}
+	} else {
+		for (let elem of elementaries) {
+			elem.posiciones = [];
+			elem.velocidades = [];
+			elem.color = Array.from(elem.color);
+		}
+	}
+	
+
+	const setup = { seed, elementaries, rules};
+	const jsonString = JSON.stringify(setup, null, 2);
+
+	const blob = new Blob([jsonString], { type: "application/json" });
+	const url = URL.createObjectURL(blob);
+	
+	const a = document.createElement("a");
+	a.href = url;
+	a.download = filename;
+	document.body.appendChild(a);
+	a.click();
+	
+	document.body.removeChild(a);
+	URL.revokeObjectURL(url);
+
+}
+function importarSetup() {
+	const fileInput = document.createElement("input");
+	fileInput.type = "file";
+	fileInput.accept = ".json"
+	return new Promise((resolve, reject) => {
+	fileInput.addEventListener('change', (event) => {
+		const file = event.target.files[0];
+		const reader = new FileReader();
+
+		reader.onload = () => {
+		try {
+			const jsonData = JSON.parse(reader.result);
+			resolve(jsonData);
+		} catch (error) {
+			reject(error);
+		}
+		};
+
+		reader.onerror = (error) => {
+		reject(error);
+		};
+
+		reader.readAsText(file);
+	});
+
+	fileInput.click();
+	});
+}
+function cargarSetup(setup) {  // reemplaza el setup actual.
+	if (!hasSameStructure(setup, SAMPLE_SETUP)) { throw new Error("Falló la verificación, no es un objeto tipo setup")}
+
+	vaciarSelectors();
+	for (let elem of setup.elementaries) {
+		actualizarElemSelectors(elem);
+		const [pos, vel] = crearPosiVel(elem.cantidad);
+		elem.posiciones = pos;
+		elem.velocidades = vel;
+	}
+	for (let rule of setup.rules) {
+		actualizarRuleSelector(rule);
+	}
+	seedInput.value = setup.seed;
+	rules = setup.rules;
+	elementaries = setup.elementaries;
+	
+}
+function hasSameStructure(obj1, obj2) { // no revisa la estructura de los arrays de elementaries y rules TODO: se puede mejorar
+	const keys1 = Object.keys(obj1).sort();
+	const keys2 = Object.keys(obj2).sort();
+
+	if (keys1.length !== keys2.length) {
+		return false;
+	}
+
+	for (let i = 0; i < keys1.length; i++) {
+		const key1 = keys1[i];
+		const key2 = keys2[i];
+
+		if (key1 !== key2 || typeof obj1[key1] !== typeof obj2[key2]) {
+			return false;
+		}
+
+		if (typeof obj1[key1] === "object" && !Array.isArray(obj1[key1])) {
+
+			if (!hasSameStructure(obj1[key1], obj2[key2])) {
+				return false;
+			}
+		}
+	}
+	return true;
+}
+function removeChilds(htmlElement) {
+	while (htmlElement.firstChild) {
+		htmlElement.removeChild(htmlElement.firstChild);
+	}
+}
+function vaciarSelectors(){
+	removeChilds(partiControls.selector);
+	removeChilds(ruleControls.selector);
+	removeChilds(ruleControls.targetSelector);
+	removeChilds(ruleControls.sourceSelector);
+}
+function actualizarElemSelectors(elementary) {
+	const option = document.createElement("option");
+
+	option.value = elementary.nombre;
+	option.text = elementary.nombre;
+
+	ruleControls.targetSelector.appendChild(option);
+
+	const option2 = option.cloneNode(true);
+	ruleControls.sourceSelector.appendChild(option2);
+
+	const option3 = option.cloneNode(true);
+	partiControls.selector.appendChild(option3);
+}
+function actualizarRuleSelector(rule) {
+	const option = document.createElement("option");
+	option.text = rule.ruleName;
+	ruleControls.selector.appendChild(option);
+}
+function crearRule(ruleName, targetName, sourceName, intensity, quantumForce, minDist, maxDist) {
+
+	if (!ruleName) { ruleName = `${targetName} ← ${sourceName}`; }
+
+	return {
+		ruleName,
+		targetName,
+		sourceName,
+		intensity,
+		quantumForce,
+		minDist,
+		maxDist,
+	} 
+}
+function generarSetupClásico() {
+	const e = new Float32Array([]);
+	const elementaries = [
+		crearElementary("yellow", new Float32Array([1,1,0,1]), 300, 3, e, e),
+		crearElementary("red", new Float32Array([1,0,0,1]), 80, 4, e, e),
+		crearElementary("purple", new Float32Array([147/255,112/255,219/255,1]), 30, 5, e, e),
+		crearElementary("green", new Float32Array([0,128/255,0,1]), 5, 7, e, e),
+	];
+	
+	const rules = [
+		crearRule("","red","red", 0.5, 0.2, 15, 100), 		// los núcleos se tratan de juntar si están cerca
+		crearRule("","yellow","red", 0.5, 0, 60, 600), 		// los electrones siguen a los núcleos, pero son caóticos
+		crearRule("","yellow","yellow", -0.1, 1, 20, 600),
+		crearRule("","purple","red", 0.4, 0, 0.1, 150), 	// los virus persiguen a los núcleos
+		crearRule("","purple","yellow", -0.2, 1, 0.1, 100), // los virus son repelidos por los electrones
+		crearRule("","yellow","purple", 0.2, 0, 0.1, 100), 	// los electrones persiguen a los virus
+		crearRule("","red","purple", 1, 1, 0.1, 10), 		// los virus desorganizan los núcleos
+		crearRule("","red","green", 0.3, 0, 50, 1000), 		// los núcleos buscan comida
+		crearRule("","green","green", -0.2, 0.2, 50, 500), 	// la comida se mueve un poco y estabiliza las células
+	];
+	const seed = "";
+	const setup = {seed, elementaries, rules};
+	cargarSetup(setup)
+	console.log("Setup clásico cargado!")
+}
 
 // EVENT HANDLING
 
 // panel de info
 document.getElementById("canvasinfo").innerText = `${canvas.width} x ${canvas.height} (${canvas.width/canvas.height})`;
 const displayTiming = document.getElementById("performanceinfo");
-
 // ocultar interfaces
 const panelTitle = document.getElementById("controlPanelTitle");
 const cpOptions = document.getElementById("controlPanelOptions");
@@ -202,17 +459,6 @@ const seedInput = document.getElementById("seed");
 // canvas color
 const bgColorPicker = document.getElementById("bgcolorpicker");
 bgColorPicker.onchange = function() { uiSettings.bgColor = hexString_to_rgba(bgColorPicker.value, 1); }
-// elegir cantidad de partículas (legacy)
-const nPicker = document.getElementById("npicker");
-nPicker.onchange = function() { 
-	nPicker.value = Math.max(0, nPicker.value);
-	nPicker.value = Math.min(nPicker.value, 100000);
-	N = nPicker.value;
-}
-nPicker.oninput = function() { 
-	let ancho = nPicker.value.length
-	nPicker.style.width = `${ Math.max(ancho, 3) + 2 }ch`;
-}
 // botón de pausa
 const pauseButton = document.getElementById("pausebutton");
 pauseButton.onclick = function() { 
@@ -245,9 +491,20 @@ stepButton.onclick = function() {
 // botón de info debug
 const infoButton = document.getElementById("mostrarinfo");
 infoButton.onclick = function() { document.getElementById("infopanel").hidden ^= true; }
+// botón de export e import
+const exportButton = document.getElementById("export");
+const importButton = document.getElementById("import");
+exportButton.onclick = function() { exportarSetup(elementaries, rules, seedInput.value); }
+importButton.onclick = function() {
+	importarSetup()
+	.then((setup) =>{ cargarSetup(setup) })
+	.catch((error) => {
+		window.alert("Error, archivo descartado");
+		console.error(error);
+	});
+}
 
 // Creador de partículas
-
 const ruleControls = {
 	nameInput: document.getElementById("rulename"),
 	targetSelector: document.getElementById("targetselect"),
@@ -276,42 +533,19 @@ partiControls.submitButton.onclick = function(){
 	}
 
 	// Una vez validado todo:
-	const cant = parseInt(partiControls.cantInput.value)
+	const cant = parseInt(partiControls.cantInput.value);
 	const [pos, vel] = crearPosiVel(cant);
-	const newElementary = {
-		nombre: partiControls.nameInput.value,							// string
-		color: hexString_to_rgba(partiControls.colorInput.value, 1),  	// vec4f    (orig. string like "#000000")
-		cantidad: cant,													// integer (originalmente string)
-		radio: parseFloat(partiControls.radiusInput.value),				// float   (originalmente string)
-		posiciones: pos,												// [x,y,z,w]
-		velocidades: vel,												// [x,y,z]
-	}
 
-	if ( elementaries.some(dict => dict.nombre == newElementary.nombre) ){
-		console.log("Reemplazando partículas del mismo nombre...")
-		const i = elementaries.findIndex(dict => dict.nombre == newElementary.nombre);
-		elementaries [i] = newElementary;
+	cargarElementary( crearElementary(
+		partiControls.nameInput.value,
+		hexString_to_rgba(partiControls.colorInput.value, 1),
+		cant,
+		parseFloat(partiControls.radiusInput.value),
+		pos,
+		vel,
+	));
 
-	} else {
-		elementaries.push( newElementary );
-		// actualizar lista de nombres en el creador de reglas de interacción
-		const option = document.createElement("option");
-
-		option.value = newElementary.nombre;
-		option.text = newElementary.nombre;
-
-		ruleControls.targetSelector.appendChild(option);
-
-		const option2 = option.cloneNode(true);
-		ruleControls.sourceSelector.appendChild(option2);
-
-		const option3 = option.cloneNode(true);
-		partiControls.selector.appendChild(option3);
-
-	}
-
-	//console.log("Elementaries (todas las partículas):");
-	console.log(elementaries);
+	//console.log(elementaries);
 
 }
 
@@ -344,22 +578,21 @@ ruleControls.submitButton.onclick = function(){
 		}
 	}
 	
-	const newRule = {
-		ruleName: newRuleName,
-		targetName: ruleControls.targetSelector.value,
-		sourceName: ruleControls.sourceSelector.value,
-		intensity: parseFloat(ruleControls.intens.value),
-		quantumForce: parseFloat(ruleControls.qm.value),
-		minDist: parseFloat(ruleControls.dmin.value),
-		maxDist: parseFloat(ruleControls.dmax.value),
-	};
+	const newRule = crearRule(
+		newRuleName,
+		ruleControls.targetSelector.value,
+		ruleControls.sourceSelector.value,
+		parseFloat(ruleControls.intens.value),
+		parseFloat(ruleControls.qm.value),
+		parseFloat(ruleControls.dmin.value),
+		parseFloat(ruleControls.dmax.value),
+	);
+
 	//console.log(newRule);
 	rules.push(newRule)
 
 	// Agregar regla al selector de reglas.
-	const option = document.createElement("option");
-	option.text = newRule.ruleName;
-	ruleControls.selector.appendChild(option);
+	actualizarRuleSelector(newRule);
 
 	/*
 
@@ -442,6 +675,8 @@ borraParticleButton.onclick = function(){
 	// TODO: actualizar reglas activas y buffers si hace falta
 }
 
+
+generarSetupClásico();
 
 // VERTEX SETUP
 

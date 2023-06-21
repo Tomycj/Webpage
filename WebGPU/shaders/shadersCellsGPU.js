@@ -1,13 +1,11 @@
 export function computeShader() { return /*wgsl*/`
 
-
-
     @group(0) @binding(0) var<storage> initialpositions: array<vec4<f32>>; // read only
     @group(0) @binding(1) var<storage, read_write> finalpositions: array<vec4<f32>>; //al poder write, lo uso como output del shader
 
     @group(1) @binding(0) var<uniform> canvas_col_rad: vec2f; // recibir el grid size de un uniform buffer
     @group(1) @binding(1) var<storage, read_write> velocity: array<vec2<f32>>; //al poder write, lo uso como output del shader
-    @group(1) @binding(2) var<uniform> rules: array<vec2<f32>>;
+    @group(1) @binding(2) var<uniform> rules: vec2f;
     @group(1) @binding(3) var<storage, read_write> distancias: array<vec2<f32>>;
 
     override constante = 64; // Este valor es el default, si "constante" no está definida en constants de la pipeline.
@@ -29,29 +27,12 @@ export function computeShader() { return /*wgsl*/`
     @workgroup_size(constante, 1, 1) // el tercer parámetro (z) es default 1.
     fn computeMain(@builtin(global_invocation_id) ind: vec3u){
 
-        let i = ind.x;
-        let positioni = vec4f(initialpositions[i]);
-        var vel = vec4f(velocity[i], 0, 0);
 
-        for (var i: i32 = 0; i < N; i++) { //algo de N
-            
-            vel += vec4f(attractor(positioni.xy, initialpositions[i].xy, 2.0, 3.0), 0, 0);
 
-        }
 
-        //vel += vec4f(attractor(positioni.xy, vec2f(100, 0), 10, 5.0), 0, 0);
 
-        let candidatepos = positioni + vel;
-        let lims = canvasdims;
-        if abs(candidatepos.x) > lims.x {
-            vel.x *= -.1;
-        }
-        if abs(candidatepos.y) > lims.y{
-            vel.y *= -.1;
-        }
 
-        finalpositions[i] = positioni + vel;
-        velocity[i] = vel.xy;
+        
     }
 `;
 }
