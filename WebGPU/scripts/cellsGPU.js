@@ -2,7 +2,7 @@ import { inicializarCells } from "./misFunciones.js";
 import { renderShader } from "../shaders/shadersCellsGPU.js";
 import { computeShader } from "../shaders/shadersCellsGPU.js";
 // ref https://www.cg.tuwien.ac.at/research/publications/2023/PETER-2023-PSW/PETER-2023-PSW-.pdf
-// INITIAL VARIABLES
+
 const [device, canvas, canvasFormat, context, timer] = await inicializarCells();
 
 /* Forzar color canvas para UI testing
@@ -51,7 +51,7 @@ let m = []; // matriz triangular que codifica las interacciones entre familias.
 let bytesDist = []; // bytes ocupados por cada una de las tablas de distancias entre partículas a computar.
 let updatingParameters = true;
 let resetPositions = true;
-let editingBuffers = false;
+let editingBuffers = true;
 let stepping = false;
 let uiSettings = {
 	bgColor : [0, 0, 0, 1],
@@ -280,7 +280,6 @@ function exportarSetup(elementaries, rules, seed, filename = "Cells GPU setup", 
 		}
 	}
 	
-
 	const setup = { seed, elementaries, rules};
 	const jsonString = JSON.stringify(setup, null, 2);
 
@@ -478,7 +477,7 @@ pauseButton.onclick = function() {
 }
 // botón de reset
 const resetButton = document.getElementById("resetbutton");
-resetButton.onclick = function() { updatingParameters = true;}
+resetButton.onclick = function() { updatingParameters = true; editingBuffers = true;}
 // botón de frame
 const stepButton = document.getElementById("stepbutton");
 stepButton.onclick = function() { 
@@ -494,7 +493,7 @@ infoButton.onclick = function() { document.getElementById("infopanel").hidden ^=
 // botón de export e import
 const exportButton = document.getElementById("export");
 const importButton = document.getElementById("import");
-exportButton.onclick = function() { exportarSetup(elementaries, rules, seedInput.value); }
+exportButton.onclick = function() { exportarSetup(elementaries, rules, seedInput.value); console.log(elementaries);}
 importButton.onclick = function() {
 	importarSetup()
 	.then((setup) =>{ cargarSetup(setup) })
@@ -594,60 +593,6 @@ ruleControls.submitButton.onclick = function(){
 	// Agregar regla al selector de reglas.
 	actualizarRuleSelector(newRule);
 
-	/*
-
-	// Si es una regla activa (si incluye partículas con nombres existentes), hay que agregar la interacción.
-	// aquí siempre va a ser una regla activa porque sólo se pueden crear reglas entre partículas existentes.
-
-	let esReglaActiva = elementaries.some(dict => dict.nombre == newRule.targetName) && elementaries.some(dict => dict.nombre == newRule.sourceName) 
-
-	if (esReglaActiva) {
-		//	Agregar familias a lista D de familias que interactúan de alguna forma, si no lo estaban ya.
-		//	La lista D también asocia cada familia interactuante (su índice en la lista de los selectores) 
-		//	con su índice en la matriz de interacciones.
-		
-		let a, b;
-		if (!includesIn2nd(D,targetIndex)) {
-			// Nueva familia que tendrá interacciones
-			a = D.length;
-			D.push([a, targetIndex, ruleControls.targetSelector.value]);
-			expandir(m);
-		} else { a = findIndexOf2nd(D, targetIndex) }
-
-		if (!includesIn2nd(D,sourceIndex)) {
-			// Nueva familia que tendrá interacciones
-			b = D.length;
-			D.push([b, sourceIndex, ruleControls.sourceSelector.value]);
-			expandir(m);
-		} else { b = findIndexOf2nd(D, sourceIndex) }
-
-		if (a>b) { // Me aseguro que a <= b, para trabajar con la matriz triangular superior
-			const temp = a;
-			a = b;
-			b = temp;
-		}
-		//console.table(D);
-
-		// Agregar la nueva interacción a la matriz triangular de interacciones (Se le suma 1 a la casilla correspondiente)
-
-		const fil = D[a][0];
-		const col = D[b][0];
-		m[ fil ] [ col ] ++;
-		//console.table(m); 
-
-		// Si es una interacción nueva, habrá que añadir al buffer espacio para esas distancias
-		if (m[fil][col] == 1) {
-			//console.log("Interacción nueva");
-			const nTargets = elementaries[targetIndex].length;	// 4 bytes (1 float) por cada partícula de la flia target
-			const nSources = elementaries[sourceIndex].length;	// 4 bytes (1 float) por cada partícula de la flia source
-
-			bytesDist.push(nTargets * nSources * 4); // 4 bytes (1 float, 1 distancia) por cada par target-source.
-		}
-	}
-
-	*/
-
-
 	/* TODO: Completar proceso de borrado de reglas y/o partículas. Al borrar una regla hay que actualizar elementaries, 
 	D, m, bytesDist...
 	* Alternativa: usar una sparse matrix y listo
@@ -675,22 +620,22 @@ borraParticleButton.onclick = function(){
 	// TODO: actualizar reglas activas y buffers si hace falta
 }
 
-
 generarSetupClásico();
 
 // VERTEX SETUP
 
 const ar = canvas.width / canvas.height; // Canvas aspect ratio
 
-const vertices = new Float32Array([
+const v = 1;
+const vertices = new Float32Array([ // Coordenadas en clip space
 	//   X,    Y,
-	-1, -1, // Triangle 1 (Blue)
-	1, -1,
-	1,  1,
+	-v, -v, // Triangle 1 (Blue)
+	v, -v,
+	v,  v,
 
-	-1, -1, // Triangle 2 (Red)
-	1,  1,
-	-1,  1,
+	-v, -v, // Triangle 2 (Red)
+	v,  v,
+	-v,  v,
 ]);
 const vertexBuffer = device.createBuffer({
 	label: "Particle vertices",
@@ -765,9 +710,9 @@ function editBuffers(resetPosiVels) {
 		matrizDistancias(rule);
 		
 	}
-	console.log(bytesDist)
-	console.table(m); 
-	console.table(D);
+	//console.log(bytesDist)
+	//console.table(m); 
+	//console.table(D);
 
 	//const distanciasArray = new Float32Array()
 
@@ -802,7 +747,7 @@ function editBuffers(resetPosiVels) {
 
 	// Posiciones y velocidades
 
-	if (resetPositions) {
+	if (resetPosiVels) {
 		let posBytes = 0;
 		for (let elementary of elementaries) { posBytes += elementary.posiciones.byteLength; } // bytesize de todas las posiciones
 		const positionsArrBuffer = new ArrayBuffer(posBytes);
@@ -833,7 +778,7 @@ function editBuffers(resetPosiVels) {
 			})
 		];
 		device.queue.writeBuffer(positionBuffers[0], 0, positionsArray);
-
+		//console.log(positionBuffers);
 		velocitiesBuffer = device.createBuffer({
 			label: "Velocities buffer",
 			size: velocitiesArray.byteLength,
@@ -853,7 +798,7 @@ function editBuffers(resetPosiVels) {
 	}
 }
 
-function updateSimulationParameters(){
+function updateSimulationParameters() {
 
 	console.log("Updating simulation parameters...");
 	const rng = new alea(getSeed(seedInput)); // Resetear seed
@@ -871,8 +816,8 @@ function updateSimulationParameters(){
 	})
 
 	// CREACIÓN DE BUFFERS
-	const GPUBuffers = editBuffers(true); // diccionario con todos los buffers
-	console.log(GPUBuffers)
+	const GPUBuffers = editBuffers(editingBuffers); // diccionario con todos los buffers
+	//console.log(GPUBuffers)
 
 	// BIND GROUP SETUP
 	const bindGroupLayoutPos = device.createBindGroupLayout({
@@ -1050,9 +995,9 @@ async function newFrame(){
 
 	pass.setPipeline(particleRenderPipeline);
 	pass.setVertexBuffer(0, vertexBuffer);
-	pass.setBindGroup(0, bindGroups[frame % 2]);		
-	
-	pass.draw(vertices.length /2, N);	// 6 vertices. renderizados n^2 veces
+	pass.setBindGroup(0, bindGroups[frame % 2]);	
+	pass.setBindGroup(1, bindGroups[2]);	
+	pass.draw(vertices.length /2, N);	// 6 vertices. renderizados N veces
 
 
 	pass.end(); // finaliza el render pass

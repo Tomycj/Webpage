@@ -1,7 +1,7 @@
 export function computeShader() { return /*wgsl*/`
 
-    @group(0) @binding(0) var<storage> initialpositions: array<vec4<f32>>; // read only
-    @group(0) @binding(1) var<storage, read_write> finalpositions: array<vec4<f32>>; //al poder write, lo uso como output del shader
+    @group(0) @binding(0) var<storage, read> positionsIn: array<vec4f>; // read only
+    @group(0) @binding(1) var<storage, read_write> positionsOut: array<vec4f>; //al poder write, lo uso como output del shader
 
     @group(1) @binding(0) var<uniform> canvas_col_rad: vec2f; // recibir el grid size de un uniform buffer
     @group(1) @binding(1) var<storage, read_write> velocity: array<vec2<f32>>; //al poder write, lo uso como output del shader
@@ -27,33 +27,42 @@ export function computeShader() { return /*wgsl*/`
     @workgroup_size(constante, 1, 1) // el tercer parámetro (z) es default 1.
     fn computeMain(@builtin(global_invocation_id) ind: vec3u){
 
+        let i = ind.x;
+        positionsOut[i] = positionsIn[i] + vec4f(0.1,0.1,0,0);
 
 
-
-
-
-        
     }
 `;
 }
 
 export function renderShader() { return /*wgsl*/`
 
-@group(0) @binding(0) var<uniform> canvasdims: vec2f; // uniform buffer
-@group(0) @binding(1) var<storage> updatedpositions: array<vec4<f32>>; // storage buffer, u32 coincide con el Uint32 array en java
-//@group(0) @binding(2) var<storage, read_write> updatedpositions: array<vec4<f32>>; //al poder write, lo uso como output del shader
+    struct Params {
+        n: f32,
+        ancho: f32,
+        alto: f32,
+    }
+
+    @group(0) @binding(0) var<storage, read> updatedpositions: array<vec4<f32>>; // read only
+    //@group(0) @binding(1) var<storage, read_write> unused: array<vec4<f32>>; // PositionsOut de compute. Coordenadas absolutas
+
+    @group(1) @binding(0) var<uniform> params: Params; // canvas_col_rad
+    @group(1) @binding(1) var<storage, read_write> velocity: array<vec2<f32>>; //al poder write, lo uso como output del shader
+    @group(1) @binding(2) var<uniform> rules: vec2f;
+    @group(1) @binding(3) var<storage, read_write> distancias: array<vec2<f32>>;
 
 // VERTEX SHADER
 
 struct VertexInput {
-    @location(0) pos: vec2f, //A
-    @builtin(instance_index) instance: u32,
+    @builtin(instance_index) instance: u32, // índice de cada instancia. Hay N instancias.
+    @builtin(vertex_index) vertex: u32, // índice de cada vértices. Hay 6 vertices.
+    @location(0) pos: vec2f, // índice 0 de la lista de vertex attributes en el vertex buffer layout.
 };
 
 struct VertexOutput{
-    @builtin(position) pos: vec4f,
-    //@location(0) pcoord: vec2f, //A
-    @location(1) idx: f32, //B
+    @builtin(position) pos: vec4f, // posición de cada vértice  || para el fragment shader, al parecer usa un sist. coords distinto (abs from top left)
+    @location(1) idx: f32, // Índice de instancia
+    @location(3) quadpos: vec2f,
 };
 
 // de momento N = manualmente, luego veo cómo pasar N a este shader.
@@ -61,29 +70,27 @@ struct VertexOutput{
 @vertex
 fn vertexMain(input: VertexInput) -> VertexOutput   {
 
-    let ar = canvasdims.x / canvasdims.y;
-    //convertir de clip space [-1 1] a [canvasmin canvasmax]
-    var pabs = input.pos * canvasdims;
+    let idx = input.instance;
 
-    //actualmente los vértices están en las esquinas del clipspace. Los hago cuadrados:
-    let pradius = f32(1);
-    pabs = (pabs / canvasdims) * pradius; // particle size
+    let ancho = params.ancho;
+    let alto = params.alto;
+    let ar = ancho/alto;
+
     
-    //desplazar instancias
-    let idx = f32(input.instance);
 
-    pabs = pabs + updatedpositions[input.instance].xy;
-
-    //volver a clip space
-    let pfinal = pabs / canvasdims;
+    let diameter = f32(0.02); // diámetro en clip space
 
     // OUTPUT
     var output: VertexOutput;
-    output.pos = vec4f(pfinal, 0, 1);
-    //output.pcoord = output.pos.xy;
-    output.idx = idx;
-    return output;
+    output.pos = vec4f( input.pos.x      * diameter + updatedpositions[idx].x/ancho, // Se trabajó con coordenadas absolutas, y ahora se pasan a relativas
+                        input.pos.y * ar * diameter + updatedpositions[idx].y/alto,
+                        0, 1);
 
+    output.idx = f32(idx); // índice de cada instancia, pasado a float para el fragment shader
+
+    output.quadpos = input.pos;
+
+    return output;
 }
 
 
@@ -93,16 +100,13 @@ fn vertexMain(input: VertexInput) -> VertexOutput   {
 @fragment   
 fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {  // @location(n) está asociado al índice n del colorAttachment en el renderpass a utilizar
 
-    //let offset = vec2f(-0.2, 0);
-    //let ppos = input.ppos.xy;
+    let r = length(input.quadpos);
+    if r > 1 { discard; }
 
-    //let diff = vec2f(input.pos-ppos/10000);
-    let px = input.pos.x / 1000;
-    let py = input.pos.y;
+    let negro = step (r, 0.85);
 
-    //let dist = f32( length(diff) );
-
-    return vec4f(input.idx/10000, 1-input.idx/10000, 0, 1 );
+    let idx = input.idx;
+    return vec4f(1*negro, (idx/params.n)*negro, 0, 1 );
 
 }
 
@@ -418,7 +422,7 @@ export function renderShaderNBody() { return /*wgsl*/`
 `
 }
 
-export function renderShaderNBodyB() { return /*wgsl*/`     // Dibuja particulas radiales sin requerer vertex buffers extra
+export function renderShaderNBodyB() { return /*wgsl*/`     // Dibuja particulas radiales sin requerir vertex buffers extra
 
     struct Params {
         deltaTime: f32,
