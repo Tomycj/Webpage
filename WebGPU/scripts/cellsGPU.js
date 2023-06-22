@@ -40,7 +40,7 @@ const SAMPLE_SETUP = {
 	]
 }
 let N = 0; // number of particles
-var rng;
+let rng;
 let frame = 0; // simulation steps
 let animationId, paused = true;
 const canvasDims = new Float32Array ([canvas.width, canvas.height]);
@@ -49,6 +49,7 @@ let rules = [];   // cada elemento es una regla, formada por un objeto que la de
 let D = []; // "diccionario" que asocia cada indice de una matriz al indice de cada familia que tenga interacciones.
 let m = []; // matriz triangular que codifica las interacciones entre familias.
 let bytesDist = []; // bytes ocupados por cada una de las tablas de distancias entre partículas a computar.
+let listaInteracciones = [];
 let updatingParameters = true;
 let resetPositions = true;
 let editingBuffers = true;
@@ -83,14 +84,15 @@ async function readBuffer(device, buffer) {
 }
 
 // Funciones varias
-function getSeed(htmlElement){
-	if (htmlElement.value == "") {
-		const seed = Math.random().toFixed(7).toString();
-		htmlElement.value = seed;
-		return seed;
-	}
-	return htmlElement.value;
 
+function setRNG(seed) {
+	//console.log(`setRNG(${seed}) called`)
+
+	if (seed == "") {
+		seed = Math.random().toFixed(7).toString();
+		seedInput.placeholder = seed;
+	}
+	rng = new alea(seed);
 }
 function hexString_to_rgba(hexString, a){
 	
@@ -120,8 +122,6 @@ function randomVelocity(){
 	]);
 }
 function crearPosiVel(n){
-
-	rng = new alea(getSeed(seedInput)); // Resetear la seed
 
 	const buffer = new ArrayBuffer(n * 7 * 4) // n partículas, cada una tiene 28B (4*4B para la pos y 3*4B para la vel)
 
@@ -191,7 +191,7 @@ function matrizDistancias(rule) { // actualiza la matriz triangular de interacci
 		a = b;
 		b = temp;
 	}
-	//console.table(D);
+	// console.table(D);
 
 	// Agregar la nueva interacción a la matriz triangular de interacciones (Se le suma 1 a la casilla correspondiente)
 
@@ -201,15 +201,14 @@ function matrizDistancias(rule) { // actualiza la matriz triangular de interacci
 	//console.table(m);
 
 	// Si es una interacción nueva, habrá que añadir al buffer espacio para esas distancias
-	if (m[fil][col] == 1) {
+/* 	if (m[fil][col] == 1) { // obsoleto, lo hago de una luego de llamar varias veces a esta función.
 		//console.log("Interacción nueva");
 		const nTargets = elementaries[targetIndex].posiciones.length / 4;	// cantidad de partículas de la familia target
 		const nSources = elementaries[sourceIndex].posiciones.length / 4;
 
 		bytesDist.push(nTargets * nSources * 4); // 4 bytes (1 float, 1 distancia) por cada par target-source.
-
 	}
-
+ */
 }
 function crearElementary(nombre, color, cantidad, radio, posiciones, velocidades) {
 	if ( 
@@ -324,10 +323,12 @@ function importarSetup() {
 	fileInput.click();
 	});
 }
-function cargarSetup(setup) {  // reemplaza el setup actual.
+function cargarSetup(setup) {  // reemplaza el setup actual. Rellena aleatoriamente posiciones y velocidades
 	if (!hasSameStructure(setup, SAMPLE_SETUP)) { throw new Error("Falló la verificación, no es un objeto tipo setup")}
 
 	vaciarSelectors();
+
+	setRNG(setup.seed);
 	for (let elem of setup.elementaries) {
 		actualizarElemSelectors(elem);
 		const [pos, vel] = crearPosiVel(elem.cantidad);
@@ -337,7 +338,6 @@ function cargarSetup(setup) {  // reemplaza el setup actual.
 	for (let rule of setup.rules) {
 		actualizarRuleSelector(rule);
 	}
-	seedInput.value = setup.seed;
 	rules = setup.rules;
 	elementaries = setup.elementaries;
 	
@@ -414,10 +414,10 @@ function crearRule(ruleName, targetName, sourceName, intensity, quantumForce, mi
 function generarSetupClásico() {
 	const e = new Float32Array([]);
 	const elementaries = [
-		crearElementary("yellow", new Float32Array([1,1,0,1]), 300, 3, e, e),
-		crearElementary("red", new Float32Array([1,0,0,1]), 80, 4, e, e),
-		crearElementary("purple", new Float32Array([147/255,112/255,219/255,1]), 30, 5, e, e),
-		crearElementary("green", new Float32Array([0,128/255,0,1]), 5, 7, e, e),
+		crearElementary("yellow", new Float32Array([1,1,0,1]), 300, 3, e, e), //300
+		crearElementary("red", new Float32Array([1,0,0,1]), 80, 4, e, e),	//80
+		crearElementary("purple", new Float32Array([147/255,112/255,219/255,1]), 5, 5, e, e),	//30
+		crearElementary("green", new Float32Array([0,128/255,0,1]), 5, 7, e, e),				//5
 	];
 	
 	const rules = [
@@ -436,7 +436,28 @@ function generarSetupClásico() {
 	cargarSetup(setup)
 	console.log("Setup clásico cargado!")
 }
+function mostrarParamsArray (paramsArray, Ne) {
+	const debugHelp = ["N", "Ne", "ancho", "alto",];
+	let offset = 4;
+	for (let i = offset; i < offset+Ne; i++) {
+		debugHelp.push(`Acum (${i-offset})`);
+	} offset += Ne;
+	for (let i = offset; i < offset+Ne; i++) {
+		debugHelp.push(`Radio (${i-offset})`);
+	} offset += Ne;
+	for (let i = offset; i < offset+4*Ne; i+=4) {
+		debugHelp.push(`R (${Math.floor((i-offset)/4)})`);
+		debugHelp.push(`G (${Math.floor((i-offset)/4)})`);
+		debugHelp.push(`B (${Math.floor((i-offset)/4)})`);
+		debugHelp.push(`A (${Math.floor((i-offset)/4)})`);
+	}
 
+	const tabla = [];
+	for (let i = 0; i < paramsArray.length; i++) {
+		tabla.push([paramsArray[i], debugHelp[i]]);
+	}
+	console.table(tabla);
+}
 // EVENT HANDLING
 
 // panel de info
@@ -455,6 +476,7 @@ const creadorReglasTitle = document.getElementById("creadorreglasTitle");
 creadorReglasTitle.onclick = function () {document.getElementById("creadorreglas").hidden ^= true;}
 // seed input
 const seedInput = document.getElementById("seed");
+seedInput.onchange = function () { setRNG(seedInput.value);}
 // canvas color
 const bgColorPicker = document.getElementById("bgcolorpicker");
 bgColorPicker.onchange = function() { uiSettings.bgColor = hexString_to_rgba(bgColorPicker.value, 1); }
@@ -665,32 +687,68 @@ let velocitiesBuffer = [];
 function editBuffers(resetPosiVels) {
 
 	const Ne = elementaries.length;
+	const cantsAcum = [];
+	let acumulador = 0;
 	N = 0;
-	for (let elementary of elementaries) { N += elementary.cantidad; }
-
-	// Colores, radios y canvas
-	const colsYRads = new ArrayBuffer(Ne*5*4 + 8 + 4); 			// Ne*4 colores + Ne*1 radios, cada uno de éstos tiene 4 bytes. 8 bytes para los 2 límites
-
-	const cantParticulas = new Float32Array(colsYRads, 0, 1);
-	cantParticulas.set([N]);
-	const canvasDims = new Float32Array(colsYRads, 4, 2); 	// canvasDims. Podría hacerse aparte si hace falta.
-	canvasDims.set([canvas.width, canvas.height]);
-	const colores = new Float32Array(colsYRads, 4 + 8,  Ne*4);				// 4 elementos por cada color: [R1 G1 B1 A1, R2, G2, B2, A2, ...]
-	const radios = new Float32Array(colsYRads, 4 + 8 + Ne*4*4, Ne);			// byte offset de 16Ne, Ne radios: [r1, r2, r3, ...]
-
-	const colsYRadsArray = new Float32Array(colsYRads); // F32Array que referencia al buffer
-
-	for (let i=0; i < Ne ; i++) { // Llenar los arrays de colores y radios
-		colores.set(elementaries[i].color, i*4);
-		radios.set(elementaries[i].radio, i)
+	for (let elementary of elementaries) { 
+		N += elementary.cantidad;
+		acumulador += elementary.cantidad;
+		cantsAcum.push(acumulador);
 	}
 
+	// Colores, radios y canvas
+	const paramsArrBuffer = new ArrayBuffer(4 + 4 + 8 + Ne*4 + Ne*5*4); // Ne*4 colores + Ne*1 radios, cada uno de éstos tiene 4 bytes. 8 bytes para los 2 límites
+
+	const cantParticulas = new Float32Array(paramsArrBuffer, 0, 1);		// N
+	const cantElementaries = new Float32Array(paramsArrBuffer, 4, 1);	// Ne
+	const canvasDims = new Float32Array(paramsArrBuffer, 4 + 4, 2); 		// canvasDims. Podría hacerse aparte si hace falta.
+	
+	const cants = new Float32Array(paramsArrBuffer, 4 + 4 + 8, Ne);			// cantidades de cada familia, acumuladas
+	const radios = new Float32Array(paramsArrBuffer, 4 + 4 + 8 + Ne*4, Ne);			// byte offset de 16Ne, Ne radios: [r1, r2, r3, ...]
+	const colores = new Float32Array(paramsArrBuffer, 4 + 4 + 8 + Ne*4 + Ne*4,  Ne*4);				// 4 elementos por cada color: [R1 G1 B1 A1, R2, G2, B2, A2, ...]
+
+	cantParticulas.set([N]);	// Llenar los arrays
+	cantElementaries.set([Ne]);
+	canvasDims.set([canvas.width, canvas.height]);
+	
+	cants.set(cantsAcum);
+	for (let i=0; i < Ne ; i++) { 
+		radios.set([elementaries[i].radio], i);
+		colores.set(elementaries[i].color, i*4);
+	}
+	
+	const paramsArray = new Float32Array(paramsArrBuffer); // F32Array que referencia al buffer
+	
+	//mostrarParamsArray(paramsArray, Ne);
+
 	const uniformBuffer = device.createBuffer({
-		label: "Colores, radios y canvasDims",
-		size: colsYRadsArray.byteLength,
+		label: "N, Ne, canvasDims",
+		size: 4 + 4 + 8,
 		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
 	});
-	device.queue.writeBuffer(uniformBuffer, 0, colsYRadsArray)
+	device.queue.writeBuffer(uniformBuffer, 0, paramsArray, 0, 4) //buffer, bufferOffset, data, dataOffset, size ( ults 2 en elements por ser typed array)
+
+	const storageCants = device.createBuffer({
+		label: "cants",
+		size: Ne*4,
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+	});
+	device.queue.writeBuffer(storageCants, 0, paramsArray, 4, Ne) //4 elementos de offset: N,Ne, canvasdims.x, canvasdims.y
+
+	const storageRadios = device.createBuffer({
+		label: "radios",
+		size: Ne*4,
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+	});
+	device.queue.writeBuffer(storageRadios, 0, paramsArray, 4 + Ne, Ne)
+
+	const storageColores = device.createBuffer({
+		label: "colores",
+		size: Ne*4*4,
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+	});
+	device.queue.writeBuffer(storageColores, 0, paramsArray, 4 + Ne + Ne, Ne*4)
+
 
 	// Distancias
 
@@ -698,6 +756,7 @@ function editBuffers(resetPosiVels) {
 	D = [];
 	m = [];
 	bytesDist = [];
+	listaInteracciones = [];
 	let reglasActivas = [];
 
 	for (let rule of rules) {
@@ -711,8 +770,48 @@ function editBuffers(resetPosiVels) {
 		
 	}
 	//console.log(bytesDist)
-	//console.table(m); 
 	//console.table(D);
+	//console.table(m); 
+
+	//ordenar m según orden de elementaries
+	function reordenarMatrizYGenerarListas(m, D) {
+		const mtemp = m.map(innerArray => innerArray.slice());
+
+		const D1 = [];
+		for (let elem of D) {
+			D1.push(elem[1]);
+		}
+	
+		const lim = D1.length;
+		let temp = 0;
+		let fm = 0;
+		let cm = 0;
+	
+		for (let f = 0; f < lim; f++) {
+			for (let c = f; c < lim; c++ ) {
+				fm = D1[f];
+				cm = D1[c];
+				if (fm > cm) { // asegurarme que tomo la mitad superior de m
+					temp = fm;
+					fm = cm;
+					cm = temp;
+				}
+				m[f][c] = mtemp[fm][cm]; 
+
+				if (m[f][c] > 0) { //lenar bytesDist y crear lista de pares
+					bytesDist.push(elementaries[f].cantidad * elementaries[c].cantidad * 4);
+					listaInteracciones.push([f,c]);
+				}
+			}
+		}
+		return m;
+	}
+	m = reordenarMatrizYGenerarListas(m, D);
+
+	//console.table(m);
+	//console.log(bytesDist);
+	//console.log(listaInteracciones);
+	
 
 	//const distanciasArray = new Float32Array()
 
@@ -788,11 +887,12 @@ function editBuffers(resetPosiVels) {
 
 		resetPositions = false;
 	}
-
+	editingBuffers = false;
 	return {
 		positionBuffers,
 		velocitiesBuffer,
 		uniformBuffer, 
+		storageBuffers: [storageCants, storageRadios, storageColores],
 		distanciasBuffer,
 		reglasBuffer,
 	}
@@ -801,7 +901,8 @@ function editBuffers(resetPosiVels) {
 function updateSimulationParameters() {
 
 	console.log("Updating simulation parameters...");
-	const rng = new alea(getSeed(seedInput)); // Resetear seed
+	// const rng = new alea(getSeed(seedInput)); // Resetear seed
+	setRNG(seedInput.value);
 
 	// SHADER SETUP
 
@@ -817,6 +918,7 @@ function updateSimulationParameters() {
 
 	// CREACIÓN DE BUFFERS
 	const GPUBuffers = editBuffers(editingBuffers); // diccionario con todos los buffers
+	const Ne = GPUBuffers.Ne;
 	//console.log(GPUBuffers)
 
 	// BIND GROUP SETUP
@@ -836,7 +938,7 @@ function updateSimulationParameters() {
 	const bindGroupLayoutResto = device.createBindGroupLayout({
 		label: "Resto Bind Group Layout",
 		entries: [{
-			binding: 0, // colores, radios y canvas
+			binding: 0, // N, Ne, canvasDims
 			visibility: GPUShaderStage.VERTEX | GPUShaderStage.COMPUTE | GPUShaderStage.FRAGMENT,
 			buffer: {}
 		}, {
@@ -851,6 +953,18 @@ function updateSimulationParameters() {
 			binding: 3, // distancias
 			visibility: GPUShaderStage.COMPUTE,
 			buffer: { type: "storage" }
+		}, {
+			binding: 4, // cantidades de cada familia
+			visibility: GPUShaderStage.COMPUTE | GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+			buffer: { type: "read-only-storage" }
+		}, {
+			binding: 5, // radios
+			visibility: GPUShaderStage.COMPUTE | GPUShaderStage.VERTEX,
+			buffer: { type: "read-only-storage" }
+		}, {
+			binding: 6, //colores
+			visibility: GPUShaderStage.FRAGMENT,
+			buffer: { type: "read-only-storage" }
 		}]
 	});
 
@@ -881,8 +995,8 @@ function updateSimulationParameters() {
 			label: "Resto bind group",
 			layout: bindGroupLayoutResto,
 			entries: [{
-				binding: 0,
-				resource: { buffer: GPUBuffers.uniformBuffer } // colores, radios y canvas
+				binding: 0,	// N, Ne, canvasDims
+				resource: { buffer: GPUBuffers.uniformBuffer, } 
 			}, {
 				binding: 1,
 				resource: { buffer: GPUBuffers.velocitiesBuffer }
@@ -892,6 +1006,19 @@ function updateSimulationParameters() {
 			}, {
 				binding: 3,
 				resource: { buffer: GPUBuffers.distanciasBuffer }
+			}, {
+				binding: 4, // cantidades de cada familia
+				resource: { 
+					buffer: GPUBuffers.storageBuffers[0], 
+					//offset: 0, // min: 256
+					//size: Ne * 4
+				}
+			}, {
+				binding: 5, // radios de cada familia
+				resource: { buffer: GPUBuffers.storageBuffers[1], }
+			}, {
+				binding: 6,	// colores de cada familia
+				resource: { buffer: GPUBuffers.storageBuffers[2], }
 			}],
 		})
 	];
@@ -945,19 +1072,22 @@ const renderPassDescriptor = {	//Parámetros para el render pass que se ejecutar
 };
 
 // Lo que sigue es rendering (y ahora compute) code, lo pongo adentro de una función para loopearlo
-
+let workgroupCount;
+let workgroupCount2;
 async function newFrame(){
 
 	if ( updatingParameters ){	// Rearmar buffers y pipeline
 		frame = 0;
 		updateSimulationParameters();
+		workgroupCount = Math.ceil(N / WORKGROUP_SIZE);
+		console.log( `N/workgroup size: ${N} / ${WORKGROUP_SIZE} = ${N/WORKGROUP_SIZE}\nworkgroup count: ${workgroupCount}`);
 		console.log("updated!");
+		workgroupCount2 = Math.ceil(N / WORKGROUP_SIZE);
 		updatingParameters = false;
 	}
 
 	if ( editingBuffers ) {
 		editBuffers();
-		editingBuffers = false;
 	}
 
 	const encoder = device.createCommandEncoder();
@@ -971,13 +1101,19 @@ async function newFrame(){
 	computePass.setPipeline(simulationPipeline);
 	computePass.setBindGroup(0, bindGroups[frame % 2]); // posiciones alternantes
 	computePass.setBindGroup(1, bindGroups[2]); // lo demás
-
 	/* El compute shader se ejecutará N veces. El workgroup size es 64, entonces despacho ceil(N/64) workgroups, todos en el eje x. */
-
-	const workgroupCount = Math.ceil(N / WORKGROUP_SIZE);
 	computePass.dispatchWorkgroups(workgroupCount, 1, 1); // Este vec3<u32> tiene su propio @builtin en el compute shader.
-
 	computePass.end();
+
+	const computePass2 = encoder.beginComputePass();
+	computePass.setPipeline(simulationPipeline);
+	computePass.setBindGroup(0, bindGroups[frame % 2]); // posiciones alternantes
+	computePass.setBindGroup(1, bindGroups[2]); 		// lo demás
+	computePass.dispatchWorkgroups(workgroupCount, 1, 1); // Este vec3<u32> tiene su propio @builtin en el compute shader.
+	computePass.end();
+
+
+
 
 	if (timer) {	 // Timestamp - after compute pass
 		encoder.writeTimestamp(querySet, 1);

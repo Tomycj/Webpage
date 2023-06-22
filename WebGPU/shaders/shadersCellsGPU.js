@@ -1,15 +1,95 @@
+export function computeDistancesShader() { return /*wgsl*/`
+
+    // cálculo secuencial de todas las distancias
+    for (var i: u32 = 0; i < list.length; i++) {
+        elementary_f = list[i][0];
+        elementary_c = list[i][1];
+
+        if (elementary_f != elementary_c) {
+            for (var f: u32 = 0; f < cants[elementary_f], f++) {
+                for (var c: u32 = 0; c < cants[elementary_c], c++) {
+                    
+                    p1 = vec2f(
+                        posiciones[cants[elementary_c] * 4 + c * 4 + 0],
+                        posiciones[cants[elementary_c] * 4 + c * 4 + 1]
+                        //,
+                        //posiciones[cants[elementary_c] * 4 + c * 4 + 2], // = 0 (2d)
+                        //posiciones[cants[elementary_c] * 4 + c * 4 + 3], // = 1
+                    );
+                    p2 = vec2f(
+                        posiciones[cants[elementary_f] * 4 + f * 4 + 0],
+                        posiciones[cants[elementary_f] * 4 + f * 4 + 1]
+                        //,
+                        //posiciones[cants[elementary_f] * 4 + f * 4 + 2], // = 0 (2d)
+                        //posiciones[cants[elementary_f] * 4 + f * 4 + 3], // = 1
+                    );
+
+                    //distancias[i][f][c]
+                    //distancias[cantidad en bloques previos + fila*numColumnas + columa]
+                    distancias[ cantidadEnBloquesPrevios + f * cants(elementary_c) + c] = distance(p1,p2);
+                }
+            }
+        } else {
+            // lo mismo pero optimizando porque la matriz es simétrica
+        }
+    }
+
+    @group(0) @binding(0) var<storage, read> positionsIn: array<vec4f>;
+
+    @group(1) @binding(3) var<storage, read_write> distancias: array<f32>;
+    @group(1) @binding(4) var<storage> cantidades: array<f32>; //cantidades acumuladas
+
+    //let vector = array<f32,6>(1,2,3,4,5,6);
+
+    cants = cantidades no acumuladas: array<f32,ne>
+    cantsAcum2 = cantidades acumuladas - cants: array<f32,ne>
+    list = lista de interacciones: array<vec2f,nints>
+    ndists = cantidades de distancias = bytesdist/4: array<f32,nints>
+
+    // cálculo paralelizado
+    const n = bytesDist/4 - 1 // cantidad total de distancias a calcular - 1.
+
+    @compute
+    @workgroup_size(constante, 1, 1) // el tercer parámetro (z) es default 1.
+    fn computeMain(@builtin(global_invocation_id) ind: vec3u) {
+
+        let i = ind.x; // index global
+        if i > n {
+            return;
+        }
+
+        let f = 
+        let c =
+
+
+    }
+
+
+`;
+}
+
 export function computeShader() { return /*wgsl*/`
+
+    struct Params {
+        n: f32,
+        ne: f32,
+        ancho: f32,
+        alto: f32,
+    }
 
     @group(0) @binding(0) var<storage, read> positionsIn: array<vec4f>; // read only
     @group(0) @binding(1) var<storage, read_write> positionsOut: array<vec4f>; //al poder write, lo uso como output del shader
 
-    @group(1) @binding(0) var<uniform> canvas_col_rad: vec2f; // recibir el grid size de un uniform buffer
+    @group(1) @binding(0) var<uniform> params: Params; // parameters
     @group(1) @binding(1) var<storage, read_write> velocity: array<vec2<f32>>; //al poder write, lo uso como output del shader
     @group(1) @binding(2) var<uniform> rules: vec2f;
-    @group(1) @binding(3) var<storage, read_write> distancias: array<vec2<f32>>;
+    @group(1) @binding(3) var<storage, read_write> distancias: array<f32>;
+    @group(1) @binding(4) var<storage> cantidades: array<f32>; // Aunque es constante, como no sé el largo del array a priori, necesito usar storage
+    @group(1) @binding(5) var<storage> radios: array<f32>;
+    //@group(1) @binding(6) var<storage> colores: array<vec4f>;
+    
 
     override constante = 64; // Este valor es el default, si "constante" no está definida en constants de la pipeline.
-    override N = 100;
 
     fn attractor( posi: vec2f, posj: vec2f , k: f32, rmin: f32) -> vec2f {
 
@@ -27,9 +107,38 @@ export function computeShader() { return /*wgsl*/`
     @workgroup_size(constante, 1, 1) // el tercer parámetro (z) es default 1.
     fn computeMain(@builtin(global_invocation_id) ind: vec3u){
 
-        let i = ind.x;
-        positionsOut[i] = positionsIn[i] + vec4f(0.1,0.1,0,0);
+        //var arraydematrices2d = array<array<array<f32>>>;
 
+
+        let i = ind.x; // index global
+        let n = u32(params.n);
+
+        if i > n-1 {
+            return;
+        }
+        
+        var k = u32(0);
+
+        while i > u32(cantidades[k])-1 { // si cantidades[k] es 3, los índices locales van de 0 a 2
+            k++;
+        }
+        
+        let k2 = f32(k);
+        
+        var vel = f32(0);
+        if k2 == 0 {
+            vel = 0;
+        } else if k2 == 1 {
+            vel = 1;
+        } else if k2 == 2 {
+            vel = 2;
+        } else if k2 == 3 {
+            vel = 3;
+        } else {
+            vel = -1;
+        }
+        
+        positionsOut[i] = positionsIn[i] + vec4f( 0 + vel , 0, 0, 0);
 
     }
 `;
@@ -39,6 +148,7 @@ export function renderShader() { return /*wgsl*/`
 
     struct Params {
         n: f32,
+        ne: f32,
         ancho: f32,
         alto: f32,
     }
@@ -46,10 +156,13 @@ export function renderShader() { return /*wgsl*/`
     @group(0) @binding(0) var<storage, read> updatedpositions: array<vec4<f32>>; // read only
     //@group(0) @binding(1) var<storage, read_write> unused: array<vec4<f32>>; // PositionsOut de compute. Coordenadas absolutas
 
-    @group(1) @binding(0) var<uniform> params: Params; // canvas_col_rad
-    @group(1) @binding(1) var<storage, read_write> velocity: array<vec2<f32>>; //al poder write, lo uso como output del shader
-    @group(1) @binding(2) var<uniform> rules: vec2f;
-    @group(1) @binding(3) var<storage, read_write> distancias: array<vec2<f32>>;
+    @group(1) @binding(0) var<uniform> params: Params; // parameters
+    //@group(1) @binding(1) var<storage, read_write> velocity: array<vec2<f32>>; //al poder write, lo uso como output del shader
+    //@group(1) @binding(2) var<uniform> rules: vec2f;
+    //@group(1) @binding(3) var<storage, read_write> distancias: array<f32>;
+    @group(1) @binding(4) var<storage> cantidades: array<f32>; // Aunque es constante, como no se el largo del array a priori, necesito usar storage
+    @group(1) @binding(5) var<storage> radios: array<f32>;
+    @group(1) @binding(6) var<storage> colores: array<vec4f>;
 
 // VERTEX SHADER
 
@@ -65,7 +178,6 @@ struct VertexOutput{
     @location(3) quadpos: vec2f,
 };
 
-// de momento N = manualmente, luego veo cómo pasar N a este shader.
 
 @vertex
 fn vertexMain(input: VertexInput) -> VertexOutput   {
@@ -76,9 +188,13 @@ fn vertexMain(input: VertexInput) -> VertexOutput   {
     let alto = params.alto;
     let ar = ancho/alto;
 
+    var k = u32(0);
+    while idx >= u32(cantidades[k]) {
+        k++;
+    }
     
 
-    let diameter = f32(0.02); // diámetro en clip space
+    let diameter = f32(radios[k])*2/ancho; // diámetro en clip space
 
     // OUTPUT
     var output: VertexOutput;
@@ -103,10 +219,24 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {  // @location(n) es
     let r = length(input.quadpos);
     if r > 1 { discard; }
 
-    let negro = step (r, 0.85);
+    var idx = input.idx;
 
-    let idx = input.idx;
-    return vec4f(1*negro, (idx/params.n)*negro, 0, 1 );
+    if idx == 0 {
+        idx = 0;
+    }
+
+
+    var k = u32(0);
+    while idx >= cantidades[k] {
+        k++;
+    }
+
+    let negro = step (r, 0.8);
+    let colnegro = vec4f(negro, negro, negro, 1);
+
+    //return vec4f(1*negro, (idx/params.n)*negro, 0, 1 );
+    
+    return colores[k]*colnegro;
 
 }
 
