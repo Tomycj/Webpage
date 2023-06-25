@@ -55,17 +55,22 @@ export async function inicializarCells(){
 
 	let device;
 	let timer = false;
+	const requiredLimits = {
+		//minStorageBufferOffsetAlignment: 16
+		maxStorageBuffersPerShaderStage: 5
+	}
 	try{
 		device = await adapter.requestDevice({
-			 	requiredFeatures: ["timestamp-query"],/* Guarda que es inseguro porque facilita ataques 
-				 que usan el timing de la gpu C:\Program Files (x86)\Google\Chrome\Application>chrome.exe --disable-dawn-features=disallow_unsafe_apis */
-				//requiredLimits: {minStorageBufferOffsetAlignment: 16} 
-			}); 
+			requiredFeatures: ["timestamp-query"],
+			/* ^ Guarda que es inseguro porque facilita ataques que usan el timing de la gpu 
+			C:\Program Files (x86)\Google\Chrome\Application>chrome.exe --disable-dawn-features=disallow_unsafe_apis */
+			requiredLimits: requiredLimits
+		});
 		console.log("Advertencia: usando device con timestamp-query");
 		timer = true;
 	} catch(error) {
 		device = await adapter.requestDevice({
-			//requiredLimits: {minStorageBufferOffsetAlignment: 16}
+			requiredLimits: requiredLimits,
 		});
 		console.log("Usando device sin timestamp-query");
 		console.log("[Chrome] Para habilitar, cerrar el navegador y reabrirlo desde la consola con la flag --disable-dawn-features=disallow_unsafe_apis");

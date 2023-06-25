@@ -1,6 +1,7 @@
 import { inicializarCells } from "./misFunciones.js";
 import { renderShader } from "../shaders/shadersCellsGPU.js";
 import { computeShader } from "../shaders/shadersCellsGPU.js";
+import { computeDistancesShader } from "../shaders/shadersCellsGPU.js";
 // ref https://www.cg.tuwien.ac.at/research/publications/2023/PETER-2023-PSW/PETER-2023-PSW-.pdf
 
 const [device, canvas, canvasFormat, context, timer] = await inicializarCells();
@@ -39,7 +40,10 @@ const SAMPLE_SETUP = {
 		},
 	]
 }
-let N = 0; // number of particles
+let N = 0; 	// cantidad total de partículas
+let Nd;		// cantidad total de distancias relevantes entre partículas
+let workgroupCount;		// workgroups para ejecutar reglas de interacción
+let workgroupCount2; 	// worgroups para calcular distancias entre partículas
 let rng;
 let frame = 0; // simulation steps
 let animationId, paused = true;
@@ -416,7 +420,7 @@ function generarSetupClásico() {
 	const elementaries = [
 		crearElementary("yellow", new Float32Array([1,1,0,1]), 300, 3, e, e), //300
 		crearElementary("red", new Float32Array([1,0,0,1]), 80, 4, e, e),	//80
-		crearElementary("purple", new Float32Array([147/255,112/255,219/255,1]), 5, 5, e, e),	//30
+		crearElementary("purple", new Float32Array([147/255,112/255,219/255,1]), 30, 5, e, e),	//30
 		crearElementary("green", new Float32Array([0,128/255,0,1]), 5, 7, e, e),				//5
 	];
 	
@@ -676,6 +680,7 @@ const vertexBufferLayout = {
 };
 
 let simulationPipeline;
+let simulationPipeline2;
 let bindGroups = [];
 let particleRenderPipeline;
 
@@ -688,76 +693,80 @@ function editBuffers(resetPosiVels) {
 
 	const Ne = elementaries.length;
 	const cantsAcum = [];
-	let acumulador = 0;
+	const cantsAcum2 = [];
+	const cants = [];
 	N = 0;
 	for (let elementary of elementaries) { 
-		N += elementary.cantidad;
-		acumulador += elementary.cantidad;
-		cantsAcum.push(acumulador);
+		const nLocal = elementary.cantidad;
+		N += nLocal; // N también hace de acumulador para este for.
+		cantsAcum.push(N);
+		cants.push(nLocal);
+		cantsAcum2.push(N - nLocal);
 	}
 
-	// Colores, radios y canvas
-	const paramsArrBuffer = new ArrayBuffer(4 + 4 + 8 + Ne*4 + Ne*5*4); // Ne*4 colores + Ne*1 radios, cada uno de éstos tiene 4 bytes. 8 bytes para los 2 límites
+	// Parámetros de longitud fija los pongo en un ArrayBuffer
+	const paramsArrBuffer = new ArrayBuffer(4 + 4 + 8); // Ne*4 colores + Ne*1 radios, cada uno de éstos tiene 4 bytes. 8 bytes para los 2 límites
 
 	const cantParticulas = new Float32Array(paramsArrBuffer, 0, 1);		// N
 	const cantElementaries = new Float32Array(paramsArrBuffer, 4, 1);	// Ne
-	const canvasDims = new Float32Array(paramsArrBuffer, 4 + 4, 2); 		// canvasDims. Podría hacerse aparte si hace falta.
+	const canvasDims = new Float32Array(paramsArrBuffer, 4 + 4, 2); 	// canvasDims. Podría hacerse aparte si hace falta.
 	
-	const cants = new Float32Array(paramsArrBuffer, 4 + 4 + 8, Ne);			// cantidades de cada familia, acumuladas
-	const radios = new Float32Array(paramsArrBuffer, 4 + 4 + 8 + Ne*4, Ne);			// byte offset de 16Ne, Ne radios: [r1, r2, r3, ...]
-	const colores = new Float32Array(paramsArrBuffer, 4 + 4 + 8 + Ne*4 + Ne*4,  Ne*4);				// 4 elementos por cada color: [R1 G1 B1 A1, R2, G2, B2, A2, ...]
-
-	cantParticulas.set([N]);	// Llenar los arrays
+	cantParticulas.set([N]);	
 	cantElementaries.set([Ne]);
 	canvasDims.set([canvas.width, canvas.height]);
+
+	const paramsArray = new Float32Array(paramsArrBuffer); // F32Array que referencia al buffer
+
+	// Parámetros de longitud variable
+	const cantsAcumArray = new Float32Array(cantsAcum);			// cantidades de cada familia, acumuladas
+	const radios = new Float32Array(Ne);			// byte offset de 16Ne, Ne radios: [r1, r2, r3, ...]
+	const colores = new Float32Array(Ne*4);				// 4 elementos por cada color: [R1 G1 B1 A1, R2, G2, B2, A2, ...]
 	
-	cants.set(cantsAcum);
 	for (let i=0; i < Ne ; i++) { 
 		radios.set([elementaries[i].radio], i);
 		colores.set(elementaries[i].color, i*4);
 	}
 	
-	const paramsArray = new Float32Array(paramsArrBuffer); // F32Array que referencia al buffer
-	
 	//mostrarParamsArray(paramsArray, Ne);
 
 	const uniformBuffer = device.createBuffer({
-		label: "N, Ne, canvasDims",
+		label: "N, Ne, canvasDims buffer",
 		size: 4 + 4 + 8,
 		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
 	});
 	device.queue.writeBuffer(uniformBuffer, 0, paramsArray, 0, 4) //buffer, bufferOffset, data, dataOffset, size ( ults 2 en elements por ser typed array)
 
-	const storageCants = device.createBuffer({
-		label: "cants",
+	const storageCantsAcum = device.createBuffer({
+		label: "cantsAcum buffer",
 		size: Ne*4,
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 	});
-	device.queue.writeBuffer(storageCants, 0, paramsArray, 4, Ne) //4 elementos de offset: N,Ne, canvasdims.x, canvasdims.y
+	device.queue.writeBuffer(storageCantsAcum, 0, cantsAcumArray) //4 elementos de offset: N,Ne, canvasdims.x, canvasdims.y
 
 	const storageRadios = device.createBuffer({
-		label: "radios",
+		label: "radios buffer",
 		size: Ne*4,
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 	});
-	device.queue.writeBuffer(storageRadios, 0, paramsArray, 4 + Ne, Ne)
+	device.queue.writeBuffer(storageRadios, 0, radios)
 
 	const storageColores = device.createBuffer({
-		label: "colores",
+		label: "colores buffer",
 		size: Ne*4*4,
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 	});
-	device.queue.writeBuffer(storageColores, 0, paramsArray, 4 + Ne + Ne, Ne*4)
+	device.queue.writeBuffer(storageColores, 0, colores)
 
 
 	// Distancias
 
-	// genero la lista de matrices de distancias? capaz en la gpu eso
 	D = [];
 	m = [];
-	bytesDist = [];
-	listaInteracciones = [];
-	let reglasActivas = [];
+	//bytesDist = [];
+	let listaInteracciones = [];
+	let cantsDistanciasAcums = [];
+	let cantsDistanciasAcum2 = [];
+	const reglasActivas = [];
 
 	for (let rule of rules) {
 		//verificar si esta regla está en uso (ambos target y source tienen que estar en elementaries)
@@ -773,9 +782,9 @@ function editBuffers(resetPosiVels) {
 	//console.table(D);
 	//console.table(m); 
 
-	//ordenar m según orden de elementaries
+	//ordenar m según orden de elementaries, calcular Nd, generar listas de interacciones y cantidades de distancias
 	function reordenarMatrizYGenerarListas(m, D) {
-		const mtemp = m.map(innerArray => innerArray.slice());
+		const mtemp = m.map(innerArray => innerArray.slice()); // Copia independiente de m (deep clone)
 
 		const D1 = [];
 		for (let elem of D) {
@@ -783,44 +792,90 @@ function editBuffers(resetPosiVels) {
 		}
 	
 		const lim = D1.length;
-		let temp = 0;
-		let fm = 0;
-		let cm = 0;
-	
-		for (let f = 0; f < lim; f++) {
+		let Nd = 0;
+		const listaInteracciones = [];
+		let cantsDistanciasAcums = []; // [cantsDistanciasAcums, cantsDistanciasAcums2]
+
+		for (let f = 0; f < lim; f++) { //Recorro la matriz triangular de interacciones
 			for (let c = f; c < lim; c++ ) {
-				fm = D1[f];
-				cm = D1[c];
+				let fm = D1[f];
+				let cm = D1[c];
 				if (fm > cm) { // asegurarme que tomo la mitad superior de m
-					temp = fm;
+					const temp = fm;
 					fm = cm;
 					cm = temp;
 				}
 				m[f][c] = mtemp[fm][cm]; 
 
-				if (m[f][c] > 0) { //lenar bytesDist y crear lista de pares
-					bytesDist.push(elementaries[f].cantidad * elementaries[c].cantidad * 4);
+				if (m[f][c] > 0) { //lenar bytesDist y crear lista de pares de elementaries y cant. de distancias
+					
+					const ndLocal = elementaries[f].cantidad * elementaries[c].cantidad;
+					Nd += ndLocal; // Nd también hace de acumulador para este for.
+
+					cantsDistanciasAcums.push([Nd, Nd-ndLocal]);
+
+					//bytesDist.push(ndLocal * 4);
+
 					listaInteracciones.push([f,c]);
 				}
 			}
 		}
-		return m;
+		cantsDistanciasAcums = cantsDistanciasAcums.flat();
+		return [m, Nd, listaInteracciones, cantsDistanciasAcums];
 	}
-	m = reordenarMatrizYGenerarListas(m, D);
+
+	[m, Nd, listaInteracciones, cantsDistanciasAcums] = reordenarMatrizYGenerarListas(m, D);
 
 	//console.table(m);
 	//console.log(bytesDist);
 	//console.log(listaInteracciones);
 	
-
 	//const distanciasArray = new Float32Array()
-
 	const distanciasBuffer = device.createBuffer({
-		label: "Distancias",
-		size: bytesDist.reduce((a, b) => a + b, 0), // suma de todos los bytes de cada una de las matrices distancia
+		label: "Distancias buffer",
+		size: Nd*4, //bytesDist.reduce((a, b) => a + b, 0), // suma de todos los bytes de cada una de las matrices distancia
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, // storage porque entre cada frame las distancias cambian
 	});
 	//device.queue.writeBuffer(distanciasBuffer, 0, distanciasArray); // veo si puedo pasar el buffer vacío para rellenarlo en GPU.
+
+	const NdUniformBuffer = device.createBuffer({
+		label: "Nd buffer",
+		size: 4,
+		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+	});
+	device.queue.writeBuffer(NdUniformBuffer, 0, new Uint32Array([Nd]));
+
+	const listInteracciones = new Uint32Array(listaInteracciones.flat())
+	const listInteraccionesBuffer = device.createBuffer({
+		label: "list interacciones buffer",
+		size: listInteracciones.byteLength,
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+	});
+	device.queue.writeBuffer(listInteraccionesBuffer, 0, listInteracciones);
+
+	const cantsArray = new Uint32Array(cants);
+	const cantsBuffer = device.createBuffer({
+		label: "cants buffer",
+		size: cantsArray.byteLength,
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+	})
+	device.queue.writeBuffer(cantsBuffer, 0, cantsArray);
+
+	const cantsAcum2Array = new Uint32Array(cantsAcum2);
+	const cantsAcum2Buffer = device.createBuffer({
+		label: "cantsAcum2 buffer",
+		size: cantsAcum2Array.byteLength,
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+	})
+	device.queue.writeBuffer(cantsAcum2Buffer, 0, cantsAcum2Array);
+
+	const cantsDistanciasAcumsArray = new Uint32Array(cantsDistanciasAcums);
+	const cantsDistanciasAcumsBuffer = device.createBuffer({
+		label: "cantsDistanciasAcums buffer",
+		size:  cantsDistanciasAcumsArray.byteLength,
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+	})
+	device.queue.writeBuffer(cantsDistanciasAcumsBuffer, 0, cantsDistanciasAcumsArray);
 
 	// Reglas
 
@@ -892,11 +947,18 @@ function editBuffers(resetPosiVels) {
 		positionBuffers,
 		velocitiesBuffer,
 		uniformBuffer, 
-		storageBuffers: [storageCants, storageRadios, storageColores],
+		storageBuffers: [storageCantsAcum, storageRadios, storageColores],
 		distanciasBuffer,
 		reglasBuffer,
+		NdUniformBuffer,
+		listInteraccionesBuffer,
+		cantsBuffer,
+		cantsAcum2Buffer,
+		cantsDistanciasAcumsBuffer,
 	}
 }
+
+
 
 function updateSimulationParameters() {
 
@@ -904,17 +966,23 @@ function updateSimulationParameters() {
 	// const rng = new alea(getSeed(seedInput)); // Resetear seed
 	setRNG(seedInput.value);
 
-	// SHADER SETUP
+	// CREAR SHADERS
 
 	const particleShaderModule = device.createShaderModule({
 		label: "Particle shader",
 		code: renderShader(),
 	});
-
+	
 	const simulationShaderModule = device.createShaderModule({
 		label: "Compute shader",
-		code: computeShader(WORKGROUP_SIZE, N),
+		code: computeShader(),
 	})
+	
+	const distancesShaderModule = device.createShaderModule({
+		label: "Distances compute shader",
+		code: computeDistancesShader(),
+	})
+
 
 	// CREACIÓN DE BUFFERS
 	const GPUBuffers = editBuffers(editingBuffers); // diccionario con todos los buffers
@@ -968,6 +1036,31 @@ function updateSimulationParameters() {
 		}]
 	});
 
+	const bindGroupLayoutDist = device.createBindGroupLayout({
+		label: "distances comp bind groups layout",
+		entries: [{
+			binding: 0,	// Nd
+			visibility: GPUShaderStage.COMPUTE,
+			buffer: {}
+		}, {
+			binding: 1,	// list interacciones
+			visibility: GPUShaderStage.COMPUTE,
+			buffer: { type: "read-only-storage" }
+		}, {
+			binding: 2,	// cants (no acumuladas)
+			visibility: GPUShaderStage.COMPUTE,
+			buffer: { type: "read-only-storage" }
+		}, {
+			binding: 3, // cantsAcum2
+			visibility: GPUShaderStage.COMPUTE,
+			buffer: { type: "read-only-storage" }
+		}, {
+			binding: 4, // cantsDistsAcums
+			visibility: GPUShaderStage.COMPUTE,
+			buffer: { type: "read-only-storage"}
+		}]
+	})
+
 	bindGroups = [
 		device.createBindGroup({ // posiciones A
 			label: "Particle positions bind group A",
@@ -1020,6 +1113,26 @@ function updateSimulationParameters() {
 				binding: 6,	// colores de cada familia
 				resource: { buffer: GPUBuffers.storageBuffers[2], }
 			}],
+		}),
+		device.createBindGroup({
+			label: "Distances computation bindgroup",
+			layout: bindGroupLayoutDist,
+			entries: [{
+				binding: 0,
+				resource: { buffer: GPUBuffers.NdUniformBuffer}
+			}, {
+				binding: 1,
+				resource: { buffer: GPUBuffers.listInteraccionesBuffer}
+			}, {
+				binding: 2,
+				resource: { buffer: GPUBuffers.cantsBuffer}
+			}, {
+				binding: 3,
+				resource: { buffer: GPUBuffers.cantsAcum2Buffer}
+			}, {
+				binding: 4,
+				resource: { buffer: GPUBuffers.cantsDistanciasAcumsBuffer}
+			}]
 		})
 	];
 
@@ -1027,7 +1140,7 @@ function updateSimulationParameters() {
 
 	const pipelineLayout = device.createPipelineLayout({
 		label: "Pipeline Layout",
-		bindGroupLayouts: [ bindGroupLayoutPos, bindGroupLayoutResto ],
+		bindGroupLayouts: [ bindGroupLayoutPos, bindGroupLayoutResto, bindGroupLayoutDist ],
 	}); // El orden de los bind group layouts tiene que coincider con los atributos @group en el shader
 
 	// Crear una render pipeline (para usar vertex y fragment shaders)
@@ -1048,7 +1161,7 @@ function updateSimulationParameters() {
 		}
 	});
 
-	// COMPUTE PIPELINE 
+	// COMPUTE PIPELINES
 	simulationPipeline = device.createComputePipeline({
 		label: "Simulation pipeline",
 		layout: pipelineLayout,
@@ -1060,6 +1173,19 @@ function updateSimulationParameters() {
 			},
 		},
 	});
+
+	simulationPipeline2 = device.createComputePipeline({
+		label: "Distances pipeline",
+		layout: pipelineLayout,
+		compute: {
+			module: distancesShaderModule,
+			entryPoint: "computeMain",
+		},
+	});
+
+	workgroupCount = Math.ceil(N / WORKGROUP_SIZE);
+	workgroupCount2 = Math.ceil(Nd / WORKGROUP_SIZE);
+	updatingParameters = false;
 }
 
 const renderPassDescriptor = {	//Parámetros para el render pass que se ejecutará cada frame
@@ -1072,18 +1198,13 @@ const renderPassDescriptor = {	//Parámetros para el render pass que se ejecutar
 };
 
 // Lo que sigue es rendering (y ahora compute) code, lo pongo adentro de una función para loopearlo
-let workgroupCount;
-let workgroupCount2;
 async function newFrame(){
 
 	if ( updatingParameters ){	// Rearmar buffers y pipeline
 		frame = 0;
 		updateSimulationParameters();
-		workgroupCount = Math.ceil(N / WORKGROUP_SIZE);
 		console.log( `N/workgroup size: ${N} / ${WORKGROUP_SIZE} = ${N/WORKGROUP_SIZE}\nworkgroup count: ${workgroupCount}`);
 		console.log("updated!");
-		workgroupCount2 = Math.ceil(N / WORKGROUP_SIZE);
-		updatingParameters = false;
 	}
 
 	if ( editingBuffers ) {
@@ -1105,13 +1226,16 @@ async function newFrame(){
 	computePass.dispatchWorkgroups(workgroupCount, 1, 1); // Este vec3<u32> tiene su propio @builtin en el compute shader.
 	computePass.end();
 
+	
 	const computePass2 = encoder.beginComputePass();
-	computePass.setPipeline(simulationPipeline);
-	computePass.setBindGroup(0, bindGroups[frame % 2]); // posiciones alternantes
-	computePass.setBindGroup(1, bindGroups[2]); 		// lo demás
-	computePass.dispatchWorkgroups(workgroupCount, 1, 1); // Este vec3<u32> tiene su propio @builtin en el compute shader.
-	computePass.end();
+	computePass2.setPipeline(simulationPipeline2);
+	computePass2.setBindGroup(0, bindGroups[frame % 2]); // posiciones alternantes
+	computePass2.setBindGroup(1, bindGroups[2]);
+	computePass2.setBindGroup(2, bindGroups[3]);	// bind groups exclusivos para calcular las distancias
 
+	computePass2.dispatchWorkgroups(workgroupCount2, 1, 1); // Este vec3<u32> tiene su propio @builtin en el compute shader.
+	computePass2.end();
+	
 
 
 

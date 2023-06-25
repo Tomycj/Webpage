@@ -1,65 +1,82 @@
 export function computeDistancesShader() { return /*wgsl*/`
 
-    // cálculo secuencial de todas las distancias
-    for (var i: u32 = 0; i < list.length; i++) {
-        elementary_f = list[i][0];
-        elementary_c = list[i][1];
+    const constante = 64;
 
-        if (elementary_f != elementary_c) {
-            for (var f: u32 = 0; f < cants[elementary_f], f++) {
-                for (var c: u32 = 0; c < cants[elementary_c], c++) {
-                    
-                    p1 = vec2f(
-                        posiciones[cants[elementary_c] * 4 + c * 4 + 0],
-                        posiciones[cants[elementary_c] * 4 + c * 4 + 1]
-                        //,
-                        //posiciones[cants[elementary_c] * 4 + c * 4 + 2], // = 0 (2d)
-                        //posiciones[cants[elementary_c] * 4 + c * 4 + 3], // = 1
-                    );
-                    p2 = vec2f(
-                        posiciones[cants[elementary_f] * 4 + f * 4 + 0],
-                        posiciones[cants[elementary_f] * 4 + f * 4 + 1]
-                        //,
-                        //posiciones[cants[elementary_f] * 4 + f * 4 + 2], // = 0 (2d)
-                        //posiciones[cants[elementary_f] * 4 + f * 4 + 3], // = 1
-                    );
-
-                    //distancias[i][f][c]
-                    //distancias[cantidad en bloques previos + fila*numColumnas + columa]
-                    distancias[ cantidadEnBloquesPrevios + f * cants(elementary_c) + c] = distance(p1,p2);
-                }
-            }
-        } else {
-            // lo mismo pero optimizando porque la matriz es simétrica
-        }
-    }
-
-    @group(0) @binding(0) var<storage, read> positionsIn: array<vec4f>;
+    @group(0) @binding(0) var<storage, read> posiciones: array<vec4f>;
+    //@group(0) @binding(1) var<storage, read_write> positionsOut: array<vec4f>; 
 
     @group(1) @binding(3) var<storage, read_write> distancias: array<f32>;
-    @group(1) @binding(4) var<storage> cantidades: array<f32>; //cantidades acumuladas
+    @group(1) @binding(4) var<storage> cantidades: array<u32>; //cantidades acumuladas. length = ne
+    //@group(1) @binding(0) var<uniform> params: Params; // parameters
+    //@group(1) @binding(1) var<storage, read_write> velocity: array<vec2<f32>>; //al poder write, lo uso como output del shader
+    //@group(1) @binding(2) var<uniform> rules: vec2f;
+    //@group(1) @binding(5) var<storage> radios: array<f32>;
+    //@group(1) @binding(6) var<storage> colores: array<vec4f>;
+
+    @group(2) @binding(0) var<uniform> nd: u32; // cantidad total de distancias
+    @group(2) @binding(1) var<storage> list: array<vec2u>; // lista de interacciones (Y Y Y R Y P R R...). Length = 2*nd
+    @group(2) @binding(2) var<storage> cants: array<u32,constante>;   // cantidades no acumuladas. length = ne
+    @group(2) @binding(3) var<storage> cantsAcum2: array<u32>; // = cantidades-cants
+    @group(2) @binding(4) var<storage> distsAcums: array<vec2u>; // cantidades de distancias acumuladas de 2 formas. Len = nd
 
     //let vector = array<f32,6>(1,2,3,4,5,6);
 
-    cants = cantidades no acumuladas: array<f32,ne>
-    cantsAcum2 = cantidades acumuladas - cants: array<f32,ne>
-    list = lista de interacciones: array<vec2f,nints>
-    ndists = cantidades de distancias = bytesdist/4: array<f32,nints>
-
-    // cálculo paralelizado
-    const n = bytesDist/4 - 1 // cantidad total de distancias a calcular - 1.
+    //override constante = 64; // Este valor es el default, si "constante" no está definida en constants de la pipeline.
 
     @compute
     @workgroup_size(constante, 1, 1) // el tercer parámetro (z) es default 1.
     fn computeMain(@builtin(global_invocation_id) ind: vec3u) {
 
         let i = ind.x; // index global
-        if i > n {
+        if i >= nd {
             return;
         }
 
-        let f = 
-        let c =
+        // Determinar en qué índice de Distancias estoy
+        var k = 0;
+        while i >= distsAcums[k][0] { // ver si se puede hacer con distAcum2, así no necesito ambos arrays
+            k++;
+        }
+
+        // Determinar máx filas y máx columnas
+
+        let ef = list[k][0]; // índice del elementary en las filas
+        let ec = list[k][1];
+
+        let fmax = cants[ef];
+        let cmax = cants[ec];
+
+        // Determinar índice local
+        let il = i - distsAcums[k][1];
+
+        // Determinar en qué fila y columna local estoy
+        let f = il / (cmax + 1); // es conveniente que sea unsigned division
+        let c = il % (cmax + 1);
+
+        //TODO: optimizar para casos en donde la matriz de distancias es simétrica
+
+        // Calcular distancia
+
+        // let p1 = vec2f( // Está mal porque asume que posiciones es [x1 y1 z1 w1 x2 y2...] cuando es [p1, p2, p3]... con p = xyzw
+        //     posiciones[ cantsAcum2[ec]*4  + c*4 + 0 ],
+        //     posiciones[ cantsAcum2[ec]*4  + c*4 + 1 ]
+        //     //,
+        //     //posiciones[cants[cmax] * 4 + c * 4 + 2], // = 0 (2d)
+        //     //posiciones[cants[cmax] * 4 + c * 4 + 3], // = 1
+        // );
+        // let p2 = vec2f(
+        //     posiciones[ cantsAcum2[ef]*4 + f*4 + 0],
+        //     posiciones[ cantsAcum2[ef]*4 + f*4 + 1]
+        //     //,
+        //     //posiciones[cants[elementary_f] * 4 + f * 4 + 2], // = 0 (2d)
+        //     //posiciones[cants[elementary_f] * 4 + f * 4 + 3], // = 1
+        // );
+
+        let p1 = posiciones[ cantsAcum2[ec] + c].xy;
+        let p2 = posiciones[ cantsAcum2[ef] + f].xy;
+
+
+        distancias[i] = distance(p1,p2);
 
 
     }
@@ -113,13 +130,13 @@ export function computeShader() { return /*wgsl*/`
         let i = ind.x; // index global
         let n = u32(params.n);
 
-        if i > n-1 {
+        if i >= n {
             return;
         }
         
         var k = u32(0);
 
-        while i > u32(cantidades[k])-1 { // si cantidades[k] es 3, los índices locales van de 0 a 2
+        while i >= u32(cantidades[k]) { // si cantidades[k] es 3, los índices locales van de 0 a 2
             k++;
         }
         
