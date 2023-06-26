@@ -5,7 +5,7 @@
 		<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"> <!--Fuerza a re-cargar el cache-->
 		<link rel="stylesheet" href="../../styles/CellsGPU.css">
 		<link rel="icon" href="../../images/logoConstruccionLR.png" type="image/icon type">
-		<title>Cells GPU - vAlfa 0.7.0</title>
+		<title>Cells GPU - vAlfa 0.8.0</title>
 	</head>
 
 	<body style="background-color: black; color: white">
@@ -15,6 +15,7 @@
 		<script src="//cdnjs.cloudflare.com/ajax/libs/seedrandom/3.0.5/lib/alea.min.js"></script>
 		<script type="module" src="../scripts/cellsGPU.js"></script>
 
+		<audio id="clicksound" preload="auto" src="../../sounds/79624_click.wav"></audio>
 		
 		<p id="estatus" style ="text-align: center" >  Iniciando... </p>  <!-- mensaje de estatus -->
 		
@@ -22,136 +23,146 @@
 
 			<canvas width="1000" height="512"></canvas>
 
-			<div id="controlPanel" class="overlay left">
-				
-				<div id = timeControls>
-					<button id="pausebutton" class="button ba">Iniciar</button>
-					<button id="stepbutton" class="button ba">Step</button>
-					<button id="resetbutton" class="button ba" hidden >Reiniciar</button>
-				</div>
-				<span id="controlPanelTitle">Panel de control</span>
-				<div id="controlPanelOptions" hidden>
-
-					Color de fondo:
-					<input type="color" id="bgcolorpicker" value="#000000" class="colorinput"><br>
-	
-					<span id="creadorparticulasTitle">Partículas</span>
-					<div class="creador", id="creadorparticulas" hidden>
-	
-						<div class="c.div">
-							<label for="c.nom">Nombre: </label>
-							<input type="text" id="c.nom" class="textinput" value="R">
-						</div>
-	
-						<div class="c.div">
-							<label for="c.col">Color: </label>
-							<input type="color" id="c.col" class="colorinput" value="#FF0000">
-						</div>
-	
-						<div class="c.div">
-						  <label for="c.cant">Cantidad: </label>
-						  <input type="number" id="c.cant" class="numberinput" min="1" max="100000" value="80">
-						</div>
-	
-						<div class="c.div">
-							<label for="c.radius">Radio: </label>
-							<input type="number" id="c.radius" class="numberinput" min="0" max="500" value="3">
-						</div>
-	
-						<div class="c.div">
-						  <button class="button ba" id="c.elemsubmit">Crear</button>
-						</div>
-
-						<div class="creador" id="particlemanager">
-							<label for="particleselect">Partículas: </label>
-							<select class="selector selr" style="width: 7ch;" id="particleselect">
-		
-							</select>
-							<button class="button ba" id="borraparticula">Borrar</button>
-		
-						</div>
-	
+			<div id="panels">
+				<div id="controlPanel" class="overlay left">
+					
+					<div id = timeControls>
+						<button id="pausebutton" class="button ba">Iniciar</button>
+						<button id="stepbutton" class="button ba">Step</button>
+						<button id="resetbutton" class="button ba" hidden >Reiniciar</button>
 					</div>
-	
-					<span id="creadorreglasTitle">Reglas</span>
-					<div class="creador" id="creadorreglas" hidden>
+					<span id="controlPanelTitle">Panel de control</span>
+					<div id="controlPanelOptions" hidden>
 
-						<div class="c.div">
-							<label for="rulename">Nombre: </label>
-							<input type="text" id="rulename" class="textinput" placeholder="A ← B">
-						</div>
+						<label for="bgcolorpicker">Color de fondo: </label>
+						<input type="color" id="bgcolorpicker" value="#000000" class="colorinput"><br>
 
-						<div class="c.div">
-							<label for="targetselect">Afecta a </label>
-							<select class="selector" id="targetselect" title="Partículas que sentirán la fuerza a definir">
-	
-							</select>
-						</div>
-	
-						<div class="c.div">
-							<label for="sourceselect">Ejercida por </label>
-							<select class="selector" id="sourceselect" title="Partículas que ejercerán la fuerza a definir">
-	
-							</select>
-						</div>
-	
-						<div class="c.div">
-						  <label for="r.intens">Intensidad: </label>
-						  <input type="number" id="r.intens" class="numberinput" value="0.5">
-						</div>
-	
-						<div class="c.div">
-							<label for="r.qm">Ruido cuántico: </label>
-							<input type="number" id="r.qm" class="numberinput" min="0" value="0.2" title="Intensidad de fuerzas aleatorias de corto alcance">
-						</div>
-	
-						<div class="c.div">
-							<label for="r.dmin">Dist. mín: </label>
-							<input type="number" id="r.dmin" class="numberinput" min="0" value="15">
-						</div>
-	
-						<div class="c.div">
-							<label for="r.dmax">Dist. máx: </label>
-							<input type="number" id="r.dmax" class="numberinput" min="0" value="100">
-						</div>
-	
-						<div class="c.div">
-						  <button class="button ba" id="r.submit">Crear</button>
-						</div>
-
-						<div class="creador" id="rulemanager">
-							<label for="ruleselect">Reglas: </label>
-							<select class="selector selr" id="ruleselect">
+						<label for="volume">Sonidos: </label>
+						<input type="range" id="volume" value="0.2" class="rangeinput" min ="0" max="1" step="0.001"><br>
 		
-							</select>
-							<button class="button ba" id="borrarule">Borrar</button>
+						<span id="creadorparticulasTitle">Partículas</span>
+						<div class="creador", id="creadorparticulas" hidden>
+		
+							<div class="c.div">
+								<label for="c.nom">Nombre: </label>
+								<input type="text" id="c.nom" class="textinput" value="R">
+							</div>
+		
+							<div class="c.div">
+								<label for="c.col">Color: </label>
+								<input type="color" id="c.col" class="colorinput" value="#FF0000">
+							</div>
+		
+							<div class="c.div">
+							<label for="c.cant">Cantidad: </label>
+							<input type="number" id="c.cant" class="numberinput" min="1" max="100000" value="80">
+							</div>
+		
+							<div class="c.div">
+								<label for="c.radius">Radio: </label>
+								<input type="number" id="c.radius" class="numberinput" min="0" max="500" value="3">
+							</div>
+		
+							<div class="c.div">
+							<button class="button ba" id="c.elemsubmit">Crear</button>
+							</div>
+
+							<div class="creador" id="particlemanager">
+								<label for="particleselect">Partículas: </label>
+								<select class="selector selr" style="width: 7ch;" id="particleselect">
+			
+								</select>
+								<button class="button ba" id="borraparticula">Borrar</button>
+			
+							</div>
 		
 						</div>
-	
+		
+						<span id="creadorreglasTitle">Reglas</span>
+						<div class="creador" id="creadorreglas" hidden>
+
+							<div class="c.div">
+								<label for="rulename">Nombre: </label>
+								<input type="text" id="rulename" class="textinput" placeholder="A ← B">
+							</div>
+
+							<div class="c.div">
+								<label for="targetselect">Afecta a </label>
+								<select class="selector" id="targetselect" title="Partículas que sentirán la fuerza a definir">
+		
+								</select>
+							</div>
+		
+							<div class="c.div">
+								<label for="sourceselect">Ejercida por </label>
+								<select class="selector" id="sourceselect" title="Partículas que ejercerán la fuerza a definir">
+		
+								</select>
+							</div>
+		
+							<div class="c.div">
+							<label for="r.intens">Intensidad: </label>
+							<input type="number" id="r.intens" class="numberinput" value="0.5">
+							</div>
+		
+							<div class="c.div">
+								<label for="r.qm">Ruido cuántico: </label>
+								<input type="number" id="r.qm" class="numberinput" min="0" value="0.2" title="Intensidad de fuerzas aleatorias de corto alcance">
+							</div>
+		
+							<div class="c.div">
+								<label for="r.dmin">Dist. mín: </label>
+								<input type="number" id="r.dmin" class="numberinput" min="0" value="15">
+							</div>
+		
+							<div class="c.div">
+								<label for="r.dmax">Dist. máx: </label>
+								<input type="number" id="r.dmax" class="numberinput" min="0" value="100">
+							</div>
+		
+							<div class="c.div">
+							<button class="button ba" id="r.submit">Crear</button>
+							</div>
+
+							<div class="creador" id="rulemanager">
+								<label for="ruleselect">Reglas: </label>
+								<select class="selector selr" id="ruleselect">
+			
+								</select>
+								<button class="button ba" id="borrarule">Borrar</button>
+			
+							</div>
+		
+						</div>
+						<button class="button ba" id="export" title="Descargar la configuración actual de partículas y reglas">Exportar</button>
+						<button class="button ba" id="import">Importar</button><br>
+						<button class="button ba" id="mostrarinfo">Debug info</button>
 					</div>
-					<button class="button ba" id="export" title="Descargar la configuración actual de partículas y reglas">Exportar</button>
-					<button class="button ba" id="import">Importar</button><br>
-					<button class="button ba" id="mostrarinfo">Debug info</button>
+
 				</div>
 
-			</div>
-
-			<div id="infopanel" class="overlay right">
-				<div class="c.div">
-					<label for="seed">Seed: </label>
-					<input type="text" id="seed" class="textinput">
+				<div id="infopanel" class="overlay right">
+					<div class="c.div">
+						<label for="seed">Seed: </label>
+						<input type="text" id="seed" class="textinput">
+					</div>
+					<p id="canvasinfo"></p>	
+					<p id="performanceinfo"></p>
+					<p style="font-size: small; color:rgba(255, 255, 255, 0.5); max-width: 25ch; margin:0; line-height: 2ch;">Controles: Space, W, S, R, M <br>  <br> </p>
+					<p style="font-size: small; color:rgba(255, 255, 255, 0.5); max-width: 25ch; margin:0; line-height: 2ch; text-align: left;">La seed se usa al momento de crear las partículas, no al reiniciar</p>
+					
 				</div>
-				<p id="canvasinfo"></p>	
-				<p id="performanceinfo"></p>
-				<p style="font-size: small; color:rgba(255, 255, 255, 0.5); max-width: 25ch; margin:0; line-height: 2ch;">Controles: Space, W, S, R <br>  <br> </p>
-				<p style="font-size: small; color:rgba(255, 255, 255, 0.5); max-width: 25ch; margin:0; line-height: 2ch; text-align: left;">La seed se usa al momento de crear las partículas, no al reiniciar</p>
-				
 			</div>
-
 			<br>
 			<button onclick="location.href = '../../index.html';" class="button ba">Volver</button>
 		</div>
 
+		<dialog id="helpdialog" class="dialogo">
+			<p style="margin: 0;">Controles: <br>Space, W, S, R, M <br><br></p>
+			<button id="dialogok" class="button ba">Ok</button>
+			&nbsp&nbsp&nbsp
+			<button id="dialognvm" class="button ba">No volver a mostrar</button>
+		</dialog>
 
 		<!--TODO: Panel con listado de limitaciones -->
 

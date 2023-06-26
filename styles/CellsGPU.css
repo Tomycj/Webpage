@@ -24,12 +24,26 @@
 }
 
 #controlPanel span {
-  display: block;
-  text-align: center;
-  font-weight: bold;
-  cursor: pointer;
+	display: block;
+	text-align: center;
+	font-weight: bold;
+	cursor: pointer;
 }
 
+#helpdialog {
+	position: fixed;
+	margin: 0;
+	bottom: 20px;
+	left: 20px;
+}
+
+.dialogo {
+	color: white;
+	padding: 1ch;
+	line-height: 2ch;
+	text-align: center;
+	background: rgba(0, 0, 0, 0.3);
+}
 
 .numberinput {
 	width: 7ch;
@@ -59,21 +73,24 @@
 	cursor: pointer;
 }
 
+
 input[type="range"] {
-  -webkit-appearance: none;
-  width: 60%;
-  height: 3px;
-  background: rgba(255, 255, 255, 0.3);
-  background-size: 70% 100%;
-  background-repeat: no-repeat;
-  cursor: pointer;
+	--thumbg: rgba(255, 255, 255, 1);
+	-webkit-appearance: none;
+	width: 60%;
+	height: 3px;
+	background: rgba(255, 255, 255, 0.3);
+	background-size: 70% 100%;
+	background-repeat: no-repeat;
+	cursor: pointer;
 }
 
+/* Chrome, Safari, Edge, Opera */
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   height: 15px;
   width: 5px;
-  background: #ffffff;
+  background: var(--thumbg);
   cursor: ew-resize;
 }
 
@@ -83,6 +100,10 @@ input[type=range]::-webkit-slider-runnable-track  {
   border: none;
   background: transparent;
 }
+
+/* Firefox */
+
+
 
 .button {
   border: 2px solid black;

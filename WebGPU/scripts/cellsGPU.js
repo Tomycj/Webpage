@@ -40,6 +40,7 @@ const SAMPLE_SETUP = {
 		},
 	]
 }
+const NEW_USER = localStorage.getItem("NEW_USER");
 let N = 0; 	// cantidad total de partículas
 let workgroupCount;		// workgroups para ejecutar reglas de interacción
 let workgroupCount2; 	// worgroups para calcular distancias entre partículas
@@ -58,6 +59,7 @@ let resetPosiVels = true;
 let editingBuffers = true;
 let hayReglasActivas = false;
 let stepping = false;
+let muted = false;
 let uiSettings = {
 	bgColor : [0, 0, 0, 1],
 }
@@ -474,6 +476,22 @@ function mapAndPadNtoXNUint(array, x) { // [1,2,3] -> UintArray [1, 0...0, 2, 0.
 }
 // EVENT HANDLING
 
+// diálogo de ayuda
+if ((NEW_USER === "1"|| NEW_USER === null)) {
+	const helpDialog = document.getElementById("helpdialog");
+	helpDialog.open = true;
+	const dialogOkButton = document.getElementById("dialogok");
+	const dialogNVMButton = document.getElementById("dialognvm");
+	dialogOkButton.onclick =_=> {
+		localStorage.setItem("NEW_USER", 1);
+		helpDialog.open = false;
+	}
+	dialogNVMButton.onclick =_=> {
+		localStorage.setItem("NEW_USER", 0);
+		helpDialog.open = false;
+	}
+} //localStorage.setItem("NEW_USER", 1);
+
 // panel de info
 document.getElementById("canvasinfo").innerText = `${canvas.width} x ${canvas.height} (${canvas.width/canvas.height})`;
 const displayTiming = document.getElementById("performanceinfo");
@@ -525,18 +543,28 @@ function stepear() {
 }
 stepButton.onclick = stepear;
 // Controles
-document.addEventListener('keydown', function(event) {
+document.addEventListener("keydown", function(event) {
 	switch (event.code){
 		case "Space":
 			event.preventDefault();
-			pausar();
+			pausar(); playSound(clickSound);
 			break;
 		case "KeyR":
-			resetear(); break;
+			resetear(); playSound(clickSound);
+			break;
 		case "KeyS":
-			stepear(); break;
+			stepear(); playSound(clickSound);
+			break;
 		case "KeyW":
-			hidePanel(); break;
+			hidePanel(); //playSound(clickSound);
+			break;
+		case "KeyM":
+			muted ^= true;
+			clickSound.volume = `${volumeRange.value * !muted}`;
+			let alpha = 1;
+			if (muted) { alpha = 0.3;}
+			volumeRange.style.setProperty("--thumbg", `rgba(255, 255, 255, ${alpha})`);
+			break;
 	}
 });
 // botón de info debug
@@ -554,6 +582,26 @@ importButton.onclick = function() {
 		console.error(error);
 	});
 }
+// Sonidos
+const clickSound = document.getElementById("clicksound");
+const volumeRange = document.getElementById("volume");
+clickSound.volume = volumeRange.value;
+volumeRange.onchange = function() {
+	clickSound.volume = `${volumeRange.value * !muted}`;
+	playSound(clickSound);
+}
+const panels = document.getElementById("panels");
+function playSound(soundElement) { 
+	if (soundElement.currentTime > 0.05) { // evitar spam
+		soundElement.currentTime = 0; 
+	}
+	soundElement.play(); 
+};
+panels.addEventListener("click", function(event) {
+	if (event.target.tagName === "BUTTON") { // (event.target.classList.contains('my-button-class'))
+		playSound(clickSound);
+	}
+});
 
 // Creador de partículas
 const ruleControls = {
