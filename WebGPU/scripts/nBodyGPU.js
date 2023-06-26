@@ -206,6 +206,7 @@ function pausar() {
 	resetButton.hidden = false;
 }
 pauseButton.onclick = pausar;
+// Controles
 document.addEventListener('keydown', function(event) {
 	switch (event.code){
 		case "Space":
