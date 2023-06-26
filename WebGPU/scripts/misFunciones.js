@@ -57,7 +57,7 @@ export async function inicializarCells(){
 	let timer = false;
 	const requiredLimits = {
 		//minStorageBufferOffsetAlignment: 16
-		maxStorageBuffersPerShaderStage: 5
+		//maxStorageBuffersPerShaderStage: 8
 	}
 	try{
 		device = await adapter.requestDevice({

@@ -41,7 +41,6 @@ const SAMPLE_SETUP = {
 	]
 }
 let N = 0; 	// cantidad total de partículas
-let Nd;		// cantidad total de distancias relevantes entre partículas
 let workgroupCount;		// workgroups para ejecutar reglas de interacción
 let workgroupCount2; 	// worgroups para calcular distancias entre partículas
 let rng;
@@ -55,8 +54,9 @@ let m = []; // matriz triangular que codifica las interacciones entre familias.
 let bytesDist = []; // bytes ocupados por cada una de las tablas de distancias entre partículas a computar.
 let listaInteracciones = [];
 let updatingParameters = true;
-let resetPositions = true;
+let resetPosiVels = true;
 let editingBuffers = true;
+let hayReglasActivas = false;
 let stepping = false;
 let uiSettings = {
 	bgColor : [0, 0, 0, 1],
@@ -91,7 +91,6 @@ async function readBuffer(device, buffer) {
 
 function setRNG(seed) {
 	//console.log(`setRNG(${seed}) called`)
-
 	if (seed == "") {
 		seed = Math.random().toFixed(7).toString();
 		seedInput.placeholder = seed;
@@ -415,7 +414,7 @@ function crearRule(ruleName, targetName, sourceName, intensity, quantumForce, mi
 		maxDist,
 	} 
 }
-function generarSetupClásico() {
+function generarSetupClásico(conReglas=true) {
 	const e = new Float32Array([]);
 	const elementaries = [
 		crearElementary("yellow", new Float32Array([1,1,0,1]), 300, 3, e, e), //300
@@ -424,17 +423,21 @@ function generarSetupClásico() {
 		crearElementary("green", new Float32Array([0,128/255,0,1]), 5, 7, e, e),				//5
 	];
 	
-	const rules = [
-		crearRule("","red","red", 0.5, 0.2, 15, 100), 		// los núcleos se tratan de juntar si están cerca
-		crearRule("","yellow","red", 0.5, 0, 60, 600), 		// los electrones siguen a los núcleos, pero son caóticos
-		crearRule("","yellow","yellow", -0.1, 1, 20, 600),
-		crearRule("","purple","red", 0.4, 0, 0.1, 150), 	// los virus persiguen a los núcleos
-		crearRule("","purple","yellow", -0.2, 1, 0.1, 100), // los virus son repelidos por los electrones
-		crearRule("","yellow","purple", 0.2, 0, 0.1, 100), 	// los electrones persiguen a los virus
-		crearRule("","red","purple", 1, 1, 0.1, 10), 		// los virus desorganizan los núcleos
-		crearRule("","red","green", 0.3, 0, 50, 1000), 		// los núcleos buscan comida
-		crearRule("","green","green", -0.2, 0.2, 50, 500), 	// la comida se mueve un poco y estabiliza las células
-	];
+	let rules = [];
+	if (conReglas) {
+		rules = [
+			crearRule("","red","red", 0.5, 0.2, 15, 100), 		// los núcleos se tratan de juntar si están cerca
+			crearRule("","yellow","red", 0.5, 0, 60, 600), 		// los electrones siguen a los núcleos, pero son caóticos
+			crearRule("","yellow","yellow", -0.1, 1, 20, 600),
+			crearRule("","purple","red", 0.4, 0, 0.1, 150), 	// los virus persiguen a los núcleos
+			crearRule("","purple","yellow", -0.2, 1, 0.1, 100), // los virus son repelidos por los electrones
+			crearRule("","yellow","purple", 0.2, 0, 0.1, 100), 	// los electrones persiguen a los virus
+			crearRule("","red","purple", 1, 1, 0.1, 10), 		// los virus desorganizan los núcleos
+			crearRule("","red","green", 0.3, 0, 50, 1000), 		// los núcleos buscan comida
+			crearRule("","green","green", -0.2, 0.2, 50, 500), 	// la comida se mueve un poco y estabiliza las células
+		];
+	}
+
 	const seed = "";
 	const setup = {seed, elementaries, rules};
 	cargarSetup(setup)
@@ -461,6 +464,13 @@ function mostrarParamsArray (paramsArray, Ne) {
 		tabla.push([paramsArray[i], debugHelp[i]]);
 	}
 	console.table(tabla);
+}
+function mapAndPadNtoXNUint(array, x) { // [1,2,3] -> UintArray [1, 0...0, 2, 0...0, 3, 0...0]
+	const typedArray = new Uint32Array(array.length * x);
+	for (let i = 0; i < typedArray.length; i += x) {
+		typedArray[i] = array[i/x];
+	}
+	return typedArray;
 }
 // EVENT HANDLING
 
@@ -503,7 +513,7 @@ pauseButton.onclick = function() {
 }
 // botón de reset
 const resetButton = document.getElementById("resetbutton");
-resetButton.onclick = function() { updatingParameters = true; editingBuffers = true;}
+resetButton.onclick = function() { updatingParameters = true; editingBuffers = true; resetPosiVels = true;}
 // botón de frame
 const stepButton = document.getElementById("stepbutton");
 stepButton.onclick = function() { 
@@ -519,7 +529,7 @@ infoButton.onclick = function() { document.getElementById("infopanel").hidden ^=
 // botón de export e import
 const exportButton = document.getElementById("export");
 const importButton = document.getElementById("import");
-exportButton.onclick = function() { exportarSetup(elementaries, rules, seedInput.value); console.log(elementaries);}
+exportButton.onclick = function() { exportarSetup(elementaries, rules, seedInput.value);}
 importButton.onclick = function() {
 	importarSetup()
 	.then((setup) =>{ cargarSetup(setup) })
@@ -646,8 +656,6 @@ borraParticleButton.onclick = function(){
 	// TODO: actualizar reglas activas y buffers si hace falta
 }
 
-generarSetupClásico();
-
 // VERTEX SETUP
 
 const ar = canvas.width / canvas.height; // Canvas aspect ratio
@@ -689,19 +697,20 @@ let particleRenderPipeline;
 let positionBuffers = [];
 let velocitiesBuffer = [];
 
-function editBuffers(resetPosiVels) {
+function editBuffers() {
 
 	const Ne = elementaries.length;
 	const cantsAcum = [];
-	const cantsAcum2 = [];
+	//const cantsAcum2 = [];
 	const cants = [];
+
 	N = 0;
 	for (let elementary of elementaries) { 
 		const nLocal = elementary.cantidad;
 		N += nLocal; // N también hace de acumulador para este for.
 		cantsAcum.push(N);
-		cants.push(nLocal);
-		cantsAcum2.push(N - nLocal);
+		cants.push([nLocal, N-nLocal]); // [cants, cantsAcum2]
+		//cantsAcum2.push(N - nLocal);
 	}
 
 	// Parámetros de longitud fija los pongo en un ArrayBuffer
@@ -762,10 +771,6 @@ function editBuffers(resetPosiVels) {
 
 	D = [];
 	m = [];
-	//bytesDist = [];
-	let listaInteracciones = [];
-	let cantsDistanciasAcums = [];
-	let cantsDistanciasAcum2 = [];
 	const reglasActivas = [];
 
 	for (let rule of rules) {
@@ -776,11 +781,8 @@ function editBuffers(resetPosiVels) {
 		// si es una regla "activa":
 		reglasActivas.push(rule);
 		matrizDistancias(rule);
-		
 	}
-	//console.log(bytesDist)
-	//console.table(D);
-	//console.table(m); 
+	if (reglasActivas.length) { hayReglasActivas = true;}
 
 	//ordenar m según orden de elementaries, calcular Nd, generar listas de interacciones y cantidades de distancias
 	function reordenarMatrizYGenerarListas(m, D) {
@@ -793,8 +795,7 @@ function editBuffers(resetPosiVels) {
 	
 		const lim = D1.length;
 		let Nd = 0;
-		const listaInteracciones = [];
-		let cantsDistanciasAcums = []; // [cantsDistanciasAcums, cantsDistanciasAcums2]
+		const datosInteracciones = [];
 
 		for (let f = 0; f < lim; f++) { //Recorro la matriz triangular de interacciones
 			for (let c = f; c < lim; c++ ) {
@@ -812,23 +813,16 @@ function editBuffers(resetPosiVels) {
 					const ndLocal = elementaries[f].cantidad * elementaries[c].cantidad;
 					Nd += ndLocal; // Nd también hace de acumulador para este for.
 
-					cantsDistanciasAcums.push([Nd, Nd-ndLocal]);
-
-					//bytesDist.push(ndLocal * 4);
-
-					listaInteracciones.push([f,c]);
+					datosInteracciones.push([f, c, Nd, Nd - ndLocal]); // pares de interacciones y cants de distancias acum.
 				}
 			}
 		}
-		cantsDistanciasAcums = cantsDistanciasAcums.flat();
-		return [m, Nd, listaInteracciones, cantsDistanciasAcums];
+		return [m, Nd, datosInteracciones];
 	}
+	let Nd;
+	let datosInteracciones;
+	[m, Nd, datosInteracciones] = reordenarMatrizYGenerarListas(m, D);
 
-	[m, Nd, listaInteracciones, cantsDistanciasAcums] = reordenarMatrizYGenerarListas(m, D);
-
-	//console.table(m);
-	//console.log(bytesDist);
-	//console.log(listaInteracciones);
 	
 	//const distanciasArray = new Float32Array()
 	const distanciasBuffer = device.createBuffer({
@@ -845,38 +839,25 @@ function editBuffers(resetPosiVels) {
 	});
 	device.queue.writeBuffer(NdUniformBuffer, 0, new Uint32Array([Nd]));
 
-	const listInteracciones = new Uint32Array(listaInteracciones.flat())
-	const listInteraccionesBuffer = device.createBuffer({
-		label: "list interacciones buffer",
-		size: listInteracciones.byteLength,
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+	const datosInteraccionesArray = new Uint32Array(datosInteracciones.flat())
+	const datosInteraccionesBuffer = device.createBuffer({
+		label: "datos interacciones buffer",
+		size: datosInteraccionesArray.byteLength,
+		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
 	});
-	device.queue.writeBuffer(listInteraccionesBuffer, 0, listInteracciones);
+	device.queue.writeBuffer(datosInteraccionesBuffer, 0, datosInteraccionesArray);
 
-	const cantsArray = new Uint32Array(cants);
+	const cantsArray = new Uint32Array(cants.flat().length * 2);
+	for (let i=0; i < cantsArray.length; i += 4) { // [C1 Ca1 0 0 C2 Ca2 0 0...]
+		cantsArray.set(cants[i/4], i);
+	}
 	const cantsBuffer = device.createBuffer({
 		label: "cants buffer",
 		size: cantsArray.byteLength,
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
 	})
 	device.queue.writeBuffer(cantsBuffer, 0, cantsArray);
-
-	const cantsAcum2Array = new Uint32Array(cantsAcum2);
-	const cantsAcum2Buffer = device.createBuffer({
-		label: "cantsAcum2 buffer",
-		size: cantsAcum2Array.byteLength,
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-	})
-	device.queue.writeBuffer(cantsAcum2Buffer, 0, cantsAcum2Array);
-
-	const cantsDistanciasAcumsArray = new Uint32Array(cantsDistanciasAcums);
-	const cantsDistanciasAcumsBuffer = device.createBuffer({
-		label: "cantsDistanciasAcums buffer",
-		size:  cantsDistanciasAcumsArray.byteLength,
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-	})
-	device.queue.writeBuffer(cantsDistanciasAcumsBuffer, 0, cantsDistanciasAcumsArray);
-
+	
 	// Reglas
 
 	const rulesArray = new Float32Array(reglasActivas.length * 6);
@@ -940,25 +921,29 @@ function editBuffers(resetPosiVels) {
 		});
 		device.queue.writeBuffer(velocitiesBuffer, 0, velocitiesArray);
 
-		resetPositions = false;
+		resetPosiVels = false;
 	}
+
 	editingBuffers = false;
-	return {
-		positionBuffers,
-		velocitiesBuffer,
-		uniformBuffer, 
-		storageBuffers: [storageCantsAcum, storageRadios, storageColores],
-		distanciasBuffer,
-		reglasBuffer,
-		NdUniformBuffer,
-		listInteraccionesBuffer,
-		cantsBuffer,
-		cantsAcum2Buffer,
-		cantsDistanciasAcumsBuffer,
-	}
+	return [
+		{
+			positionBuffers,
+			velocitiesBuffer,
+			uniformBuffer, 
+			storageBuffers: [storageCantsAcum, storageRadios, storageColores],
+			distanciasBuffer,
+			reglasBuffer,
+			NdUniformBuffer,
+			datosInteraccionesBuffer,
+			cantsBuffer,
+		},
+		Nd,
+		Ne,
+		datosInteracciones.length, // cantidad de pares distintos de interacción
+	]
 }
 
-
+generarSetupClásico();
 
 function updateSimulationParameters() {
 
@@ -966,7 +951,10 @@ function updateSimulationParameters() {
 	// const rng = new alea(getSeed(seedInput)); // Resetear seed
 	setRNG(seedInput.value);
 
-	// CREAR SHADERS
+	// CREACIÓN DE BUFFERS
+	const [GPUBuffers, Nd, Ne, Lp] = editBuffers(); // diccionario con todos los buffers y datos para shader
+	
+	// CARGAR SHADERS
 
 	const particleShaderModule = device.createShaderModule({
 		label: "Particle shader",
@@ -980,14 +968,8 @@ function updateSimulationParameters() {
 	
 	const distancesShaderModule = device.createShaderModule({
 		label: "Distances compute shader",
-		code: computeDistancesShader(),
+		code: computeDistancesShader(Ne, Lp),
 	})
-
-
-	// CREACIÓN DE BUFFERS
-	const GPUBuffers = editBuffers(editingBuffers); // diccionario con todos los buffers
-	const Ne = GPUBuffers.Ne;
-	//console.log(GPUBuffers)
 
 	// BIND GROUP SETUP
 	const bindGroupLayoutPos = device.createBindGroupLayout({
@@ -1043,21 +1025,13 @@ function updateSimulationParameters() {
 			visibility: GPUShaderStage.COMPUTE,
 			buffer: {}
 		}, {
-			binding: 1,	// list interacciones
+			binding: 1,	// datos interacciones
 			visibility: GPUShaderStage.COMPUTE,
-			buffer: { type: "read-only-storage" }
+			buffer: { type: "uniform" }
 		}, {
-			binding: 2,	// cants (no acumuladas)
+			binding: 2,	// cants (no acumuladas y acum2)
 			visibility: GPUShaderStage.COMPUTE,
-			buffer: { type: "read-only-storage" }
-		}, {
-			binding: 3, // cantsAcum2
-			visibility: GPUShaderStage.COMPUTE,
-			buffer: { type: "read-only-storage" }
-		}, {
-			binding: 4, // cantsDistsAcums
-			visibility: GPUShaderStage.COMPUTE,
-			buffer: { type: "read-only-storage"}
+			buffer: { type: "uniform" }
 		}]
 	})
 
@@ -1122,16 +1096,10 @@ function updateSimulationParameters() {
 				resource: { buffer: GPUBuffers.NdUniformBuffer}
 			}, {
 				binding: 1,
-				resource: { buffer: GPUBuffers.listInteraccionesBuffer}
+				resource: { buffer: GPUBuffers.datosInteraccionesBuffer}
 			}, {
 				binding: 2,
 				resource: { buffer: GPUBuffers.cantsBuffer}
-			}, {
-				binding: 3,
-				resource: { buffer: GPUBuffers.cantsAcum2Buffer}
-			}, {
-				binding: 4,
-				resource: { buffer: GPUBuffers.cantsDistanciasAcumsBuffer}
 			}]
 		})
 	];
@@ -1140,10 +1108,15 @@ function updateSimulationParameters() {
 
 	const pipelineLayout = device.createPipelineLayout({
 		label: "Pipeline Layout",
-		bindGroupLayouts: [ bindGroupLayoutPos, bindGroupLayoutResto, bindGroupLayoutDist ],
+		bindGroupLayouts: [ bindGroupLayoutPos, bindGroupLayoutResto],
 	}); // El orden de los bind group layouts tiene que coincider con los atributos @group en el shader
 
-	// Crear una render pipeline (para usar vertex y fragment shaders)
+	const pipelineLayout2 = device.createPipelineLayout({
+		label: "Pipeline Layout 2",
+		bindGroupLayouts: [ bindGroupLayoutPos, bindGroupLayoutResto, bindGroupLayoutDist ],
+	});
+
+	// Crear render pipeline (para usar vertex y fragment shaders)
 	particleRenderPipeline = device.createRenderPipeline({
 		label: "Particle render pipeline",
 		layout: pipelineLayout,
@@ -1161,7 +1134,7 @@ function updateSimulationParameters() {
 		}
 	});
 
-	// COMPUTE PIPELINES
+	// Crear compute pipelines
 	simulationPipeline = device.createComputePipeline({
 		label: "Simulation pipeline",
 		layout: pipelineLayout,
@@ -1176,7 +1149,7 @@ function updateSimulationParameters() {
 
 	simulationPipeline2 = device.createComputePipeline({
 		label: "Distances pipeline",
-		layout: pipelineLayout,
+		layout: pipelineLayout2,
 		compute: {
 			module: distancesShaderModule,
 			entryPoint: "computeMain",
@@ -1185,6 +1158,7 @@ function updateSimulationParameters() {
 
 	workgroupCount = Math.ceil(N / WORKGROUP_SIZE);
 	workgroupCount2 = Math.ceil(Nd / WORKGROUP_SIZE);
+
 	updatingParameters = false;
 }
 
@@ -1203,7 +1177,7 @@ async function newFrame(){
 	if ( updatingParameters ){	// Rearmar buffers y pipeline
 		frame = 0;
 		updateSimulationParameters();
-		console.log( `N/workgroup size: ${N} / ${WORKGROUP_SIZE} = ${N/WORKGROUP_SIZE}\nworkgroup count: ${workgroupCount}`);
+		//console.log( `N / workgroup size: ${N} / ${WORKGROUP_SIZE} = ${N/WORKGROUP_SIZE}\nworkgroup count: ${workgroupCount}`);
 		console.log("updated!");
 	}
 
@@ -1217,27 +1191,25 @@ async function newFrame(){
 		encoder.writeTimestamp(querySet, 0);
 	} else { t0 = window.performance.now(); }
 
-	const computePass = encoder.beginComputePass();
-	
-	computePass.setPipeline(simulationPipeline);
-	computePass.setBindGroup(0, bindGroups[frame % 2]); // posiciones alternantes
-	computePass.setBindGroup(1, bindGroups[2]); // lo demás
-	/* El compute shader se ejecutará N veces. El workgroup size es 64, entonces despacho ceil(N/64) workgroups, todos en el eje x. */
-	computePass.dispatchWorkgroups(workgroupCount, 1, 1); // Este vec3<u32> tiene su propio @builtin en el compute shader.
-	computePass.end();
+	if (hayReglasActivas) {
+		// Calcular distancias
+		const computePass2 = encoder.beginComputePass();
+		computePass2.setPipeline(simulationPipeline2);
+		computePass2.setBindGroup(0, bindGroups[frame % 2]); // posiciones alternantes
+		computePass2.setBindGroup(1, bindGroups[2]);
+		computePass2.setBindGroup(2, bindGroups[3]);	// bind groups exclusivos para calcular las distancias
+		computePass2.dispatchWorkgroups(workgroupCount2, 1, 1); // Este vec3<u32> tiene su propio @builtin en el compute shader.
+		computePass2.end();
 
-	
-	const computePass2 = encoder.beginComputePass();
-	computePass2.setPipeline(simulationPipeline2);
-	computePass2.setBindGroup(0, bindGroups[frame % 2]); // posiciones alternantes
-	computePass2.setBindGroup(1, bindGroups[2]);
-	computePass2.setBindGroup(2, bindGroups[3]);	// bind groups exclusivos para calcular las distancias
-
-	computePass2.dispatchWorkgroups(workgroupCount2, 1, 1); // Este vec3<u32> tiene su propio @builtin en el compute shader.
-	computePass2.end();
-	
-
-
+		// Calcular simulación (actualizar posiciones y velocidades)
+		const computePass = encoder.beginComputePass();
+		computePass.setPipeline(simulationPipeline);
+		computePass.setBindGroup(0, bindGroups[frame % 2]); // posiciones alternantes
+		computePass.setBindGroup(1, bindGroups[2]); // lo demás
+		/* El compute shader se ejecutará N veces. El workgroup size es 64, entonces despacho ceil(N/64) workgroups, todos en el eje x. */
+		computePass.dispatchWorkgroups(workgroupCount, 1, 1); // Este vec3<u32> tiene su propio @builtin en el compute shader.
+		computePass.end();
+	}
 
 	if (timer) {	 // Timestamp - after compute pass
 		encoder.writeTimestamp(querySet, 1);
@@ -1256,9 +1228,8 @@ async function newFrame(){
 	pass.setPipeline(particleRenderPipeline);
 	pass.setVertexBuffer(0, vertexBuffer);
 	pass.setBindGroup(0, bindGroups[frame % 2]);	
-	pass.setBindGroup(1, bindGroups[2]);	
+	pass.setBindGroup(1, bindGroups[2]);
 	pass.draw(vertices.length /2, N);	// 6 vertices. renderizados N veces
-
 
 	pass.end(); // finaliza el render pass
 

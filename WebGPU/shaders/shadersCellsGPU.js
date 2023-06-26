@@ -1,32 +1,31 @@
-export function computeDistancesShader() { return /*wgsl*/`
+export function computeDistancesShader(ne, lp) { return /*wgsl*/`
 
-    const constante = 64;
+    struct DatosElementaries { // Cada elemento de un array en un uniform buffer tiene que ser múltiplo de 16B
+        cant: u32,
+        cantAcum2: u32,
+        padding2: u32,
+        padding3: u32,
+    }
+
+    struct DatosInteracciones {
+        list: vec2u,                // lista de interacciones (Y Y Y R Y P R R...)
+        distAcums: vec2u,
+    }
 
     @group(0) @binding(0) var<storage, read> posiciones: array<vec4f>;
-    //@group(0) @binding(1) var<storage, read_write> positionsOut: array<vec4f>; 
 
     @group(1) @binding(3) var<storage, read_write> distancias: array<f32>;
-    @group(1) @binding(4) var<storage> cantidades: array<u32>; //cantidades acumuladas. length = ne
-    //@group(1) @binding(0) var<uniform> params: Params; // parameters
-    //@group(1) @binding(1) var<storage, read_write> velocity: array<vec2<f32>>; //al poder write, lo uso como output del shader
-    //@group(1) @binding(2) var<uniform> rules: vec2f;
-    //@group(1) @binding(5) var<storage> radios: array<f32>;
-    //@group(1) @binding(6) var<storage> colores: array<vec4f>;
 
-    @group(2) @binding(0) var<uniform> nd: u32; // cantidad total de distancias
-    @group(2) @binding(1) var<storage> list: array<vec2u>; // lista de interacciones (Y Y Y R Y P R R...). Length = 2*nd
-    @group(2) @binding(2) var<storage> cants: array<u32,constante>;   // cantidades no acumuladas. length = ne
-    @group(2) @binding(3) var<storage> cantsAcum2: array<u32>; // = cantidades-cants
-    @group(2) @binding(4) var<storage> distsAcums: array<vec2u>; // cantidades de distancias acumuladas de 2 formas. Len = nd
+    @group(2) @binding(0) var<uniform> nd: u32; // cantidad total de distancias. Se deja para reemplazarse por otras cosas en el futuro
+    @group(2) @binding(1) var<uniform> ints: array<DatosInteracciones, ${lp}>;
+    @group(2) @binding(2) var<uniform> elems: array<DatosElementaries,${ne}>;   // cantidades no acumuladas. length = ne
 
-    //let vector = array<f32,6>(1,2,3,4,5,6);
-
-    //override constante = 64; // Este valor es el default, si "constante" no está definida en constants de la pipeline.
+    override constante = 64; // Este valor es el default, si "constante" no está definida en constants de la pipeline.
 
     @compute
     @workgroup_size(constante, 1, 1) // el tercer parámetro (z) es default 1.
     fn computeMain(@builtin(global_invocation_id) ind: vec3u) {
-
+        
         let i = ind.x; // index global
         if i >= nd {
             return;
@@ -34,20 +33,20 @@ export function computeDistancesShader() { return /*wgsl*/`
 
         // Determinar en qué índice de Distancias estoy
         var k = 0;
-        while i >= distsAcums[k][0] { // ver si se puede hacer con distAcum2, así no necesito ambos arrays
+        while i >= ints[k].distAcums[0] {  //distsAcums[k][0] { // ver si se puede hacer con distAcum2, así no necesito ambos arrays
             k++;
         }
 
         // Determinar máx filas y máx columnas
 
-        let ef = list[k][0]; // índice del elementary en las filas
-        let ec = list[k][1];
+        let ef = ints[k].list[0]; //list[k][0]; // índice del elementary en las filas
+        let ec = ints[k].list[1];//list[k][1];
 
-        let fmax = cants[ef];
-        let cmax = cants[ec];
+        let fmax = elems[ef].cant;
+        let cmax = elems[ec].cant;
 
         // Determinar índice local
-        let il = i - distsAcums[k][1];
+        let il = i - ints[k].distAcums[1];//distsAcums[k][1];
 
         // Determinar en qué fila y columna local estoy
         let f = il / (cmax + 1); // es conveniente que sea unsigned division
@@ -72,8 +71,8 @@ export function computeDistancesShader() { return /*wgsl*/`
         //     //posiciones[cants[elementary_f] * 4 + f * 4 + 3], // = 1
         // );
 
-        let p1 = posiciones[ cantsAcum2[ec] + c].xy;
-        let p2 = posiciones[ cantsAcum2[ef] + f].xy;
+        let p1 = posiciones[ elems[ec].cantAcum2 + c].xy;
+        let p2 = posiciones[ elems[ef].cantAcum2 + f].xy;
 
 
         distancias[i] = distance(p1,p2);
