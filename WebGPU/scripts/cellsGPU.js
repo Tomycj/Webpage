@@ -480,10 +480,11 @@ const displayTiming = document.getElementById("performanceinfo");
 // ocultar interfaces
 const panelTitle = document.getElementById("controlPanelTitle");
 const cpOptions = document.getElementById("controlPanelOptions");
-panelTitle.onclick = function() { 
+function hidePanel() { 
 	cpOptions.hidden ^= true;
 	if (cpOptions.hidden){ panelTitle.style = "height: 3ch;"; } else { panelTitle.style = ""; }
 }
+panelTitle.onclick = hidePanel;
 const creadorPartTitle = document.getElementById("creadorparticulasTitle");
 creadorPartTitle.onclick = function () {document.getElementById("creadorparticulas").hidden ^= true;}
 const creadorReglasTitle = document.getElementById("creadorreglasTitle");
@@ -496,33 +497,48 @@ const bgColorPicker = document.getElementById("bgcolorpicker");
 bgColorPicker.onchange = function() { uiSettings.bgColor = hexString_to_rgba(bgColorPicker.value, 1); }
 // botón de pausa
 const pauseButton = document.getElementById("pausebutton");
-pauseButton.onclick = function() { 
-	
+function pausar() {
 	if (!paused) {
 		pauseButton.innerText = "Resumir";
 		cancelAnimationFrame(animationId);
 	} else {
-		paused = true;
 		pauseButton.innerText = "Pausa";
 		animationId = requestAnimationFrame(newFrame);
 	}
-	paused = !paused;
+	paused ^= true;
 	stepping = false;
 	resetButton.hidden = false;
-
 }
+pauseButton.onclick = pausar;
 // botón de reset
 const resetButton = document.getElementById("resetbutton");
-resetButton.onclick = function() { updatingParameters = true; editingBuffers = true; resetPosiVels = true;}
-// botón de frame
+function resetear() { updatingParameters = true; editingBuffers = true; resetPosiVels = true; }
+resetButton.onclick = resetear;
+// botón de step
 const stepButton = document.getElementById("stepbutton");
-stepButton.onclick = function() { 
+function stepear() {
 	stepping = true;
 	paused = true;
 	animationId = requestAnimationFrame(newFrame);
 	pauseButton.innerText = "Resumir";
 	resetButton.hidden = false;
 }
+stepButton.onclick = stepear;
+// Controles
+document.addEventListener('keydown', function(event) {
+	switch (event.code){
+		case "Space":
+			event.preventDefault();
+			pausar();
+			break;
+		case "KeyR":
+			resetear(); break;
+		case "KeyS":
+			stepear(); break;
+		case "KeyW":
+			hidePanel(); break;
+	}
+});
 // botón de info debug
 const infoButton = document.getElementById("mostrarinfo");
 infoButton.onclick = function() { document.getElementById("infopanel").hidden ^= true; }
