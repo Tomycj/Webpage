@@ -317,7 +317,7 @@ function editBuffers(){
 	device.queue.writeBuffer(uniformBuffer, 0, simParametersArrayBuffer);
 }
 
-
+let velocityBuffer;
 function updateSimulationParameters(){
 	console.log("Resetting simulation...");
 	const rng = new alea(getSeed(seedInput)); // Resetear seed
@@ -372,10 +372,10 @@ function updateSimulationParameters(){
 		velocities[i * 4 + 2] = 0.0;
 		velocities[i * 4 + 3] = 1.0;
 	}
-	const velocityBuffer = device.createBuffer({
+	velocityBuffer = device.createBuffer({
 		label: "Velocities buffer",
 		size: velocities.byteLength,
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,// | GPUBufferUsage.COPY_SRC,
 	});
 	device.queue.writeBuffer(velocityBuffer, 0, velocities);
 
@@ -579,6 +579,11 @@ async function newFrame(){
 
 	device.queue.submit([encoder.finish()]);
 	t2 = window.performance.now();
+
+	//if ((frame + 30) % 60 == 0) {
+		//const values = new Float32Array( await readBuffer(device, velocityBuffer ));
+		//console.log(values)
+	//}
 
 	if (frame % 60 == 0) {	// Leer el storage buffer y mostrarlo en debug info (debe estar después de encoder.finish())
 

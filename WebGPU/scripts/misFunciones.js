@@ -44,7 +44,7 @@ export async function inicializarCells(){
 	} // si no hay adapter, puede devolver null
 	
 	const canvas = document.querySelector("canvas"); 
-
+	//const canvas = document.getElementById("canvas");
 	const div = document.getElementById("canvascontainer");
 
 	canvas.width = div.clientWidth;

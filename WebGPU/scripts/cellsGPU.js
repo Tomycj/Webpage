@@ -4,7 +4,12 @@ import { computeShader } from "../shaders/shadersCellsGPU.js";
 import { computeDistancesShader } from "../shaders/shadersCellsGPU.js";
 // ref https://www.cg.tuwien.ac.at/research/publications/2023/PETER-2023-PSW/PETER-2023-PSW-.pdf
 
+//const timer = 0; 
+//const canvas = document.querySelector("canvas");
+//try {
 const [device, canvas, canvasFormat, context, timer] = await inicializarCells();
+//}
+//catch{}
 
 /* Forzar color canvas para UI testing
 const canvas = document.querySelector("canvas");
@@ -14,7 +19,7 @@ ctx.fillStyle = "red";
 ctx.fill();
 let timer; */
 
-const VELOCITY_FACTOR = 0.1;
+const VELOCITY_FACTOR = 0;
 const WORKGROUP_SIZE = 64;
 const SAMPLE_SETUP = {
 	seed: "sampleSeed",
@@ -47,7 +52,7 @@ let workgroupCount2; 	// worgroups para calcular distancias entre partículas
 let rng;
 let frame = 0; // simulation steps
 let animationId, paused = true;
-const canvasDims = new Float32Array ([canvas.width, canvas.height]);
+//const canvasDims = new Float32Array ([canvas.width, canvas.height]);
 let elementaries = []; // cada elemento es un objeto que almacena toda la info de una familia de parts.
 let rules = [];   // cada elemento es una regla, formada por un objeto que la define.
 let D = []; // "diccionario" que asocia cada indice de una matriz al indice de cada familia que tenga interacciones.
@@ -65,6 +70,7 @@ let uiSettings = {
 }
 
 // TIMING & DEBUG -- véase https://omar-shehata.medium.com/how-to-use-webgpu-timestamp-query-9bf81fb5344a
+let debug = false;
 let capacity, querySet, queryBuffer;
 let t0, t1, t2;
 if (timer) {
@@ -87,6 +93,35 @@ async function readBuffer(device, buffer) {
 	device.queue.submit([copyCommands]);
 	await gpuReadBuffer.mapAsync(GPUMapMode.READ);
 	return gpuReadBuffer.getMappedRange();
+}
+
+let distanciasBuffer;
+function generateHistogram2(data, nBins) {
+	const histogram = {};
+
+	// Initialize histogram bins
+	for (let i = 0; i < nBins; i++) {
+		histogram[i] = 0;
+	}
+
+	// Calculate bin size
+	const min = Math.min(...data);
+	const max = Math.max(...data);
+	const binSize = (max - min) / nBins;
+
+	// Increment bin counts
+	data.forEach((value) => {
+		const binIndex = Math.floor((value - min) / binSize);
+		histogram[binIndex]++;
+	});
+
+	// Display histogram
+	for (let i = 0; i < nBins; i++) {
+		const binStart = min + i * binSize;
+		const binEnd = binStart + binSize;
+		const binCount = histogram[i];
+		console.log(`Bin ${i + 1}: [${binStart.toFixed(2)} - ${binEnd.toFixed(2)}]: ${binCount}`);
+	}
 }
 
 // Funciones varias
@@ -123,24 +158,31 @@ function randomVelocity(){
 	return new Float32Array([
 		(rng() - 0.5)*VELOCITY_FACTOR,
 		(rng() - 0.5)*VELOCITY_FACTOR,
-		0
+		0,
+		1,
 	]);
 }
-function crearPosiVel(n){
+function crearPosiVel(n, debug = false) {
 
-	const buffer = new ArrayBuffer(n * 7 * 4) // n partículas, cada una tiene 28B (4*4B para la pos y 3*4B para la vel)
+	const buffer = new ArrayBuffer(n * 8 * 4) // n partículas, cada una tiene 28B (4*4B para la pos y 3*4B para la vel)
 
 	const pos = new Float32Array(buffer, 0, n*4); // buffer al que hace referencia, byte offset, number of elements. [x1, y1, z1, w1, x2, y2, ...]
-	const vel = new Float32Array(buffer, n*4*4, n*3);
+	const vel = new Float32Array(buffer, n*4*4, n*4);
 
 	for (let i=0 ; i < n*4 ; i += 4) {
-		[ pos [i], pos[i+1], pos [i+2], pos[i+3] ] = randomPosition() // randomPosition devuelve un array [x,y,z,w]
+		[ pos [i], pos[i+1], pos [i+2], pos[i+3] ] = randomPosition(); // randomPosition devuelve un array [x,y,z,w]
+		[ vel [i], vel[i+1], vel [i+2], vel[i+3] ] = randomVelocity();
 	}
-
+	if (debug) {
+		for (let i=0 ; i < n*4 ; i += 4) {
+			[ pos [i], pos[i+1], pos [i+2], pos[i+3] ] = [ (i/4) * canvas.width / (n-1) - canvas.width/2, ((i/4)*20 - canvas.height/2)*0, 0, 1];
+		}
+	}
+	/*
 	for (let i=0 ; i < n*3 ; i += 3) {
-		[ vel [i], vel[i+1], vel [i+2] ] = randomVelocity() // randomVelocity devuelve un array [x,y,]
+		[ vel [i], vel[i+1], vel [i+2] ] = randomVelocity() // randomVelocity devuelve un array [x,y,z]
 	}
-
+	*/
 	return [pos, vel]
 }
 function validarNumberInput(input){
@@ -230,7 +272,7 @@ function crearElementary(nombre, color, cantidad, radio, posiciones, velocidades
 			cantidad,		// integer (originalmente string)
 			radio,			// float   (originalmente string)
 			posiciones,		// [x,y,z,w]
-			velocidades,	// [x,y,z]
+			velocidades,	// [x,y,z,w]
 		};
 	}
 
@@ -328,7 +370,7 @@ function importarSetup() {
 	fileInput.click();
 	});
 }
-function cargarSetup(setup) {  // reemplaza el setup actual. Rellena aleatoriamente posiciones y velocidades
+function cargarSetup(setup, debug = false) {  // reemplaza el setup actual. Rellena aleatoriamente posiciones y velocidades
 	if (!hasSameStructure(setup, SAMPLE_SETUP)) { throw new Error("Falló la verificación, no es un objeto tipo setup")}
 
 	vaciarSelectors();
@@ -336,7 +378,7 @@ function cargarSetup(setup) {  // reemplaza el setup actual. Rellena aleatoriame
 	setRNG(setup.seed);
 	for (let elem of setup.elementaries) {
 		actualizarElemSelectors(elem);
-		const [pos, vel] = crearPosiVel(elem.cantidad);
+		const [pos, vel] = crearPosiVel(elem.cantidad, debug);
 		elem.posiciones = pos;
 		elem.velocidades = vel;
 	}
@@ -416,15 +458,26 @@ function crearRule(ruleName, targetName, sourceName, intensity, quantumForce, mi
 		maxDist,
 	} 
 }
-function generarSetupClásico(conReglas=true) {
+function generarSetupClásico(conReglas=true, debug = false) {
 	const e = new Float32Array([]);
-	const elementaries = [
+	let elementaries = [];
+
+	elementaries = [
 		crearElementary("yellow", new Float32Array([1,1,0,1]), 300, 3, e, e), //300
 		crearElementary("red", new Float32Array([1,0,0,1]), 80, 4, e, e),	//80
 		crearElementary("purple", new Float32Array([147/255,112/255,219/255,1]), 30, 5, e, e),	//30
-		crearElementary("green", new Float32Array([0,128/255,0,1]), 5, 7, e, e),				//5
+		crearElementary("green", new Float32Array([0,128/255,0,1]), 5, 7, e, e),				//5 r7
 	];
-	
+
+	if (debug) {
+		elementaries = [
+			crearElementary("yellow", new Float32Array([1,1,0,1]), 5, 8, e, e), //300 r3
+			//crearElementary("red", new Float32Array([1,0,0,1]), 4, 4, e, e),	//80
+			//crearElementary("purple", new Float32Array([147/255,112/255,219/255,1]), 3, 5, e, e),	//30
+			//crearElementary("green", new Float32Array([0,128/255,0,1]), 2, 7, e, e),				//5 r7
+		];
+	}
+
 	let rules = [];
 	if (conReglas) {
 		rules = [
@@ -442,7 +495,7 @@ function generarSetupClásico(conReglas=true) {
 
 	const seed = "";
 	const setup = {seed, elementaries, rules};
-	cargarSetup(setup)
+	cargarSetup(setup, debug)
 	console.log("Setup clásico cargado!")
 }
 function mostrarParamsArray (paramsArray, Ne) {
@@ -518,12 +571,12 @@ const pauseButton = document.getElementById("pausebutton");
 function pausar() {
 	if (!paused) {
 		pauseButton.innerText = "Resumir";
-		cancelAnimationFrame(animationId);
+		cancelAnimationFrame(animationId); //redundante pero a veces ahorra pasos
 	} else {
 		pauseButton.innerText = "Pausa";
 		animationId = requestAnimationFrame(newFrame);
 	}
-	paused ^= true;
+	paused = !paused;
 	stepping = false;
 	resetButton.hidden = false;
 }
@@ -724,7 +777,7 @@ borraParticleButton.onclick = function(){
 
 const ar = canvas.width / canvas.height; // Canvas aspect ratio
 
-const v = 1;
+const v = 1; // ojo!: afecta el shader
 const vertices = new Float32Array([ // Coordenadas en clip space
 	//   X,    Y,
 	-v, -v, // Triangle 1 (Blue)
@@ -791,7 +844,7 @@ function editBuffers() {
 	const paramsArray = new Float32Array(paramsArrBuffer); // F32Array que referencia al buffer
 
 	// Parámetros de longitud variable
-	const cantsAcumArray = new Float32Array(cantsAcum);			// cantidades de cada familia, acumuladas
+	const cantsAcumArray = new Uint32Array(cantsAcum);			// cantidades de cada familia, acumuladas
 	const radios = new Float32Array(Ne);			// byte offset de 16Ne, Ne radios: [r1, r2, r3, ...]
 	const colores = new Float32Array(Ne*4);				// 4 elementos por cada color: [R1 G1 B1 A1, R2, G2, B2, A2, ...]
 	
@@ -885,14 +938,18 @@ function editBuffers() {
 	}
 	let Nd;
 	let datosInteracciones;
+
+	console.table(D)
+	console.table(m);
+	
 	[m, Nd, datosInteracciones] = reordenarMatrizYGenerarListas(m, D);
 
 	
 	//const distanciasArray = new Float32Array()
-	const distanciasBuffer = device.createBuffer({
+	distanciasBuffer = device.createBuffer({
 		label: "Distancias buffer",
 		size: Nd*4, //bytesDist.reduce((a, b) => a + b, 0), // suma de todos los bytes de cada una de las matrices distancia
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, // storage porque entre cada frame las distancias cambian
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC, // storage porque entre cada frame las distancias cambian
 	});
 	//device.queue.writeBuffer(distanciasBuffer, 0, distanciasArray); // veo si puedo pasar el buffer vacío para rellenarlo en GPU.
 
@@ -924,18 +981,23 @@ function editBuffers() {
 	
 	// Reglas
 
-	const rulesArray = new Float32Array(reglasActivas.length * 6);
+	const rulesArray = new Float32Array(reglasActivas.length * 8);
 
 	for (let i = 0; i < reglasActivas.length; i++) { // llenar el array de reglas
 		rulesArray.set([
-			reglasActivas[i].targetIndex, // índice de elementary en elementaries
-			reglasActivas[i].sourceIndex,
+			reglasActivas[i].targetIndex = D.find((subArray) => subArray[2] === reglasActivas[i].targetName)[1], // índice de elementary en elementaries
+			reglasActivas[i].sourceIndex = D.find((subArray) => subArray[2] === reglasActivas[i].sourceName)[1],
 			reglasActivas[i].intensity,
 			reglasActivas[i].quantumForce,
 			reglasActivas[i].minDist,
 			reglasActivas[i].maxDist,
-		], 6*i)
+			0.0,//padding
+			0.0,
+		], 8*i)
 	}
+	//console.log(rulesArray)
+	//console.table(D)
+	//console.log(reglasActivas)
 
 	const reglasBuffer = device.createBuffer({
 		label: "Reglas",
@@ -947,44 +1009,40 @@ function editBuffers() {
 	// Posiciones y velocidades
 
 	if (resetPosiVels) {
-		let posBytes = 0;
-		for (let elementary of elementaries) { posBytes += elementary.posiciones.byteLength; } // bytesize de todas las posiciones
-		const positionsArrBuffer = new ArrayBuffer(posBytes);
-		const velocitiesArrBuffer = new ArrayBuffer(posBytes*3/4);
-		const positionsArray = new Float32Array(positionsArrBuffer);
-		const velocitiesArray = new Float32Array(velocitiesArrBuffer);
+		//let posBytes = 0;
+		//for (let elementary of elementaries) { posBytes += elementary.posiciones.byteLength; } // bytesize de todas las posiciones
 
 		let offsetPos = 0, offsetVel = 0;
-		for (let elementary of elementaries) { // llenar los arrays de posiciones y velocidades
+		const positionsArray = new Float32Array(N*4);
+		const velocitiesArray = new Float32Array(N*4);
 
+		for (let elementary of elementaries) { // llenar los arrays de posiciones y velocidades
 			positionsArray.set(elementary.posiciones, offsetPos);
 			velocitiesArray.set(elementary.velocidades, offsetVel)
 			offsetPos += elementary.posiciones.length;
 			offsetVel += elementary.velocidades.length;
-
 		}
 
 		positionBuffers = [
 			device.createBuffer({
 				label: "Positions buffer IN",
 				size: positionsArray.byteLength,
-				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
 			}),
 			device.createBuffer({
 				label: "Positions buffer OUT",
 				size: positionsArray.byteLength,
-				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
 			})
 		];
 		device.queue.writeBuffer(positionBuffers[0], 0, positionsArray);
-		//console.log(positionBuffers);
+		
 		velocitiesBuffer = device.createBuffer({
 			label: "Velocities buffer",
 			size: velocitiesArray.byteLength,
-			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
 		});
 		device.queue.writeBuffer(velocitiesBuffer, 0, velocitiesArray);
-
 		resetPosiVels = false;
 	}
 
@@ -1004,10 +1062,11 @@ function editBuffers() {
 		Nd,
 		Ne,
 		datosInteracciones.length, // cantidad de pares distintos de interacción
+		reglasActivas.length,
 	]
 }
 
-generarSetupClásico();
+generarSetupClásico(true, debug);
 
 function updateSimulationParameters() {
 
@@ -1016,7 +1075,7 @@ function updateSimulationParameters() {
 	setRNG(seedInput.value);
 
 	// CREACIÓN DE BUFFERS
-	const [GPUBuffers, Nd, Ne, Lp] = editBuffers(); // diccionario con todos los buffers y datos para shader
+	const [GPUBuffers, Nd, Ne, Lp, Nr] = editBuffers(); // diccionario con todos los buffers y datos para shader
 	
 	// CARGAR SHADERS
 
@@ -1027,12 +1086,12 @@ function updateSimulationParameters() {
 	
 	const simulationShaderModule = device.createShaderModule({
 		label: "Compute shader",
-		code: computeShader(),
+		code: computeShader(Nr),
 	})
 	
 	const distancesShaderModule = device.createShaderModule({
 		label: "Distances compute shader",
-		code: computeDistancesShader(Ne, Lp),
+		code: computeDistancesShader(Ne, Lp, Nr),
 	})
 
 	// BIND GROUP SETUP
@@ -1238,6 +1297,8 @@ const renderPassDescriptor = {	//Parámetros para el render pass que se ejecutar
 // Lo que sigue es rendering (y ahora compute) code, lo pongo adentro de una función para loopearlo
 async function newFrame(){
 
+	if (paused && !stepping) { return; }
+
 	if ( updatingParameters ){	// Rearmar buffers y pipeline
 		frame = 0;
 		updateSimulationParameters();
@@ -1245,9 +1306,7 @@ async function newFrame(){
 		console.log("updated!");
 	}
 
-	if ( editingBuffers ) {
-		editBuffers();
-	}
+	if ( editingBuffers ) { editBuffers(); }
 
 	const encoder = device.createCommandEncoder();
 
@@ -1257,13 +1316,13 @@ async function newFrame(){
 
 	if (hayReglasActivas) {
 		// Calcular distancias
-		const computePass2 = encoder.beginComputePass();
-		computePass2.setPipeline(simulationPipeline2);
-		computePass2.setBindGroup(0, bindGroups[frame % 2]); // posiciones alternantes
-		computePass2.setBindGroup(1, bindGroups[2]);
-		computePass2.setBindGroup(2, bindGroups[3]);	// bind groups exclusivos para calcular las distancias
-		computePass2.dispatchWorkgroups(workgroupCount2, 1, 1); // Este vec3<u32> tiene su propio @builtin en el compute shader.
-		computePass2.end();
+		//const computePass2 = encoder.beginComputePass();
+		//computePass2.setPipeline(simulationPipeline2);
+		//computePass2.setBindGroup(0, bindGroups[frame % 2]); // posiciones alternantes
+		//computePass2.setBindGroup(1, bindGroups[2]);
+		//computePass2.setBindGroup(2, bindGroups[3]);	// bind groups exclusivos para calcular las distancias
+		//computePass2.dispatchWorkgroups(workgroupCount2, 1, 1); // Este vec3<u32> tiene su propio @builtin en el compute shader.
+		//computePass2.end();
 
 		// Calcular simulación (actualizar posiciones y velocidades)
 		const computePass = encoder.beginComputePass();
@@ -1311,9 +1370,20 @@ async function newFrame(){
 
 	device.queue.submit([encoder.finish()]);
 
+	if ((frame + 30) % 60 == 0) {
+		//const values = new Float32Array( await readBuffer(device, velocitiesBuffer ));
+		//const values2 = [];
+
+		//for (let i=2; i<values.length; i += 4) {
+		//	values2.push(values[i]);
+		//}
+		
+		//generateHistogram2(values2, 10);
+		//console.log(values)
+	}
+
 	t2 = window.performance.now();
 	if (frame % 60 == 0) {	// Leer el storage buffer y mostrarlo en debug info (debe estar después de encoder.finish())
-
 		let dif1, dif2, text = "";
 		if (timer) {
 			const arrayBuffer = await readBuffer(device, queryBuffer);
@@ -1337,14 +1407,6 @@ async function newFrame(){
 		animationId = requestAnimationFrame(newFrame);
 	}
 }
-
-// Preparar updateGrid para ejecutarse repetidamente
-
-if (!paused){
-	animationId = requestAnimationFrame(newFrame);
-}
-//setInterval(updateGrid, UPDATE_INTERVAL);
-
 
 //TODO:
 /* exportar e importar json con partículas y reglas */
