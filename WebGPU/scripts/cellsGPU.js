@@ -65,6 +65,7 @@ let editingBuffers = true;
 let hayReglasActivas = false;
 let stepping = false;
 let muted = false;
+let preloadPositions = true; //determina si las posiciones se cargan al crear el elementary o al iniciar la simulación.
 let uiSettings = {
 	bgColor : [0, 0, 0, 1],
 }
@@ -127,7 +128,7 @@ function generateHistogram2(data, nBins) {
 // Funciones varias
 
 function setRNG(seed) {
-	//console.log(`setRNG(${seed}) called`)
+	console.log(`setRNG(${seed}) called`)
 	if (seed == "") {
 		seed = Math.random().toFixed(7).toString();
 		seedInput.placeholder = seed;
@@ -162,7 +163,7 @@ function randomVelocity(){
 		1,
 	]);
 }
-function crearPosiVel(n, debug = false) {
+function crearPosiVel(n, debug = false) { // crea dos n-arrays con las posiciones y velocidades de n partículas
 
 	const buffer = new ArrayBuffer(n * 8 * 4) // n partículas, cada una tiene 28B (4*4B para la pos y 3*4B para la vel)
 
@@ -263,8 +264,8 @@ function crearElementary(nombre, color, cantidad, radio, posiciones, velocidades
 		color.constructor === Float32Array && color.length === 4 &&
 		Number.isInteger(cantidad) && cantidad > 0 &&
 		typeof radio === "number" && radio > 0  &&
-		posiciones.constructor === Float32Array && 
-		velocidades.constructor === Float32Array
+		(posiciones.constructor === Float32Array || (Array.isArray(posiciones) && posiciones.length === 0) ) && 
+		(velocidades.constructor === Float32Array || (Array.isArray(velocidades) && velocidades.length === 0) )
 	) {
 		return {
 			nombre,			// string
@@ -279,7 +280,7 @@ function crearElementary(nombre, color, cantidad, radio, posiciones, velocidades
 	throw new Error("Detectado parámetro inválido");
 
 }
-function cargarElementary(newElementary) {  // añade una familia a la lista.
+function cargarElementary(newElementary) {
 	if ( elementaries.some(dict => dict.nombre == newElementary.nombre) ){
 		console.log("Reemplazando partículas del mismo nombre...")
 		const i = elementaries.findIndex(dict => dict.nombre == newElementary.nombre);
@@ -378,9 +379,11 @@ function cargarSetup(setup, debug = false) {  // reemplaza el setup actual. Rell
 	setRNG(setup.seed);
 	for (let elem of setup.elementaries) {
 		actualizarElemSelectors(elem);
-		const [pos, vel] = crearPosiVel(elem.cantidad, debug);
-		elem.posiciones = pos;
-		elem.velocidades = vel;
+		if (preloadPositions) {
+			const [pos, vel] = crearPosiVel(elem.cantidad, debug);
+			elem.posiciones = pos;
+			elem.velocidades = vel;
+		}
 	}
 	for (let rule of setup.rules) {
 		actualizarRuleSelector(rule);
@@ -463,10 +466,10 @@ function generarSetupClásico(conReglas=true, debug = false) {
 	let elementaries = [];
 
 	elementaries = [
-		crearElementary("yellow", new Float32Array([1,1,0,1]), 300, 3, e, e), //300
-		crearElementary("red", new Float32Array([1,0,0,1]), 80, 4, e, e),	//80
-		crearElementary("purple", new Float32Array([147/255,112/255,219/255,1]), 30, 5, e, e),	//30
-		crearElementary("green", new Float32Array([0,128/255,0,1]), 5, 7, e, e),				//5 r7
+		crearElementary("A", new Float32Array([1,1,0,1]), 300, 3, e, e), //300
+		crearElementary("R", new Float32Array([1,0,0,1]), 80, 4, e, e),	//80
+		crearElementary("P", new Float32Array([147/255,112/255,219/255,1]), 30, 5, e, e),	//30
+		crearElementary("V", new Float32Array([0,128/255,0,1]), 5, 7, e, e),				//5 r7
 	];
 
 	if (debug) {
@@ -481,15 +484,15 @@ function generarSetupClásico(conReglas=true, debug = false) {
 	let rules = [];
 	if (conReglas) {
 		rules = [
-			crearRule("","red","red", 0.5, 0.2, 15, 100), 		// los núcleos se tratan de juntar si están cerca
-			crearRule("","yellow","red", 0.5, 0, 60, 600), 		// los electrones siguen a los núcleos, pero son caóticos
-			crearRule("","yellow","yellow", -0.1, 1, 20, 600),
-			crearRule("","purple","red", 0.4, 0, 0.1, 150), 	// los virus persiguen a los núcleos
-			crearRule("","purple","yellow", -0.2, 1, 0.1, 100), // los virus son repelidos por los electrones
-			crearRule("","yellow","purple", 0.2, 0, 0.1, 100), 	// los electrones persiguen a los virus
-			crearRule("","red","purple", 1, 1, 0.1, 10), 		// los virus desorganizan los núcleos
-			crearRule("","red","green", 0.3, 0, 50, 1000), 		// los núcleos buscan comida
-			crearRule("","green","green", -0.2, 0.2, 50, 500), 	// la comida se mueve un poco y estabiliza las células
+			crearRule("","R","R", 0.5, 0.2, 15, 100), 		// los núcleos se tratan de juntar si están cerca
+			crearRule("","A","R", 0.5, 0, 60, 600), 		// los electrones siguen a los núcleos, pero son caóticos
+			crearRule("","A","A", -0.1, 1, 20, 600),
+			crearRule("","P","R", 0.4, 0, 0.1, 150), 	// los virus persiguen a los núcleos
+			crearRule("","P","A", -0.2, 1, 0.1, 100), // los virus son repelidos por los electrones
+			crearRule("","A","P", 0.2, 0, 0.1, 100), 	// los electrones persiguen a los virus
+			crearRule("","R","P", 1, 1, 0.1, 10), 		// los virus desorganizan los núcleos
+			crearRule("","R","V", 0.3, 0, 50, 1000), 		// los núcleos buscan comida
+			crearRule("","V","V", -0.2, 0.2, 50, 500), 	// la comida se mueve un poco y estabiliza las células
 		];
 	}
 
@@ -527,6 +530,7 @@ function mapAndPadNtoXNUint(array, x) { // [1,2,3] -> UintArray [1, 0...0, 2, 0.
 	}
 	return typedArray;
 }
+
 // EVENT HANDLING
 
 // diálogo de ayuda
@@ -563,6 +567,14 @@ creadorReglasTitle.onclick = function () {document.getElementById("creadorreglas
 // seed input
 const seedInput = document.getElementById("seed");
 seedInput.onchange = function () { setRNG(seedInput.value);}
+const preloadPosButton = document.getElementById("preloadpositions");
+preloadPosButton.onclick = function () {
+	preloadPositions ^= true;
+	if (preloadPositions) { preloadPosButton.classList.add("switchedoff"); }
+	else { preloadPosButton.classList.remove("switchedoff"); }
+}
+
+
 // canvas color
 const bgColorPicker = document.getElementById("bgcolorpicker");
 bgColorPicker.onchange = function() { uiSettings.bgColor = hexString_to_rgba(bgColorPicker.value, 1); }
@@ -597,6 +609,8 @@ function stepear() {
 stepButton.onclick = stepear;
 // Controles
 document.addEventListener("keydown", function(event) {
+  	const isTextInput = event.target.tagName === 'INPUT' && event.target.type === 'text';
+	if (isTextInput) return;
 	switch (event.code){
 		case "Space":
 			event.preventDefault();
@@ -618,11 +632,15 @@ document.addEventListener("keydown", function(event) {
 			if (muted) { alpha = 0.3;}
 			volumeRange.style.setProperty("--thumbg", `rgba(255, 255, 255, ${alpha})`);
 			break;
+		case "KeyD":
+			debugPanel.hidden ^= true;
+			break;
 	}
 });
 // botón de info debug
 const infoButton = document.getElementById("mostrarinfo");
-infoButton.onclick = function() { document.getElementById("infopanel").hidden ^= true; }
+const debugPanel = document.getElementById("infopanel");
+infoButton.onclick = function() { debugPanel.hidden ^= true; }
 // botón de export e import
 const exportButton = document.getElementById("export");
 const importButton = document.getElementById("import");
@@ -686,7 +704,9 @@ partiControls.submitButton.onclick = function(){
 
 	// Una vez validado todo:
 	const cant = parseInt(partiControls.cantInput.value);
-	const [pos, vel] = crearPosiVel(cant);
+
+	let [pos, vel] = [[], []];
+	if (preloadPositions) {[pos, vel] = crearPosiVel(cant);}
 
 	cargarElementary( crearElementary(
 		partiControls.nameInput.value,
@@ -772,6 +792,9 @@ borraParticleButton.onclick = function(){
 	
 	// TODO: actualizar reglas activas y buffers si hace falta
 }
+
+// Inicializar seed
+setRNG(seedInput.value);
 
 // VERTEX SETUP
 
@@ -1011,17 +1034,28 @@ function editBuffers() {
 	if (resetPosiVels) {
 		//let posBytes = 0;
 		//for (let elementary of elementaries) { posBytes += elementary.posiciones.byteLength; } // bytesize de todas las posiciones
-
 		let offsetPos = 0, offsetVel = 0;
 		const positionsArray = new Float32Array(N*4);
 		const velocitiesArray = new Float32Array(N*4);
 
-		for (let elementary of elementaries) { // llenar los arrays de posiciones y velocidades
-			positionsArray.set(elementary.posiciones, offsetPos);
-			velocitiesArray.set(elementary.velocidades, offsetVel)
+		for (let elementary of elementaries) { // llenar los arrays de posiciones y velocidades ya presentes en elementaries
+
+			const posiVelsIncompleto = elementary.posiciones.length !== elementary.cantidad || elementary.velocidades.length !== elementary.cantidad;
+			if (!preloadPositions || posiVelsIncompleto) {
+				// if (posiVelsIncompleto) {console.log(`Recalculando posiciones y velocidades de ${elementary.nombre}`)}
+				const [pos, vel] = crearPosiVel(elementary.cantidad);
+				positionsArray.set(pos, offsetPos);
+				velocitiesArray.set(vel, offsetVel);
+			} else {
+				positionsArray.set(elementary.posiciones, offsetPos);
+				velocitiesArray.set(elementary.velocidades, offsetVel);
+			}
+
 			offsetPos += elementary.posiciones.length;
 			offsetVel += elementary.velocidades.length;
 		}
+
+
 
 		positionBuffers = [
 			device.createBuffer({

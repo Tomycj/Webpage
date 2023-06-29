@@ -12,41 +12,41 @@ export function computeDistancesShader(ne, lp, nr) { return /*wgsl*/`
         distAcums: vec2u,
     }
 
-    struct Rule {
-        tarInd: f32,
-        srcInd: f32,
-        g: f32,
-        q: f32,
-        mind: f32,
-        maxd: f32,
-        pad1: f32,
-        pad2: f32,
-    }
+    // struct Rule {
+    //     tarInd: f32,
+    //     srcInd: f32,
+    //     g: f32,
+    //     q: f32,
+    //     mind: f32,
+    //     maxd: f32,
+    //     pad1: f32,
+    //     pad2: f32,
+    // }
 
     @group(0) @binding(0) var<storage, read> posiciones: array<vec4f>;
 
     @group(1) @binding(3) var<storage, read_write> distancias: array<f32>;
-    @group(1) @binding(2) var<uniform> rules: array<Rule,1>;
+    //@group(1) @binding(2) var<uniform> rules: array<Rule,1>;
     @group(2) @binding(0) var<uniform> nd: u32; // cantidad total de distancias. Se deja para reemplazarse por otras cosas en el futuro
     @group(2) @binding(1) var<uniform> ints: array<DatosInteracciones, ${lp}>;
     @group(2) @binding(2) var<uniform> elems: array<DatosElementaries,${ne}>;
 
     override constante = 64; // Este valor es el default, si "constante" no está definida en constants de la pipeline.
 
-    fn LFSR( z: u32, s1: u32, s2: u32, s3: u32, m:u32) -> u32 {
-        let b = (((z << s1) ^ z) >> s2);
-        return (((z & m) << s3) ^ b);
-    }
+    // fn LFSR( z: u32, s1: u32, s2: u32, s3: u32, m:u32) -> u32 {
+    //     let b = (((z << s1) ^ z) >> s2);
+    //     return (((z & m) << s3) ^ b);
+    // }
 
-    fn rng(i: u32) -> f32 {
-        let seed = u32(i*1099087573);
-        let z1 = LFSR(seed,13,19,12, u32(429496729));
-        let z2 = LFSR(seed,2,25,4, u32(4294967288));
-        let z3 = LFSR(seed,3,11,17, u32(429496280));
-        let z4 = 1664525 * seed + 1013904223;
-        let r0 = z1^z2^z3^z4;
-        return f32( r0 ) * 2.3283064365387e-10 ;
-    }
+    // fn rng(i: u32) -> f32 {
+    //     let seed = u32(i*1099087573);
+    //     let z1 = LFSR(seed,13,19,12, u32(429496729));
+    //     let z2 = LFSR(seed,2,25,4, u32(4294967288));
+    //     let z3 = LFSR(seed,3,11,17, u32(429496280));
+    //     let z4 = 1664525 * seed + 1013904223;
+    //     let r0 = z1^z2^z3^z4;
+    //     return f32( r0 ) * 2.3283064365387e-10 ;
+    // }
 
     @compute
     @workgroup_size(constante, 1, 1) // el tercer parámetro (z) es default 1.
@@ -172,7 +172,7 @@ export function computeShader(nr) { return /*wgsl*/`
             return vec2f(f*(posi.x - posj.x), f*(posi.y - posj.y));
         }
          else {
-            return vec2f(rng(seed+u32(posj.x))-0.5, rng(seed+u32(posj.y))-0.5) * 2 * g * q;
+            return 0 * vec2f(rng(seed+u32(posj.x))-0.5, rng(seed+u32(posj.y))-0.5) * 2 * g * q;
         }
     }
 
@@ -235,6 +235,8 @@ export function computeShader(nr) { return /*wgsl*/`
 
                     //Obtengo la distancia a pj
                     let d = distance(pos, posj);
+
+
 
                     deltav += applyrule(i, pos, posj, d, rules[r].g, rules[r].q, rules[r].mind, rules[r].maxd);
                 

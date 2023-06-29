@@ -1,5 +1,7 @@
 /* http://jsfiddle.net/bpt1mcv6/ */
 
+
+
 .overlayed {
     position: relative; /* Hace que los elementos dentro de overlayed (como .overlay) tengan posición relativa */
 }
@@ -17,13 +19,15 @@
 .right {
 	right: 0;
 	text-align: right;
+	border-bottom-left-radius: 10px;
 }
 .left {
 	width: 23.5ch;
 	left: 0;
+	border-bottom-right-radius: 10px;
 }
 
-#controlPanel span {
+.categoryspan {
 	display: block;
 	text-align: center;
 	font-weight: bold;
@@ -87,40 +91,72 @@ input[type="range"] {
 
 /* Chrome, Safari, Edge, Opera */
 input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  height: 15px;
-  width: 5px;
-  background: var(--thumbg);
-  cursor: ew-resize;
+	-webkit-appearance: none;
+	height: 15px;
+	width: 5px;
+	background: var(--thumbg);
+	cursor: ew-resize;
 }
 
 input[type=range]::-webkit-slider-runnable-track  {
-  -webkit-appearance: none;
-  box-shadow: none;
-  border: none;
-  background: transparent;
+	-webkit-appearance: none;
+	box-shadow: none;
+	border: none;
+	background: transparent;
 }
 
 /* Firefox */
-
+/* TODO */
 
 
 .button {
-  border: 2px solid black;
-  background-color: rgba(0, 0, 0, 0);
-  color: black;
-  cursor: pointer;
+	border: 2px solid black;
+	border-color: rgba(255, 255, 255, 0.2);
+	background-color: rgba(0, 0, 0, 0);
+	color: white;
+	cursor: pointer;
 }
-.ba {
-  border-color: rgba(255, 255, 255, 0.2);
-  color: white;
+
+.button:hover {
+	background-color: white;
+	color: black;
 }
-.ba:hover {
-  background-color: white;
-  color: black;
+
+.switchedoff {
+	color: rgba(255, 255, 255, 0.3);
 }
+.switchedoff:hover {
+	color: black;
+}
+
 #pausebutton {
 	width: 9ch;
+}
+
+.hastooltip {
+  position: relative;
+  display: inline-block;
+}
+
+.hastooltip .tooltiptext {
+  visibility: hidden;
+  width: 30ch;
+  background-color: rgba(0, 0, 0, 1);
+  color: #fff;
+  text-align: center;
+  border-radius: 4px;
+  padding: 5px 0;
+
+  /* Position the tooltip */
+  position: absolute;
+  top: -5px;
+  margin-left: 2ch;
+  z-index: 1;
+}
+
+.hastooltip:hover .tooltiptext {
+  visibility: visible;
+  transition-delay: 0.5s;
 }
 
 .selector {
