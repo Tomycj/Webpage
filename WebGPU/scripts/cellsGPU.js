@@ -20,7 +20,7 @@ ctx.fill();
 let timer; */
 
 const VELOCITY_FACTOR = 0;
-const WORKGROUP_SIZE = 64;
+const WORKGROUP_SIZE = 256;
 const SAMPLE_SETUP = {
 	seed: "sampleSeed",
 	elementaries: [
@@ -65,17 +65,18 @@ let editingBuffers = true;
 let hayReglasActivas = false;
 let stepping = false;
 let muted = false;
-let preloadPositions = true; //determina si las posiciones se cargan al crear el elementary o al iniciar la simulación.
+let preloadPositions = false; //determina si las posiciones se cargan al crear el elementary o al iniciar la simulación.
 let uiSettings = {
 	bgColor : [0, 0, 0, 1],
 }
 
 // TIMING & DEBUG -- véase https://omar-shehata.medium.com/how-to-use-webgpu-timestamp-query-9bf81fb5344a
+let usaDistancias = false;
 let debug = false;
 let capacity, querySet, queryBuffer;
-let t0, t1, t2;
+let t0, t1, t2, t3;
 if (timer) {
-	capacity = 3; //Max number of timestamps we can store
+	capacity = 4; //Max number of timestamps we can store
 	querySet = device.createQuerySet({
 		type: "timestamp",
 		count: capacity,
@@ -569,11 +570,9 @@ seedInput.onchange = function () { setRNG(seedInput.value);}
 const preloadPosButton = document.getElementById("preloadpositions");
 preloadPosButton.onclick = function () {
 	preloadPositions ^= true;
-	if (preloadPositions) { preloadPosButton.classList.add("switchedoff"); }
+	if (!preloadPositions) { preloadPosButton.classList.add("switchedoff"); }
 	else { preloadPosButton.classList.remove("switchedoff"); }
 }
-
-
 // canvas color
 const bgColorPicker = document.getElementById("bgcolorpicker");
 bgColorPicker.onchange = function() { uiSettings.bgColor = hexString_to_rgba(bgColorPicker.value, 1); }
@@ -693,7 +692,6 @@ const partiControls = {
 	selector: document.getElementById("particleselect"),
 	submitButton: document.getElementById("c.elemsubmit"),
 }
-
 partiControls.submitButton.onclick = function(){
 
 	// Validacióm
@@ -923,7 +921,7 @@ function editBuffers() {
 		matrizDistancias(rule);
 	}
 	if (reglasActivas.length) { hayReglasActivas = true;}
-
+	
 	//ordenar m según orden de elementaries, calcular Nd, generar listas de interacciones y cantidades de distancias
 	function reordenarMatrizYGenerarListas(m, D) {
 		const mtemp = m.map(innerArray => innerArray.slice()); // Copia independiente de m (deep clone)
@@ -968,13 +966,12 @@ function editBuffers() {
 	[m, Nd, datosInteracciones] = reordenarMatrizYGenerarListas(m, D);
 
 	
-	//const distanciasArray = new Float32Array()
 	distanciasBuffer = device.createBuffer({
 		label: "Distancias buffer",
-		size: Nd*4, //bytesDist.reduce((a, b) => a + b, 0), // suma de todos los bytes de cada una de las matrices distancia
+		size: (Nd*4)*usaDistancias + 16*!usaDistancias,
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC, // storage porque entre cada frame las distancias cambian
 	});
-	//device.queue.writeBuffer(distanciasBuffer, 0, distanciasArray); // veo si puedo pasar el buffer vacío para rellenarlo en GPU.
+	
 
 	/*const NdUniformBuffer = device.createBuffer({
 		label: "Nd buffer",
@@ -991,7 +988,7 @@ function editBuffers() {
 	});
 	device.queue.writeBuffer(datosInteraccionesBuffer, 0, datosInteraccionesArray);
 
-
+	
 	
 	// Reglas
 
@@ -1042,8 +1039,8 @@ function editBuffers() {
 				velocitiesArray.set(elementary.velocidades, offsetVel);
 			}
 
-			offsetPos += elementary.posiciones.length;
-			offsetVel += elementary.velocidades.length;
+			offsetPos += L;
+			offsetVel += L;
 		}
 
 
@@ -1080,7 +1077,6 @@ function editBuffers() {
 			storageBuffers: [storageRadios, storageColores],
 			distanciasBuffer,
 			reglasBuffer,
-			//NdUniformBuffer,
 			datosInteraccionesBuffer,
 			cantsBuffer,
 		},
@@ -1090,8 +1086,6 @@ function editBuffers() {
 		reglasActivas.length,
 	]
 }
-
-generarSetupClásico("semilla",true, debug);
 
 function updateSimulationParameters() {
 
@@ -1111,12 +1105,12 @@ function updateSimulationParameters() {
 	
 	const simulationShaderModule = device.createShaderModule({
 		label: "Compute shader",
-		code: computeShader(Ne, Nr, Lp),
+		code: computeShader(WORKGROUP_SIZE, Ne, Nr, Lp),
 	})
 	
 	const distancesShaderModule = device.createShaderModule({
 		label: "Distances compute shader",
-		code: computeDistancesShader(Ne, Nr, Lp, Nd),
+		code: computeDistancesShader(WORKGROUP_SIZE, Ne, Nr, Lp, Nd),
 	})
 
 	// BIND GROUP SETUP
@@ -1302,6 +1296,8 @@ function updateSimulationParameters() {
 	updatingParameters = false;
 }
 
+generarSetupClásico("semilla",true, debug);
+
 const renderPassDescriptor = {	//Parámetros para el render pass que se ejecutará cada frame
 	colorAttachments: [{		// es un array, de momento sólo hay uno, su @location en el fragment shader es entonces 0
 		view: context.getCurrentTexture().createView(),
@@ -1332,15 +1328,21 @@ async function newFrame(){
 	} else { t0 = window.performance.now(); }
 
 	if (hayReglasActivas) {
+		
+		if (usaDistancias) {
+			// Calcular distancias
+			const computePass2 = encoder.beginComputePass();
+			computePass2.setPipeline(simulationPipeline2);
+			computePass2.setBindGroup(0, bindGroups[frame % 2]); // posiciones alternantes
+			computePass2.setBindGroup(1, bindGroups[2]);
+			//computePass2.setBindGroup(2, bindGroups[3]);	// bind groups exclusivos para calcular las distancias
+			computePass2.dispatchWorkgroups(workgroupCount2, 1, 1);
+			computePass2.end();
+		}
 
-		// Calcular distancias
-		const computePass2 = encoder.beginComputePass();
-		computePass2.setPipeline(simulationPipeline2);
-		computePass2.setBindGroup(0, bindGroups[frame % 2]); // posiciones alternantes
-		computePass2.setBindGroup(1, bindGroups[2]);
-		//computePass2.setBindGroup(2, bindGroups[3]);	// bind groups exclusivos para calcular las distancias
-		computePass2.dispatchWorkgroups(workgroupCount2, 1, 1);
-		computePass2.end();
+		if (timer) {
+			encoder.writeTimestamp(querySet, 1);
+		} else { t1 = window.performance.now(); }
 
 		// Calcular simulación (actualizar posiciones y velocidades)
 		const computePass = encoder.beginComputePass();
@@ -1352,11 +1354,9 @@ async function newFrame(){
 		computePass.end();
 	}
 
-	if (timer) {	 // Timestamp - after compute pass
-		encoder.writeTimestamp(querySet, 1);
-	} else {
-		t1 = window.performance.now();
-	}
+	if (timer) {	 // Timestamp - after compute passes
+		encoder.writeTimestamp(querySet, 2);
+	} else { t2 = window.performance.now(); }
 	
 	frame++;
 	
@@ -1375,16 +1375,14 @@ async function newFrame(){
 	pass.end(); // finaliza el render pass
 
 	if (timer) {	 // Timestamp - after render pass
-		encoder.writeTimestamp(querySet, 2);
+		encoder.writeTimestamp(querySet, 3);
 		encoder.resolveQuerySet(
 			querySet, 
 			0, // index of first query to resolve 
 			capacity, //number of queries to resolve
 			queryBuffer, 
 			0); // destination offset
-	} else {
-		t2 = window.performance.now();
-	}
+	} else { t3 = window.performance.now(); }
 
 	device.queue.submit([encoder.finish()]);
 
@@ -1400,21 +1398,24 @@ async function newFrame(){
 		//console.log(values)
 	}
 
-	t2 = window.performance.now();
+	//t2 = window.performance.now();
 	if (frame % 60 == 0) {	// Leer el storage buffer y mostrarlo en debug info (debe estar después de encoder.finish())
-		let dif1, dif2, text = "";
+		let dif1, dif2, dif3, text = "";
 		if (timer) {
 			const arrayBuffer = await readBuffer(device, queryBuffer);
 			const timingsNanoseconds = new BigInt64Array(arrayBuffer);
-			dif1 = Number(timingsNanoseconds[1]-timingsNanoseconds[0])/1_000_000;
-			dif2 = Number(timingsNanoseconds[2]-timingsNanoseconds[1])/1_000_000;
+			dif1 = (Number(timingsNanoseconds[1]-timingsNanoseconds[0])/1_000_000)//.toFixed(6);
+			dif2 = (Number(timingsNanoseconds[2]-timingsNanoseconds[1])/1_000_000)//.toFixed(6);
+			dif3 = (Number(timingsNanoseconds[3]-timingsNanoseconds[2])/1_000_000)//.toFixed(6);
 		} else {
 			dif1 = (t1 - t0).toFixed(4);
 			dif2 = (t2 - t1).toFixed(4);
+			dif3 = (t3 - t2).toFixed(4);
 			text +="⚠ GPU Timing desact.\n"
 		}
-		text += `Compute: ${dif1} ms\nDraw: ${dif2} ms`
-		if (dif1+dif2 > 30) {
+		text += `Compute 1: ${dif1.toFixed(6)} ms\nCompute 2: ${dif2.toFixed(6)} ms\nDraw: ${dif3.toFixed(6)} ms`;
+		text += `\nCompute t: ${(dif1+dif2).toFixed(6)} ms`;
+		if (dif1 + dif2 + dif3 > 30) {
 			text = text + "\nGPU: Brrrrrrrrrrr";
 		}
 		displayTiming.innerText = text;
