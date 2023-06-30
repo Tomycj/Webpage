@@ -1,15 +1,16 @@
-export function computeDistancesShader(ne, lp, nr) { return /*wgsl*/`
+export function computeDistancesShader(ne, nr, lp, nd) { return /*wgsl*/`
 
     struct DatosElementaries { // Cada elemento de un array en un uniform buffer tiene que ser múltiplo de 16B
-        cant: u32, // cantidades no acumuladas
+        cant: u32,
+        cantAcum: u32,
         cantAcum2: u32,
-        padding2: u32,
-        padding3: u32,
+        padding: u32,
     }
 
     struct DatosInteracciones {
         list: vec2u,                // lista de interacciones (Y Y Y R Y P R R...)
-        distAcums: vec2u,
+        distAcum: u32,
+        distAcum2: u32,
     }
 
     // struct Rule {
@@ -26,12 +27,16 @@ export function computeDistancesShader(ne, lp, nr) { return /*wgsl*/`
     @group(0) @binding(0) var<storage, read> posiciones: array<vec4f>;
 
     @group(1) @binding(3) var<storage, read_write> distancias: array<f32>;
-    //@group(1) @binding(2) var<uniform> rules: array<Rule,1>;
-    @group(2) @binding(0) var<uniform> nd: u32; // cantidad total de distancias. Se deja para reemplazarse por otras cosas en el futuro
-    @group(2) @binding(1) var<uniform> ints: array<DatosInteracciones, ${lp}>;
-    @group(2) @binding(2) var<uniform> elems: array<DatosElementaries,${ne}>;
+    @group(1) @binding(4) var<uniform> cants: array<DatosElementaries, ${ne}>;
+    @group(1) @binding(7) var<uniform> ints: array<DatosInteracciones, ${lp}>;
 
-    override constante = 64; // Este valor es el default, si "constante" no está definida en constants de la pipeline.
+    //@group(1) @binding(2) var<uniform> rules: array<Rule,1>;
+    //@group(2) @binding(0) var<uniform> nd: u32; // Se deja para reemplazarse por otras cosas en el futuro
+    
+    //@group(2) @binding(2) var<uniform> elems: array<DatosElementaries,${ne}>;
+    //@group(2) @binding(1) var<uniform> ints: array<DatosInteracciones, ${lp}>;
+
+    override constante = 64;
 
     // fn LFSR( z: u32, s1: u32, s2: u32, s3: u32, m:u32) -> u32 {
     //     let b = (((z << s1) ^ z) >> s2);
@@ -53,13 +58,13 @@ export function computeDistancesShader(ne, lp, nr) { return /*wgsl*/`
     fn computeMain(@builtin(global_invocation_id) ind: vec3u) {
         
         let i = ind.x; // index global
-        if i >= nd {
+        if i >= ${nd} {
             return;
         }
 
         // Determinar en qué índice de Distancias estoy
         var k = 0;
-        while i >= ints[k].distAcums[0] {  //distsAcums[k][0] { // ver si se puede hacer con distAcum2, así no necesito ambos arrays
+        while i >= ints[k].distAcum {  //distsAcums[k][0] { // ver si se puede hacer con distAcum2, así no necesito ambos arrays
             k++;
         }
 
@@ -68,11 +73,11 @@ export function computeDistancesShader(ne, lp, nr) { return /*wgsl*/`
         let ef = ints[k].list[0]; //list[k][0]; // índice del elementary en las filas
         let ec = ints[k].list[1];//list[k][1];
 
-        let fmax = elems[ef].cant;
-        let cmax = elems[ec].cant;
+        let fmax = cants[ef].cant;
+        let cmax = cants[ec].cant;
 
         // Determinar índice local
-        let il = i - ints[k].distAcums[1];//distsAcums[k][1];
+        let il = i - ints[k].distAcum2;//distsAcums[k][1];
 
         // Determinar en qué fila y columna local estoy
         let f = il / (cmax); // es conveniente que sea unsigned division
@@ -97,20 +102,23 @@ export function computeDistancesShader(ne, lp, nr) { return /*wgsl*/`
         //     //posiciones[cants[elementary_f] * 4 + f * 4 + 3], // = 1
         // );
 
-        let p1 = posiciones[ elems[ef].cantAcum2 + f].xy;
-        let p2 = posiciones[ elems[ec].cantAcum2 + c].xy;
+        //TODO: Alternativa: sparse matrix NxN, guardar ahí las distancias. Así es más fácil acceder a ellas luego.
+
+
+        let p1 = posiciones[ cants[ef].cantAcum2 + f].xy;
+        let p2 = posiciones[ cants[ec].cantAcum2 + c].xy;
 
 
         distancias[i] = distance(p1, p2);
 
         //distancias[i] = f32(rules[0].maxd);
         //distancias[i] = f32(${nr});
-        distancias[i] = p1.y;
+        //distancias[i] = p1.y;
     }
 `;
 }
 
-export function computeShader(nr) { return /*wgsl*/`
+export function computeShader(ne, nr, lp) { return /*wgsl*/`
 
     struct Params {
         n: f32,
@@ -130,6 +138,18 @@ export function computeShader(nr) { return /*wgsl*/`
         pad2: f32,
     }
 
+    struct DatosElementaries {
+        cant: u32,
+        cantAcum: u32,
+        cantAcum2: u32,
+        padding: u32,
+    }
+
+    struct DatosInteracciones {
+        list: vec2u,                // lista de interacciones (Y Y Y R Y P R R...)
+        distAcum: u32,
+        distAcum2: u32,
+    }
 
     @group(0) @binding(0) var<storage, read> positionsIn: array<vec4f>; // read only
     @group(0) @binding(1) var<storage, read_write> positionsOut: array<vec4f>; //al poder write, lo uso como output del shader
@@ -138,10 +158,10 @@ export function computeShader(nr) { return /*wgsl*/`
     @group(1) @binding(1) var<storage, read_write> velocities: array<vec4f>; //al poder write, lo uso como output del shader
     @group(1) @binding(2) var<uniform> rules: array<Rule,${nr}>;
     @group(1) @binding(3) var<storage, read_write> distancias: array<f32>;
-    @group(1) @binding(4) var<storage> cantidades: array<u32>; // creo que son acumuladas
+    @group(1) @binding(4) var<uniform> cants: array<DatosElementaries, ${ne}>;
     @group(1) @binding(5) var<storage> radios: array<f32>;
     //@group(1) @binding(6) var<storage> colores: array<vec4f>;
-    
+    @group(1) @binding(7) var<uniform> ints: array<DatosInteracciones, ${lp}>;
 
     override constante = 64; // Este valor es el default, si "constante" no está definida en constants de la pipeline.
 
@@ -186,34 +206,20 @@ export function computeShader(nr) { return /*wgsl*/`
         let n = u32(params.n);
 
         if i >= n {
-            //velocities[i].z = f32(100);//vel.x;
+            //velocities[i].z = f32(100);//vel.x; //store value to read
             return;
         }
         
-        var k = u32(0); // índex local: indica el índice de elementary
-
-        while i >= cantidades[k] { // si cantidades[k] es 3, los índices locales van de 0 a 2
+        var k = u32(0); // índex de elementary
+        while i >= cants[k].cantAcum { // si cantidades[k] es 3, los índices van de 0 a 2
            k++;
         }
-        
-        //let k2 = f32(k);
-        
-        //var vel = f32(0);
-        // if k2 == 0 {
-        //     vel = 0;
-        // } else if k2 == 1 {
-        //     vel = 1;
-        // } else if k2 == 2 {
-        //     vel = 2;
-        // } else if k2 == 3 {
-        //     vel = 3;
-        // } else {
-        //     vel = -1;
-        // }
+        let il = i - cants[k].cantAcum2;    // índice local de la partícula
 
         let pos = positionsIn[i].xy;
         var vel = velocities[i].xy;
         var deltav = vec2f(0.0, 0.0);
+        
 
         //POR CADA PARTÍCULA CON LA QUE TIENE INTERACCIONES {
         for (var pj: u32 = 0; pj < n; pj++) {
@@ -222,7 +228,9 @@ export function computeShader(nr) { return /*wgsl*/`
 
             //determinar elementary index de pj
             var kj = u32(0);
-            while pj >= cantidades[kj] { kj++; }
+            while pj >= cants[kj].cantAcum { kj++; }
+
+            //var d = f32(0);
 
             // por cada regla:
             for (var r: u32 = 0; r<${nr}; r++) {
@@ -230,14 +238,42 @@ export function computeShader(nr) { return /*wgsl*/`
                 // revisar si esta regla le afecta y pj es source
                 if k == u32(rules[r].tarInd) && kj == u32(rules[r].srcInd) {
 
-                    //Obtengo la posición de pj
+                    // Obtengo la posición de pj
                     let posj = positionsIn[pj].xy;
 
-                    //Obtengo la distancia a pj
-                    let d = distance(pos, posj);
+                    // Obtengo la distancia a pj
+                    var d = distance(pos, posj);
+                    
+                    // Busco el índice del par de interacción en el array de matrices distancias
+                    
+                    for (var inter: u32 = 0; inter < ${lp}; inter++) {
+                        
+                        if ((ints[inter].list.x == k) && (ints[inter].list.y == kj)) {
+                            // k son las filas, kj las columnas. En la matriz de distancias
+                            let offset = ints[inter].distAcum2;
 
+                            // Determinar índice 1d en la matriz de distancias
+                            let cmax = cants[kj].cant; //cantidad de columnas
+                            let c = pj - cants[kj].cantAcum2;    // índice de columna = índice local de pj
 
+                            let index = (il * cmax) + c;     //índice 1d local en la matriz de distancias (il = índ. fila)
+                            d = distancias[offset + index];
+                            break;
+                        }
+                        
+                        if ((ints[inter].list.x == kj) && (ints[inter].list.y == k)) {
+                            // k son las columnas, kj las filas. En la matriz de distancias
+                            let offset = ints[inter].distAcum2;
+                            let cmax = cants[k].cant;   // cantidad de columnas
+                            let c = il;     // índice de columna = índice local de k
+                            let ilj = pj - cants[kj].cantAcum2;    // índ. de fila = índice local de pj
 
+                            let index = (ilj * cmax) + c;
+                            d = distancias[offset + index];
+                            break;
+                        }
+                    }
+                    
                     deltav += applyrule(i, pos, posj, d, rules[r].g, rules[r].q, rules[r].mind, rules[r].maxd);
                 
                 }
@@ -286,13 +322,20 @@ export function computeShader(nr) { return /*wgsl*/`
 `;
 }
 
-export function renderShader() { return /*wgsl*/`
+export function renderShader(ne) { return /*wgsl*/`
 
     struct Params {
         n: f32,
         ne: f32,
         ancho: f32,
         alto: f32,
+    }
+
+    struct DatosElementaries {
+        cant: u32,
+        cantAcum: u32,
+        cantAcum2: u32,
+        padding: u32,
     }
 
     @group(0) @binding(0) var<storage, read> updatedpositions: array<vec4<f32>>; // read only
@@ -302,7 +345,7 @@ export function renderShader() { return /*wgsl*/`
     //@group(1) @binding(1) var<storage, read_write> velocity: array<vec2<f32>>; //al poder write, lo uso como output del shader
     //@group(1) @binding(2) var<uniform> rules: vec2f;
     //@group(1) @binding(3) var<storage, read_write> distancias: array<f32>;
-    @group(1) @binding(4) var<storage> cantidades: array<u32>; // Aunque es constante, como no se el largo del array a priori, necesito usar storage
+    @group(1) @binding(4) var<uniform> cants: array<DatosElementaries, ${ne}>;
     @group(1) @binding(5) var<storage> radios: array<f32>;
     @group(1) @binding(6) var<storage> colores: array<vec4f>;
 
@@ -331,7 +374,7 @@ fn vertexMain(input: VertexInput) -> VertexOutput   {
     let ar = ancho/alto;
 
     var k = u32(0);
-    while idx >= cantidades[k] {
+    while idx >= cants[k].cantAcum {
         k++;
     }
     
@@ -368,7 +411,7 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {  // @location(n) es
     }
 
     var k = u32(0);
-    while idx >= f32(cantidades[k]) {
+    while idx >= f32(cants[k].cantAcum) {
         k++;
     }
 

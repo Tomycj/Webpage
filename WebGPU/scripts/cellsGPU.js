@@ -128,7 +128,7 @@ function generateHistogram2(data, nBins) {
 // Funciones varias
 
 function setRNG(seed) {
-	console.log(`setRNG(${seed}) called`)
+	//console.log(`setRNG(${seed}) called`)
 	if (seed == "") {
 		seed = Math.random().toFixed(7).toString();
 		seedInput.placeholder = seed;
@@ -461,7 +461,7 @@ function crearRule(ruleName, targetName, sourceName, intensity, quantumForce, mi
 		maxDist,
 	} 
 }
-function generarSetupClásico(conReglas=true, debug = false) {
+function generarSetupClásico(seed, conReglas=true, debug = false) {
 	const e = new Float32Array([]);
 	let elementaries = [];
 
@@ -496,7 +496,6 @@ function generarSetupClásico(conReglas=true, debug = false) {
 		];
 	}
 
-	const seed = "";
 	const setup = {seed, elementaries, rules};
 	cargarSetup(setup, debug)
 	console.log("Setup clásico cargado!")
@@ -717,7 +716,7 @@ partiControls.submitButton.onclick = function(){
 		vel,
 	));
 
-	//console.log(elementaries);
+	console.log(elementaries);
 
 }
 
@@ -840,7 +839,6 @@ let velocitiesBuffer = [];
 function editBuffers() {
 
 	const Ne = elementaries.length;
-	const cantsAcum = [];
 	//const cantsAcum2 = [];
 	const cants = [];
 
@@ -848,8 +846,7 @@ function editBuffers() {
 	for (let elementary of elementaries) { 
 		const nLocal = elementary.cantidad;
 		N += nLocal; // N también hace de acumulador para este for.
-		cantsAcum.push(N);
-		cants.push([nLocal, N-nLocal]); // [cants, cantsAcum2]
+		cants.push([nLocal, N, N-nLocal, 0]); // [cants, cantsacum, cantsAcum2, padding]
 		//cantsAcum2.push(N - nLocal);
 	}
 
@@ -867,7 +864,6 @@ function editBuffers() {
 	const paramsArray = new Float32Array(paramsArrBuffer); // F32Array que referencia al buffer
 
 	// Parámetros de longitud variable
-	const cantsAcumArray = new Uint32Array(cantsAcum);			// cantidades de cada familia, acumuladas
 	const radios = new Float32Array(Ne);			// byte offset de 16Ne, Ne radios: [r1, r2, r3, ...]
 	const colores = new Float32Array(Ne*4);				// 4 elementos por cada color: [R1 G1 B1 A1, R2, G2, B2, A2, ...]
 	
@@ -885,12 +881,16 @@ function editBuffers() {
 	});
 	device.queue.writeBuffer(uniformBuffer, 0, paramsArray, 0, 4) //buffer, bufferOffset, data, dataOffset, size ( ults 2 en elements por ser typed array)
 
-	const storageCantsAcum = device.createBuffer({
-		label: "cantsAcum buffer",
-		size: Ne*4,
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-	});
-	device.queue.writeBuffer(storageCantsAcum, 0, cantsAcumArray) //4 elementos de offset: N,Ne, canvasdims.x, canvasdims.y
+	const cantsArray = new Uint32Array(cants.flat().length);
+	for (let i=0; i < cantsArray.length; i += 4) { // [C1 Ca1 0 0 C2 Ca2 0 0...]
+		cantsArray.set(cants[i/4], i);
+	}
+	const cantsBuffer = device.createBuffer({
+		label: "cants buffer",
+		size: cantsArray.byteLength,
+		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+	})
+	device.queue.writeBuffer(cantsBuffer, 0, cantsArray);
 
 	const storageRadios = device.createBuffer({
 		label: "radios buffer",
@@ -976,12 +976,12 @@ function editBuffers() {
 	});
 	//device.queue.writeBuffer(distanciasBuffer, 0, distanciasArray); // veo si puedo pasar el buffer vacío para rellenarlo en GPU.
 
-	const NdUniformBuffer = device.createBuffer({
+	/*const NdUniformBuffer = device.createBuffer({
 		label: "Nd buffer",
 		size: 4,
 		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
 	});
-	device.queue.writeBuffer(NdUniformBuffer, 0, new Uint32Array([Nd]));
+	device.queue.writeBuffer(NdUniformBuffer, 0, new Uint32Array([Nd]));*/
 
 	const datosInteraccionesArray = new Uint32Array(datosInteracciones.flat())
 	const datosInteraccionesBuffer = device.createBuffer({
@@ -991,16 +991,7 @@ function editBuffers() {
 	});
 	device.queue.writeBuffer(datosInteraccionesBuffer, 0, datosInteraccionesArray);
 
-	const cantsArray = new Uint32Array(cants.flat().length * 2);
-	for (let i=0; i < cantsArray.length; i += 4) { // [C1 Ca1 0 0 C2 Ca2 0 0...]
-		cantsArray.set(cants[i/4], i);
-	}
-	const cantsBuffer = device.createBuffer({
-		label: "cants buffer",
-		size: cantsArray.byteLength,
-		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-	})
-	device.queue.writeBuffer(cantsBuffer, 0, cantsArray);
+
 	
 	// Reglas
 
@@ -1039,8 +1030,8 @@ function editBuffers() {
 		const velocitiesArray = new Float32Array(N*4);
 
 		for (let elementary of elementaries) { // llenar los arrays de posiciones y velocidades ya presentes en elementaries
-
-			const posiVelsIncompleto = elementary.posiciones.length !== elementary.cantidad || elementary.velocidades.length !== elementary.cantidad;
+			const L = elementary.cantidad*4;
+			const posiVelsIncompleto = elementary.posiciones.length !== L || elementary.velocidades.length !== L;
 			if (!preloadPositions || posiVelsIncompleto) {
 				// if (posiVelsIncompleto) {console.log(`Recalculando posiciones y velocidades de ${elementary.nombre}`)}
 				const [pos, vel] = crearPosiVel(elementary.cantidad);
@@ -1086,10 +1077,10 @@ function editBuffers() {
 			positionBuffers,
 			velocitiesBuffer,
 			uniformBuffer, 
-			storageBuffers: [storageCantsAcum, storageRadios, storageColores],
+			storageBuffers: [storageRadios, storageColores],
 			distanciasBuffer,
 			reglasBuffer,
-			NdUniformBuffer,
+			//NdUniformBuffer,
 			datosInteraccionesBuffer,
 			cantsBuffer,
 		},
@@ -1100,7 +1091,7 @@ function editBuffers() {
 	]
 }
 
-generarSetupClásico(true, debug);
+generarSetupClásico("semilla",true, debug);
 
 function updateSimulationParameters() {
 
@@ -1115,17 +1106,17 @@ function updateSimulationParameters() {
 
 	const particleShaderModule = device.createShaderModule({
 		label: "Particle shader",
-		code: renderShader(),
+		code: renderShader(Ne),
 	});
 	
 	const simulationShaderModule = device.createShaderModule({
 		label: "Compute shader",
-		code: computeShader(Nr),
+		code: computeShader(Ne, Nr, Lp),
 	})
 	
 	const distancesShaderModule = device.createShaderModule({
 		label: "Distances compute shader",
-		code: computeDistancesShader(Ne, Lp, Nr),
+		code: computeDistancesShader(Ne, Nr, Lp, Nd),
 	})
 
 	// BIND GROUP SETUP
@@ -1163,35 +1154,31 @@ function updateSimulationParameters() {
 		}, {
 			binding: 4, // cantidades de cada familia
 			visibility: GPUShaderStage.COMPUTE | GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-			buffer: { type: "read-only-storage" }
+			buffer: { type: "uniform" }
 		}, {
 			binding: 5, // radios
 			visibility: GPUShaderStage.COMPUTE | GPUShaderStage.VERTEX,
 			buffer: { type: "read-only-storage" }
 		}, {
-			binding: 6, //colores
+			binding: 6, // colores
 			visibility: GPUShaderStage.FRAGMENT,
 			buffer: { type: "read-only-storage" }
+		}, {
+			binding: 7,	// datos interacciones
+			visibility: GPUShaderStage.COMPUTE,
+			buffer: { type: "uniform" }
 		}]
 	});
-
-	const bindGroupLayoutDist = device.createBindGroupLayout({
+	
+	/*const bindGroupLayoutDist = device.createBindGroupLayout({
 		label: "distances comp bind groups layout",
 		entries: [{
-			binding: 0,	// Nd
+			binding: 0,
 			visibility: GPUShaderStage.COMPUTE,
 			buffer: {}
-		}, {
-			binding: 1,	// datos interacciones
-			visibility: GPUShaderStage.COMPUTE,
-			buffer: { type: "uniform" }
-		}, {
-			binding: 2,	// cants (no acumuladas y acum2)
-			visibility: GPUShaderStage.COMPUTE,
-			buffer: { type: "uniform" }
-		}]
-	})
-
+		},]
+	})*/
+	
 	bindGroups = [
 		device.createBindGroup({ // posiciones A
 			label: "Particle positions bind group A",
@@ -1231,34 +1218,30 @@ function updateSimulationParameters() {
 				binding: 3,
 				resource: { buffer: GPUBuffers.distanciasBuffer }
 			}, {
-				binding: 4, // cantidades de cada familia
-				resource: { 
-					buffer: GPUBuffers.storageBuffers[0], 
+				binding: 4, // cantidades acumuladas de cada familia
+				resource: { buffer: GPUBuffers.cantsBuffer, 
 					//offset: 0, // min: 256
 					//size: Ne * 4
 				}
 			}, {
 				binding: 5, // radios de cada familia
-				resource: { buffer: GPUBuffers.storageBuffers[1], }
+				resource: { buffer: GPUBuffers.storageBuffers[0], }
 			}, {
 				binding: 6,	// colores de cada familia
-				resource: { buffer: GPUBuffers.storageBuffers[2], }
+				resource: { buffer: GPUBuffers.storageBuffers[1], }
+			}, {
+				binding: 7,
+				resource: { buffer: GPUBuffers.datosInteraccionesBuffer}
 			}],
 		}),
-		device.createBindGroup({
+		/*device.createBindGroup({
 			label: "Distances computation bindgroup",
 			layout: bindGroupLayoutDist,
 			entries: [{
 				binding: 0,
-				resource: { buffer: GPUBuffers.NdUniformBuffer}
-			}, {
-				binding: 1,
-				resource: { buffer: GPUBuffers.datosInteraccionesBuffer}
-			}, {
-				binding: 2,
-				resource: { buffer: GPUBuffers.cantsBuffer}
-			}]
-		})
+				resource: { buffer: GPUBuffers.EXAMPLEBUFFER}
+			},]
+		})*/
 	];
 
 	// PIPELINE SETUP
@@ -1268,10 +1251,10 @@ function updateSimulationParameters() {
 		bindGroupLayouts: [ bindGroupLayoutPos, bindGroupLayoutResto],
 	}); // El orden de los bind group layouts tiene que coincider con los atributos @group en el shader
 
-	const pipelineLayout2 = device.createPipelineLayout({
+	/*const pipelineLayout2 = device.createPipelineLayout({
 		label: "Pipeline Layout 2",
 		bindGroupLayouts: [ bindGroupLayoutPos, bindGroupLayoutResto, bindGroupLayoutDist ],
-	});
+	});*/
 
 	// Crear render pipeline (para usar vertex y fragment shaders)
 	particleRenderPipeline = device.createRenderPipeline({
@@ -1306,7 +1289,7 @@ function updateSimulationParameters() {
 
 	simulationPipeline2 = device.createComputePipeline({
 		label: "Distances pipeline",
-		layout: pipelineLayout2,
+		layout: pipelineLayout,
 		compute: {
 			module: distancesShaderModule,
 			entryPoint: "computeMain",
@@ -1349,14 +1332,15 @@ async function newFrame(){
 	} else { t0 = window.performance.now(); }
 
 	if (hayReglasActivas) {
+
 		// Calcular distancias
-		//const computePass2 = encoder.beginComputePass();
-		//computePass2.setPipeline(simulationPipeline2);
-		//computePass2.setBindGroup(0, bindGroups[frame % 2]); // posiciones alternantes
-		//computePass2.setBindGroup(1, bindGroups[2]);
+		const computePass2 = encoder.beginComputePass();
+		computePass2.setPipeline(simulationPipeline2);
+		computePass2.setBindGroup(0, bindGroups[frame % 2]); // posiciones alternantes
+		computePass2.setBindGroup(1, bindGroups[2]);
 		//computePass2.setBindGroup(2, bindGroups[3]);	// bind groups exclusivos para calcular las distancias
-		//computePass2.dispatchWorkgroups(workgroupCount2, 1, 1); // Este vec3<u32> tiene su propio @builtin en el compute shader.
-		//computePass2.end();
+		computePass2.dispatchWorkgroups(workgroupCount2, 1, 1);
+		computePass2.end();
 
 		// Calcular simulación (actualizar posiciones y velocidades)
 		const computePass = encoder.beginComputePass();
