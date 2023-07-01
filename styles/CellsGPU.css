@@ -1,7 +1,5 @@
 /* http://jsfiddle.net/bpt1mcv6/ */
 
-
-
 .overlayed {
     position: relative; /* Hace que los elementos dentro de overlayed (como .overlay) tengan posición relativa */
 }
@@ -151,7 +149,7 @@ input[type=range]::-webkit-slider-runnable-track  {
   position: absolute;
   top: -5px;
   margin-left: 2ch;
-  z-index: 1;
+  /*z-index: 1;*/
 }
 
 .hastooltip:hover .tooltiptext {
@@ -163,6 +161,8 @@ input[type=range]::-webkit-slider-runnable-track  {
 	width: 8ch;
 	background-color: rgba(0, 0, 0, 0);
 	color: white;
+	border-width: 2px;
+	border-color: rgba(255, 255, 255, 0.2)
 }
 .selector option {
 	color: black;
@@ -187,3 +187,4 @@ margin: 0;
 input[type=number] {
 -moz-appearance: textfield;
 }
+

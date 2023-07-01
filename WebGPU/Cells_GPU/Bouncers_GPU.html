@@ -1,0 +1,159 @@
+<!doctype html>
+
+<html>
+	<head>
+		<meta charset="utf-8">
+		<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"> <!--Fuerza a re-cargar el cache-->
+		<link rel="stylesheet" href="../../styles/CellsGPU.css">
+		<link rel="icon" href="../../images/logoBLR.png" type="image/icon type">
+		<title>Bouncers GPU</title>
+	</head>
+
+	<body style="background-color: black; color: white">
+		<h2 style ="text-align: center" >
+			Pruebas con WebGPU: partículas
+		</h2>
+
+		<script type="module" src="../scripts/bouncersGPU.js"></script>
+
+		
+		<p id="estatus" style ="text-align: center" >  Iniciando... </p>  <!-- mensaje de estatus -->
+		
+		<div style ="text-align: center" id="canvascontainer" class="overlayed">
+
+			<canvas width="512" height="512"></canvas>
+
+			<div id="controlPanel" class="overlay">
+				<span>Panel de control</span>
+				
+				<button id="pausebutton" class="button ba">Iniciar</button>
+				<button id="stepbutton" class="button ba">Step</button>
+				<button id="resetbutton" class="button ba" hidden >Reiniciar</button>
+
+				<br>
+				Cant. partículas:
+				<input type="number" id="npicker" value="100000" class="numberinput" min ="0" max="4100000">
+
+				<br>
+				Color de fondo:
+				<input type="color" id="bgcolorpicker" value="#000000" class="colorinput">
+
+				<br>
+				Color A:
+				<input type="color" id="acolorpicker" value="#FF0000" class="colorinput">
+
+				<br>
+				Color B:
+				<input type="color" id="bcolorpicker" value="#00FF00" class="colorinput">
+
+				<br>
+				Radial: 
+				<input type="checkbox" id="checkbox" checked="true">
+
+
+				<br>
+				<div hidden class="creador", id="creadorparticulas">
+					<span>Creador de partículas</span>
+
+					<div class="c.div">
+						<label for="c.nom">Nombre: </label>
+						<input type="text" id="c.nom" class="textinput" value="R">
+					</div>
+
+					<div class="c.div">
+						<label for="c.col">Color: </label>
+						<input type="color" id="c.col" class="colorinput" value="#FF0000">
+					</div>
+
+					<div class="c.div">
+					  <label for="c.cant">Cantidad: </label>
+					  <input type="number" id="c.cant" class="numberinput" min="1" max="100000" value="80">
+					</div>
+
+					<div class="c.div">
+						<label for="c.radius">Radio: </label>
+						<input type="number" id="c.radius" class="numberinput" min="0" max="500" value="3">
+					</div>
+
+					<div class="c.div">
+					  <button class="button ba" id="c.elemsubmit">Crear</button>
+					</div>
+
+				</div>
+
+				<div hidden class="creador" id="creadorreglas">
+					<span>Creador de reglas</span>
+					
+					<div class="c.div">
+						<label for="targetselect">Afecta a </label>
+						<select class="selector" id="targetselect">
+
+						</select>
+					</div>
+
+					<div class="c.div">
+						<label for="sourceselect">Ejercida por </label>
+						<select class="selector" id="sourceselect">
+
+						</select>
+					</div>
+
+					<div class="c.div">
+					  <label for="r.intens">Intensidad: </label>
+					  <input type="number" id="r.intens" class="numberinput" value="0.5">
+					</div>
+
+					<div class="c.div">
+						<label for="r.qm">Ruido cuántico: </label>
+						<input type="number" id="r.qm" class="numberinput" min="0" value="0.2">
+					</div>
+
+					<div class="c.div">
+						<label for="r.rmin">Dist. mín: </label>
+						<input type="number" id="r.dmin" class="numberinput" min="0" value="15">
+					</div>
+
+					<div class="c.div">
+						<label for="r.rmax">Dist. máx: </label>
+						<input type="number" id="r.dmax" class="numberinput" min="0" value="100">
+					</div>
+
+					<div class="c.div">
+					  <button class="button ba" id="r.submit">Crear</button>
+					</div>
+
+				</div>
+
+				<div hidden class="creador" id="rulemanager">
+					<label for="ruleselect">Reglas: </label>
+					<select class="selector selr" id="ruleselect">
+
+					</select>
+					<button class="button ba" id="borrarule">Borrar</button>
+
+				</div>
+
+				<div hidden class="creador" id="particlemanager">
+					<label for="particleselect">Partículas: </label>
+					<select class="selector selr" id="particleselect">
+
+					</select>
+					<button class="button ba" id="borraparticula">Borrar</button>
+
+				</div>
+
+
+			</div>
+
+			<br>
+			<button onclick="location.href = '../../index.html';" class="button ba">Volver</button>
+		</div>
+		<p style ="text-align: center" id = "testoutput">
+			test output here
+		<p>
+
+		<!--TODO: Panel con listado de limitaciones -->
+
+
+	</body>
+</html>

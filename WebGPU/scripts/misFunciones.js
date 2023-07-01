@@ -26,9 +26,9 @@ return [adapter, canvas];
 
 
 /** Revisa si hay GPU, actualiza mensaje en elemento "estatus" y devuelve el device, el canvas y el context configurado en un array de promesas */
-export async function inicializarCells(){
+export async function inicializarCells(conTitulos=true){
 	const estatus = document.getElementById("estatus");
-	
+
 	//Revisar si existe el objeto que sirve como punto de partida para acceder a la GPU. Es para revisar si el dispositivo es compatible con WebGPU
 	if (!navigator.gpu) {
 		navigator.gpu;
@@ -43,12 +43,14 @@ export async function inicializarCells(){
 		throw new Error("No se encontró GPUAdapter.");
 	} // si no hay adapter, puede devolver null
 	
-	const canvas = document.querySelector("canvas"); 
-	//const canvas = document.getElementById("canvas");
+	const canvas = document.querySelector("canvas");
 	const div = document.getElementById("canvascontainer");
-
+	if (!conTitulos) { 
+		estatus.hidden = true; 
+		const bodyMargin = parseInt(window.getComputedStyle(document.body).margin);
+		canvas.height = window.innerHeight - bodyMargin * 2;
+	}
 	canvas.width = div.clientWidth;
-	canvas.heigth = window.innerHeight;
 	canvas.hidden = false;
 
 	estatus.innerText= "La GPU de tu equipo está calculando y renderizando esto!"

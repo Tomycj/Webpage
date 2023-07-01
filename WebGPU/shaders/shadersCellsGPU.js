@@ -90,22 +90,29 @@ export function computeShader(sz, ne, nr, lp) { return /*wgsl*/`
     @group(1) @binding(5) var<storage> radios: array<f32>;
     @group(1) @binding(7) var<uniform> ints: array<DatosInteracciones, ${lp}>;
 
-    //override constante = 64; // Este valor es el default, si "constante" no está definida en constants de la pipeline.
-
+    //https://indico.cern.ch/event/93877/contributions/2118070/attachments/1104200/1575343/acat3_revised_final.pdf
     fn LFSR( z: u32, s1: u32, s2: u32, s3: u32, m:u32) -> u32 {
         let b = (((z << s1) ^ z) >> s2);
         return (((z & m) << s3) ^ b);
     }
 
     fn rng(i: u32) -> f32 {
-        let seed = u32(i*1099087573);
-        let z1 = LFSR(seed,13,19,12, u32(429496729));
-        let z2 = LFSR(seed,2,25,4, u32(4294967288));
-        let z3 = LFSR(seed,3,11,17, u32(429496280));
+        let seed = i*1099087573;
+        let z1 = LFSR(seed,13,19,12, u32(4294967294));
+        let z2 = LFSR(seed,2 ,25,4 , u32(4294967288));
+        let z3 = LFSR(seed,3 ,11,17, u32(4294967280));
         let z4 = 1664525 * seed + 1013904223;
         let r0 = z1^z2^z3^z4;
         return f32( r0 ) * 2.3283064365387e-10 ;
     }
+    /*
+    var<private> rand_seed : vec2<f32>;
+    fn rng2(seed: u32) -> f32 {
+        rand_seed.x = fract(cos(dot(rand_seed, vec2<f32>(23.14077926, 232.61690225))) * 136.8168);
+        rand_seed.y = fract(cos(dot(rand_seed, vec2<f32>(54.47856553, 345.84153136))) * 534.7645);
+        return rand_seed.y;
+    }
+    */
 
     fn applyrule( seed: u32, posi: vec2f, posj: vec2f , d:f32, g: f32, q: f32, rmin: f32, rmax: f32 ) -> vec2f {
 
@@ -118,10 +125,29 @@ export function computeShader(sz, ne, nr, lp) { return /*wgsl*/`
             let f = -g/(d*d);
             return vec2f(f*(posi.x - posj.x), f*(posi.y - posj.y));
         }
-            else {
-            return 0 * vec2f(rng(seed+u32(posj.x))-0.5, rng(seed+u32(posj.y))-0.5) * 2 * g * q;
+        else {
+            return 0*( vec2f(rng(seed), rng(seed)) - 0.5 )* 2 * q;
         }
     }
+    
+    fn applyrule2( seed: u32, posi: vec2f, posj: vec2f , d:f32, g: f32, q: f32, rmin: f32, rmax: f32 ) -> vec2f {
+
+        if (d > rmin && d < rmax) {
+            let f = -g/(d*d);
+            return vec2f(f*(posi.x - posj.x), f*(posi.y - posj.y)); 
+        }
+
+        if d < rmin {
+
+            let sx = u32(floor(posi.y + posj.x)) * (3 + 1099087573);
+            let sy = u32(ceil(posi.x + posj.y)) * (7 + 1099087573);
+
+            return ( vec2f(rng(seed), rng(seed)) - 0.5 )* 2 * q;
+        }
+        return vec2f(0.0, 0.0);
+
+    }
+
 
     @compute
     @workgroup_size(${sz}, 1, 1) // el tercer parámetro (z) es default 1.
@@ -129,7 +155,8 @@ export function computeShader(sz, ne, nr, lp) { return /*wgsl*/`
 
         let i = ind.x; // index global
         let n = u32(params.n);
-
+        var seed = u32(i);
+        velocities[i].z = 0.0;
         if i >= n {
             //velocities[i].z = f32(100);//vel.x; //store value to read
             return;
@@ -203,7 +230,12 @@ export function computeShader(sz, ne, nr, lp) { return /*wgsl*/`
                             break;
                         }
                     }*/
-                    deltav += applyrule(i, pos, posj, d, rules[r].g, rules[r].q, rules[r].mind, rules[r].maxd);
+                    let seedcomb = seed + u32( sin(pos.x) );
+                    deltav += applyrule(seedcomb, pos, posj, d, rules[r].g, rules[r].q, rules[r].mind, rules[r].maxd);
+                    //velocities[i].z += deltav.x;
+                    //velocities[i].z += (rng(seedcomb) - 0.5) * 2;
+                    //velocities[i].z =
+                    //seed++;
                 }
             }
         }
@@ -212,10 +244,10 @@ export function computeShader(sz, ne, nr, lp) { return /*wgsl*/`
         let candidatepos = pos + vel;
 
         // Colisiones
-        if abs(candidatepos.x) > params.ancho/2 {
+        if abs(candidatepos.x) > params.ancho/2 - radios[k] {
             vel.x *= -0.8;
         }
-        if abs(candidatepos.y) > params.alto/2 {
+        if abs(candidatepos.y) > params.alto/2 - radios[k] {
             vel.y *= -0.8;
         }
 
