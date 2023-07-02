@@ -25,4 +25,11 @@ body {
 	bottom: 20px;
 	right: 20px;
 	cursor: pointer;
+	width: 30px;
+	height: auto;
+}
+.notaInline {
+	margin: 0;
+	display: inline-block;
+	font-size: 14px;
 }

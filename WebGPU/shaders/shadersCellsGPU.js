@@ -70,32 +70,52 @@ export function computeDistancesShader(sz, ne, nr, lp, nd) { return /*wgsl*/`
 
 export function computeShader(sz, ne, nr, lp) { return /*wgsl*/`
 
-    struct Params { n: f32, ne: f32, ancho: f32, alto: f32, }
+    struct Params { 
+        n: f32,
+        ne: f32,
+        ancho: f32,
+        alto: f32,
+    }
 
-    struct Rule { tarInd: f32, srcInd: f32, g: f32, q: f32, mind: f32, maxd: f32, pad1: f32, pad2: f32, }
+    struct Rule { 
+        tarInd: f32,
+        srcInd: f32,
+        g: f32, q: f32,
+        mind: f32,
+        maxd: f32,
+        pad1: f32,
+        pad2: f32,
+    }
 
-    struct DatosElementaries { cant: u32, cantAcum: u32, cantAcum2: u32, padding: u32, }
+    struct DatosElementaries {
+        cant: u32,
+        cantAcum: u32,
+        cantAcum2: u32,
+        padding: u32,
+    }
 
-    struct DatosInteracciones { list: vec2u, // lista de interacciones (Y Y Y R Y P R R...)
-        distAcum: u32, distAcum2: u32, }
+    struct DatosInteracciones {
+        list: vec2u, // lista de interacciones (Y Y Y R Y P R R...)
+        distAcum: u32,
+        distAcum2: u32,
+    }
+    // Bindings 
+        @group(0) @binding(0) var<storage, read> positionsIn: array<vec4f>; // read only
+        @group(0) @binding(1) var<storage, read_write> positionsOut: array<vec4f>; //al poder write, lo uso como output del shader
 
-    @group(0) @binding(0) var<storage, read> positionsIn: array<vec4f>; // read only
-    @group(0) @binding(1) var<storage, read_write> positionsOut: array<vec4f>; //al poder write, lo uso como output del shader
-
-    @group(1) @binding(0) var<uniform> params: Params; // parameters
-    @group(1) @binding(1) var<storage, read_write> velocities: array<vec4f>; //al poder write, lo uso como output del shader
-    @group(1) @binding(2) var<uniform> rules: array<Rule,${nr}>;
-    @group(1) @binding(3) var<storage, read_write> distancias: array<f32>;
-    @group(1) @binding(4) var<uniform> cants: array<DatosElementaries, ${ne}>;
-    @group(1) @binding(5) var<storage> radios: array<f32>;
-    @group(1) @binding(7) var<uniform> ints: array<DatosInteracciones, ${lp}>;
-
+        @group(1) @binding(0) var<uniform> params: Params; // parameters
+        @group(1) @binding(1) var<storage, read_write> velocities: array<vec4f>; //al poder write, lo uso como output del shader
+        @group(1) @binding(2) var<uniform> rules: array<Rule,${nr}>;
+        @group(1) @binding(3) var<storage, read_write> distancias: array<f32>;
+        @group(1) @binding(4) var<uniform> cants: array<DatosElementaries, ${ne}>;
+        @group(1) @binding(5) var<storage> radios: array<f32>;
+        @group(1) @binding(7) var<uniform> ints: array<DatosInteracciones, ${lp}>;
+    //
     //https://indico.cern.ch/event/93877/contributions/2118070/attachments/1104200/1575343/acat3_revised_final.pdf
     fn LFSR( z: u32, s1: u32, s2: u32, s3: u32, m:u32) -> u32 {
         let b = (((z << s1) ^ z) >> s2);
         return (((z & m) << s3) ^ b);
     }
-
     fn rng(i: u32) -> f32 {
         let seed = i*1099087573;
         let z1 = LFSR(seed,13,19,12, u32(4294967294));
@@ -105,14 +125,21 @@ export function computeShader(sz, ne, nr, lp) { return /*wgsl*/`
         let r0 = z1^z2^z3^z4;
         return f32( r0 ) * 2.3283064365387e-10 ;
     }
-    /*
+    
     var<private> rand_seed : vec2<f32>;
+
+    fn init_rng2(invocation_id : u32, seed : vec4<f32>) {
+        rand_seed = seed.xz;
+        rand_seed = fract(rand_seed * cos(35.456+f32(invocation_id) * seed.yw));
+        rand_seed = fract(rand_seed * cos(41.235+f32(invocation_id) * seed.xw));
+    }
+
     fn rng2(seed: u32) -> f32 {
         rand_seed.x = fract(cos(dot(rand_seed, vec2<f32>(23.14077926, 232.61690225))) * 136.8168);
         rand_seed.y = fract(cos(dot(rand_seed, vec2<f32>(54.47856553, 345.84153136))) * 534.7645);
         return rand_seed.y;
     }
-    */
+    
 
     fn applyrule( seed: u32, posi: vec2f, posj: vec2f , d:f32, g: f32, q: f32, rmin: f32, rmax: f32 ) -> vec2f {
 
@@ -147,7 +174,6 @@ export function computeShader(sz, ne, nr, lp) { return /*wgsl*/`
         return vec2f(0.0, 0.0);
 
     }
-
 
     @compute
     @workgroup_size(${sz}, 1, 1) // el tercer parámetro (z) es default 1.
@@ -276,13 +302,14 @@ export function renderShader(ne) { return /*wgsl*/`
         cantAcum2: u32,
         padding: u32,
     }
+    // Bindings
+        @group(0) @binding(0) var<storage, read> updatedpositions: array<vec4<f32>>; // read only
 
-    @group(0) @binding(0) var<storage, read> updatedpositions: array<vec4<f32>>; // read only
-
-    @group(1) @binding(0) var<uniform> params: Params; // parameters
-    @group(1) @binding(4) var<uniform> cants: array<DatosElementaries, ${ne}>;
-    @group(1) @binding(5) var<storage> radios: array<f32>;
-    @group(1) @binding(6) var<storage> colores: array<vec4f>;
+        @group(1) @binding(0) var<uniform> params: Params; // parameters
+        @group(1) @binding(4) var<uniform> cants: array<DatosElementaries, ${ne}>;
+        @group(1) @binding(5) var<storage> radios: array<f32>;
+        @group(1) @binding(6) var<storage> colores: array<vec4f>;
+    //
 
     // VERTEX SHADER
 
@@ -339,9 +366,9 @@ export function renderShader(ne) { return /*wgsl*/`
 
         var idx = input.idx;
 
-        if idx == 0 {
-            idx = 0;
-        }
+        //if idx == 0 {
+        //    idx = 0;
+        //}
 
         var k = u32(0);
         while idx >= f32(cants[k].cantAcum) {
@@ -350,10 +377,8 @@ export function renderShader(ne) { return /*wgsl*/`
 
         let negro = step (r, 0.85);
         let colnegro = vec4f(negro, negro, negro, 1);
-
-        //return vec4f(r, r, r, 1 );
         
-        return colores[k]*colnegro;
+        return colores[k] * colnegro;// * random_darken;
 
     }
     `;
@@ -481,8 +506,6 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {  // @location(n) es
     return vec4f(input.idx/10000, 1-input.idx/10000, 0, 1 );
 
 }
-
-
 
 `
 }

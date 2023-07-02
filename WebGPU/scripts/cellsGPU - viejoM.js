@@ -302,16 +302,16 @@ function crearElementary(nombre, color, cantidad, radio, posiciones, velocidades
 
 }
 function cargarElementary(newElementary) {
-	let i = elementaries.length;
 	if ( elementaries.some(dict => dict.nombre == newElementary.nombre) ){
 		console.log("Reemplazando partículas del mismo nombre...")
-		i = elementaries.findIndex(dict => dict.nombre == newElementary.nombre);
+		const i = elementaries.findIndex(dict => dict.nombre == newElementary.nombre);
 		elementaries [i] = newElementary;
+
 	} else {
 		elementaries.push( newElementary );
-		actualizarElemSelectors(newElementary); // actualizar lista de nombres en el creador de reglas de interacción
+		// actualizar lista de nombres en el creador de reglas de interacción
+		actualizarElemSelectors(newElementary);
 	}
-	partiControls.selector.selectedIndex = i;
 }
 function exportarElementary(elementary) {
 
@@ -580,10 +580,6 @@ function setPlaceholdersRules() {
 }
 function titilarBorde(element) {
 	element.classList.add("titilante");
-}
-function sqMatVal(m, f, c) {
-	const numCols = Math.sqrt(m.length);
-	return m[f * numCols + c]
 }
 // EVENT HANDLING
 
@@ -856,10 +852,9 @@ ruleControls.submitButton.onclick = function() {
 
 	// Agregar regla al selector de reglas.
 	actualizarRuleSelector(newRule);
-	ruleControls.selector.selectedIndex = rules.length - 1;
 	setPlaceholdersRules();
 }
-ruleControls.updateButton.onclick = function() { updatingParameters = true; }
+ruleControls.updateButton.onclick = function() { updatingParameters = true}
 
 // Rule manager
 const borraRuleButton = document.getElementById("borrarule");
@@ -871,6 +866,7 @@ borraRuleButton.onclick = function() {
 	setPlaceholdersRules();
 }
 ruleControls.selector.onchange = setPlaceholdersRules;
+
 
 // Particle manager
 const borraParticleButton = document.getElementById("borraparticula");
@@ -895,6 +891,7 @@ setRNG(seedInput.value);
 //} else {
 	generarSetupClásico("semilla", true, debug);
 //}
+
 
 // VERTEX SETUP
 
@@ -1005,54 +1002,13 @@ function editBuffers() {
 	});
 	device.queue.writeBuffer(storageColores, 0, colores)
 
+
 	// Distancias
 
 	let D = [];
-	//let m = [];
+	let m = [];
 	const reglasActivas = [];
 
-	const m = new Uint8Array(Ne**2);
-	
-	for (let rule of rules) {
-
-		const targetIndex = elementaries.findIndex(elementary => {return elementary.nombre == rule.targetName});
-		const sourceIndex = elementaries.findIndex(elementary => {return elementary.nombre == rule.sourceName});
-
-		if (targetIndex === -1 || sourceIndex ===-1) { continue; }
-		reglasActivas.push(rule);
-
-		const [f, c] = [targetIndex, sourceIndex].sort();
-
-		const index = (f * Ne) + c;
-		m[index]++;
-
-	}
-
-	let Nd;
-	let datosInteracciones;
-
-	if (reglasActivas.length) {
-		datosInteracciones = [];
-		Nd = 0;
-		hayReglasActivas = true;
-
-		for (let f = 0; f < Ne; f++) {
-			for (let c = f; c < Ne; c++) {
-	
-				if ( sqMatVal(m, f, c) ) {
-					const ndLocal = elementaries[f].cantidad * elementaries[c].cantidad;
-					Nd += ndLocal; // Nd también hace de acumulador para este for.
-		
-					datosInteracciones.push([f, c, Nd, Nd - ndLocal]); // pares de interacciones y cants de distancias acum.
-	
-				}
-			}
-		}
-	} else {
-		hayReglasActivas = false;
-	}
-
-	/*
 	for (let rule of rules) {
 		//verificar si esta regla está en uso (ambos target y source tienen que estar en elementaries)
 		const esReglaActiva = elementaries.some(elem => elem.nombre == rule.targetName) && elementaries.some(elem => elem.nombre == rule.sourceName)
@@ -1060,12 +1016,14 @@ function editBuffers() {
 		if ( !esReglaActiva ) { continue; }
 		// si es una regla "activa":
 		reglasActivas.push(rule);
-		//[m, D] = matrizDistancias(m, D, rule);
-		
+		[m, D] = matrizDistancias(m, D, rule);
 	}
 
 	let Nd;
 	let datosInteracciones;
+	console.table(D)
+	console.table(m);
+
 	if (reglasActivas.length) {
 		hayReglasActivas = true;
 		//ordenar m según orden de elementaries, calcular Nd, generar listas de interacciones y cantidades de distancias
@@ -1113,8 +1071,7 @@ function editBuffers() {
 	} else { 
 		hayReglasActivas = false; 
 	}
-	*/
-
+	
 	distanciasBuffer = device.createBuffer({
 		label: "Distancias buffer",
 		size: (Nd ?? 4) * 4, // Si no hay reglas activas, Nd = undefined => uso 16 de relleno.
@@ -1135,18 +1092,17 @@ function editBuffers() {
 		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
 	});
 	device.queue.writeBuffer(datosInteraccionesBuffer, 0, datosInteraccionesArray);
-
+	
 	// Reglas
 
 	const rulesArray = new Float32Array(reglasActivas.length * 8);
 
+	//console.log(rulesArray)
 
 	for (let i = 0; i < reglasActivas.length; i++) { // llenar el array de reglas
 		rulesArray.set([
-			//reglasActivas[i].targetIndex = D.find((subArray) => subArray[2] === reglasActivas[i].targetName)[1], // índice de elementary en elementaries
-			//reglasActivas[i].sourceIndex = D.find((subArray) => subArray[2] === reglasActivas[i].sourceName)[1],
-			reglasActivas[i].targetIndex = elementaries.findIndex(elementary => {return elementary.nombre == reglasActivas[i].targetName}),
-			reglasActivas[i].sourceIndex = elementaries.findIndex(elementary => {return elementary.nombre == reglasActivas[i].sourceName}),
+			reglasActivas[i].targetIndex = D.find((subArray) => subArray[2] === reglasActivas[i].targetName)[1], // índice de elementary en elementaries
+			reglasActivas[i].sourceIndex = D.find((subArray) => subArray[2] === reglasActivas[i].sourceName)[1],
 			reglasActivas[i].intensity,
 			reglasActivas[i].quantumForce,
 			reglasActivas[i].minDist,
@@ -1570,7 +1526,4 @@ async function newFrame(){
 }
 
 //TODO:
-/* BUG: cargar setup clásico>borrar todas las reglas>actualizar>crear regla V-V>actualizar > todas las parts se mueven */
 /* Pasar los parámetros pertinentes mediante writebuffer en lugar de recrear nuevos buffers */
-/* Agregar partículas con click */
-/* Revisar que PP no se haya roto */

@@ -13,6 +13,10 @@
 	padding-top: 2px;
 	background: rgba(0, 0, 0, 0.3);
 	/* width: 20%; */
+
+}
+.overlay:hover {
+	background: rgba(0, 0, 0, 0.8);
 }
 .right {
 	right: 0;
@@ -54,6 +58,33 @@
 	border: 2px solid black;
 	border-color: rgba(255, 255, 255, 0.2);
 }
+.numberinput {
+  width: 7ch;
+  color: #fff;
+  background: rgba(0, 0, 0, 0);
+  border: 2px solid black;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.titilante {
+  animation: titilarBorde 0.5s linear 3;
+}
+
+@keyframes titilarBorde {
+  0% {
+    border-color: color-mix(in srgb, currentColor 20%, transparent);;
+  }
+  50% {
+    border-color: red;
+  }
+  100% {
+    border-color: color-mix(in srgb, currentColor 20%, transparent);;
+  }
+}
+
+
+
+
 .hidden {
 	display: none;
 }
@@ -91,7 +122,7 @@ input[type="range"] {
 input[type="range"]::-webkit-slider-thumb {
 	-webkit-appearance: none;
 	height: 15px;
-	width: 5px;
+	width: 6px;
 	background: var(--thumbg);
 	cursor: ew-resize;
 }
