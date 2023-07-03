@@ -292,25 +292,25 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 		document.body.removeChild(a);
 		URL.revokeObjectURL(url);
 	}
-	function exportarSetup(elementaries, rules, seed, filename = "Cells GPU setup", guardarPosiVel = false) {
+	function exportarSetup(elementariesI, rules, seed, filename = "Cells GPU setup", guardarPosiVel = false) {
 
-		let exportElementaries = elementaries;
+		let elementaries = elementariesI;
 		if (guardarPosiVel) {
 			console.log("Exportando con posiciones y velocidades")
-			for (let elem of exportElementaries) {
-			elem.posiciones = Array.from(elem.posiciones); //console.log(exportElementaries[1].posiciones);
+			for (let elem of elementaries) {
+				elem.posiciones = Array.from(elem.posiciones); //console.log(elementaries[1].posiciones);
 				elem.velocidades = Array.from(elem.velocidades);
 				elem.color = Array.from(elem.color);
 			}
 		} else {
-			for (let elem of exportElementaries) {
+			for (let elem of elementaries) {
 				elem.posiciones = [];
 				elem.velocidades = [];
 				elem.color = Array.from(elem.color);
 			}
 		}
 		
-		const setup = { seed, exportElementaries, rules};
+		const setup = { seed, elementaries, rules};
 		const jsonString = JSON.stringify(setup, null, 2);
 
 		const blob = new Blob([jsonString], { type: "application/json" });
@@ -360,6 +360,10 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 		vaciarSelectors();
 
 		setRNG(setup.seed);
+		if (setup.seed) {
+			seedInput.value = setup.seed;
+		}
+
 		for (let elem of setup.elementaries) {
 			actualizarElemSelectors(elem);
 			const L = elem.cantidad*4;
@@ -1628,3 +1632,4 @@ async function newFrame(){
 /* Pasar los parámetros pertinentes mediante writebuffer en lugar de recrear nuevos buffers */
 /* Agregar partículas con click */
 /* Revisar que PP no se haya roto */
+/* Antialiasing / renderizar a mayor resolución */
