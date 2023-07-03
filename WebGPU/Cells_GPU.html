@@ -5,7 +5,7 @@
 		<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"> <!--Fuerza a re-cargar el cache-->
 		<link rel="stylesheet" href="../styles/CellsGPU.css">
 		<link rel="icon" href="../images/logoBLR.png" type="image/icon type">
-		<title>Cells GPU - vBeta 0.9.7</title>
+		<title id="title">Cells GPU - vBeta 0.9.8</title>
 	</head>
 
 	<body style="background-color: black; color: white; overflow-y: scroll;" >
@@ -39,8 +39,15 @@
 
 					<div id="controlPanelOptions" hidden>
 
-						<label for="seed">Seed: </label>
-						<input type="text" id="seed" class="textinput">
+						<div class="hastooltip">
+							<label for="seed">Seed: </label>
+							<input type="text" id="seed" class="textinput">
+	
+							<span class="tooltiptext long"> Ctrl + Click para convertir en seed manual
+							</span>
+						</div>
+
+
 						<button class="button switchedoff hastooltip" id="preloadpositions" >P.P.
 							<span class="tooltiptext">
 								Precargar Posiciones<br>
@@ -77,17 +84,14 @@
 								<input type="number" id="c.radius" class="numberinput" min="0" max="500">
 							</div>
 		
-							<div class="c.div">
 							<button class="button" id="c.elemsubmit">Crear</button>
-							</div>
-
+							
 							<div class="creador" id="particlemanager">
 								<label for="particleselect">Partículas: </label>
-								<select class="selector selr" style="width: 7ch;" id="particleselect">
-			
+								<select id="particleselect" class="selector selr" style="width: 7ch;">
+								
 								</select>
 								<button class="button" id="borraparticula">Borrar</button>
-			
 							</div>
 		
 						</div>
@@ -100,28 +104,32 @@
 								<input type="text" id="rulename" class="textinput" placeholder="A ← B">
 							</div>
 
-							<div class="c.div">
+							<div class="c.div hastooltip">
 								<label for="targetselect">Afecta a </label>
-								<select class="selector" id="targetselect" title="Partículas que sentirán la fuerza a definir">
+								<select class="selector" id="targetselect">
 		
 								</select>
+								<span class="tooltiptext long"> Partículas que sentirán la fuerza a definir</span>
 							</div>
 		
-							<div class="c.div">
+							<div class="c.div hastooltip">
 								<label for="sourceselect">Ejercida por </label>
-								<select class="selector" id="sourceselect" title="Partículas que ejercerán la fuerza a definir">
-		
+								<select class="selector" id="sourceselect">
+								
 								</select>
+								<span class="tooltiptext long"> Partículas que ejercerán la fuerza a definir</span>
 							</div>
 		
 							<div class="c.div">
-							<label for="r.intens">Intensidad: </label>
-							<input type="number" id="r.intens" class="numberinput">
+								<label for="r.intens">Intensidad: </label>
+								<input type="number" id="r.intens" class="numberinput">
 							</div>
 		
-							<div class="c.div">
+							<div class="c.div hastooltip">
 								<label for="r.qm">Ruido cuántico: </label>
-								<input type="number" id="r.qm" class="numberinput" min="0" title="Intensidad de fuerzas aleatorias de corto alcance">
+								<input type="number" id="r.qm" class="numberinput" min="0">
+								<span class="tooltiptext short"> Intensidad de fuerzas aleatorias de corto alcance
+								</span>
 							</div>
 		
 							<div class="c.div">
@@ -135,9 +143,13 @@
 							</div>
 		
 							<div class="c.div">
-								<button class="button" id="r.submit">Crear</button>
+								<button class="button hastooltip" id="r.submit">Crear
+									<span class="tooltiptext short"> Ctrl + Click para sobreescribir regla homónima
+									</span>
+								</button>
+
 								<button class="button hastooltip" id="r.update">Actualizar
-									<span class="tooltiptext"> Aplica las reglas creadas a la simulación en curso
+									<span class="tooltiptext short"> Actualiza las reglas de la simulación en curso
 									</span>
 								</button>
 							</div>
@@ -156,7 +168,8 @@
 						<hr style="border-color: rgba(255, 0255, 255, 0.3); margin: 3px;">
 
 						<button class="button hastooltip" id="export">Exportar
-							<span class="tooltiptext"> Descarga la configuración actual de partículas y reglas
+							<span class="tooltiptext"> Descarga la configuración actual de partículas, reglas, y seed manual. <br>
+								Ctrl + Click para incluir posiciones.
 							</span>
 						</button>
 						<button class="button" id="import">Importar</button>
@@ -166,10 +179,19 @@
 				</div>
 
 				<div id="infopanel" hidden class="overlay right">
-					<p id="canvasinfo" style="margin: 0;"></p>	
-					<p id="performanceinfo" style="margin: 0;"></p>
-					<p style="font-size: small; color:rgba(255, 255, 255, 0.5); max-width: 25ch; margin:0; line-height: 2ch;">Space, W, S, R, M, I <br> </p>
-					
+
+					<div style="line-height: 1.2; height: 4.5ch;">
+						<span class="smallp">Edad:&nbsp</span> <span id="ageinfo"class="smallp monospaced">-</span>
+						<br>
+						<span class="smallp">FPS:&nbsp</span> <span id="fpsinfo"class="smallp monospaced">-</span>
+					</div>
+
+					<div id="debuginfo" hidden>
+						<p id="canvasinfo" style="margin-top: 8px; margin-bottom: 0;"></p>	
+						<p id="performanceinfo" style="margin: 0;"></p>
+						<p style="font-size: small; color:rgba(255, 255, 255, 0.5); max-width: 25ch; margin:0; line-height: 2ch;">
+							Space, W, S, R, M, I, H, D <br> </p>
+					</div>
 				</div>
 			</div>
 		</div>
@@ -179,11 +201,22 @@
 		</div>
 
 		<dialog id="helpdialog" class="dialogo">
-			<p style="margin: 0;">Controles: <br>Space, W, S, R, M, I <br><br></p>
+			<p style="margin: 0;">Controles: <br>Space, W, S, R, M, I, H, D <br><br></p>
 			<button id="dialogok" class="button">Ok</button>
 			&nbsp&nbsp&nbsp
 			<button id="dialognvm" class="button">No volver a mostrar</button>
 		</dialog>
+
+		<dialog id="newsdialog" class="dialogo">
+			<p style="margin: 10px; font-weight: bold; font-size: large;">Novedades</p>
+			<p id="newstext" style="text-align: left; margin: 0; line-height: 1.5; padding-bottom: 6px;"></p>
+			
+			<button id="dialogok2" class="button">Ok</button>
+			&nbsp&nbsp&nbsp
+			<button id="dialognvm2" class="button">Hasta la próxima</button>
+		</dialog>
+
+
 
 		<!--TODO: Panel con listado de limitaciones -->
 

@@ -1,0 +1,29 @@
+{
+  "seed": "",
+  "elementaries": [
+    {
+      "nombre": "A",
+      "color": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "cantidad": 2,
+      "radio": 10,
+      "posiciones": [-100,0,0,0,100,0,0,0],
+      "velocidades": [0,0,0,0,0,0,0,0]
+    }
+  ],
+  "rules": [
+    {
+      "ruleName": "A ← B",
+      "targetName": "A",
+      "sourceName": "A",
+      "intensity": 5,
+      "quantumForce": 0,
+      "minDist": 1,
+      "maxDist": 1000
+    }
+  ]
+}
