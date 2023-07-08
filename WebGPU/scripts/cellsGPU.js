@@ -93,8 +93,8 @@ cargarPosiVelsAlBuffer;
 // TIMING & DEBUG 
 	const START_WITH_SETUP = 1
 	const SHOW_DEBUG = 0
-	localStorage.setItem("NEW_USER", 1);
-	localStorage.setItem("STORED_VERSION_NUMBER", 1);
+	//localStorage.setItem("NEW_USER", 1);
+	//localStorage.setItem("STORED_VERSION_NUMBER", 1);
 	const debugSetup = "Cells q tests.json";
 	let PRECALCULAR_DISTANCIAS = false;
 	let debug = false;
