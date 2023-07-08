@@ -1,5 +1,8 @@
 {
-  "seed": "",
+  "seed": "0.6452130",
+  "friction": "0.005",
+  "bounce": "80",
+  "maxInitVel": "0",
   "elementaries": [
     {
       "nombre": "A",
@@ -48,7 +51,7 @@
         0,
         1
       ],
-      "cantidad": 50,
+      "cantidad": 5,
       "radio": 7,
       "posiciones": [],
       "velocidades": []
@@ -60,7 +63,7 @@
       "targetName": "R",
       "sourceName": "R",
       "intensity": 0.5,
-      "quantumForce": 0.2,
+      "quantumForce": 0.025,
       "minDist": 15,
       "maxDist": 100,
       "targetIndex": 1,
@@ -82,7 +85,7 @@
       "targetName": "A",
       "sourceName": "A",
       "intensity": -0.1,
-      "quantumForce": 1,
+      "quantumForce": 0.025,
       "minDist": 20,
       "maxDist": 600,
       "targetIndex": 0,
@@ -104,7 +107,7 @@
       "targetName": "P",
       "sourceName": "A",
       "intensity": -0.2,
-      "quantumForce": 1,
+      "quantumForce": 0.05,
       "minDist": 0.1,
       "maxDist": 100,
       "targetIndex": 2,
@@ -126,7 +129,7 @@
       "targetName": "R",
       "sourceName": "P",
       "intensity": 1,
-      "quantumForce": 1,
+      "quantumForce": 0.25,
       "minDist": 0.1,
       "maxDist": 10,
       "targetIndex": 1,
@@ -148,9 +151,9 @@
       "targetName": "V",
       "sourceName": "V",
       "intensity": -0.2,
-      "quantumForce": 0.2,
+      "quantumForce": 0.01,
       "minDist": 50,
-      "maxDist": 500,
+      "maxDist": 200,
       "targetIndex": 3,
       "sourceIndex": 3
     }

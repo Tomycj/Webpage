@@ -1,10 +1,13 @@
-export function computeDistancesShader(sz, ne, nr, lp, nd) { return /*wgsl*/`
-
-    struct DatosElementaries { // Cada elemento de un array en un uniform buffer tiene que ser múltiplo de 16B
+// Cada elemento de un array en un uniform buffer tiene que ser múltiplo de 16B
+// TODO: Visualizar mapa de densidad de partículas
+export function computeDistancesShader(sz, nd) { return /*wgsl*/`
+    
+    struct DatosElementaries {
         cant: u32,
         cantAcum: u32,
         cantAcum2: u32,
-        padding: u32,
+        radio: f32,
+        color: vec4f,
     }
 
     struct DatosInteracciones {
@@ -16,12 +19,8 @@ export function computeDistancesShader(sz, ne, nr, lp, nd) { return /*wgsl*/`
     @group(0) @binding(0) var<storage, read> posiciones: array<vec4f>;
 
     @group(1) @binding(3) var<storage, read_write> distancias: array<f32>;
-    @group(1) @binding(4) var<uniform> cants: array<DatosElementaries, ${ne}>;
-    @group(1) @binding(7) var<uniform> ints: array<DatosInteracciones, ${lp}>;
-
-    //@group(2) @binding(0) var<uniform> nd: u32; // Se deja para reemplazarse por otras cosas en el futuro
-
-    //override constante = 64;
+    @group(1) @binding(4) var<storage> elems: array<DatosElementaries>;
+    @group(1) @binding(5) var<storage> ints: array<DatosInteracciones>;
 
     @compute
     @workgroup_size(${sz}, 1, 1)
@@ -43,8 +42,8 @@ export function computeDistancesShader(sz, ne, nr, lp, nd) { return /*wgsl*/`
         let ef = ints[k].list[0]; // índice del elementary en las filas
         let ec = ints[k].list[1];
 
-        let fmax = cants[ef].cant;
-        let cmax = cants[ec].cant;
+        let fmax = elems[ef].cant;
+        let cmax = elems[ec].cant;
 
         // Determinar índice local
         let il = i - ints[k].distAcum2;
@@ -59,8 +58,8 @@ export function computeDistancesShader(sz, ne, nr, lp, nd) { return /*wgsl*/`
 
         //TODO: Alternativa: sparse matrix NxN, guardar ahí las distancias. Así es más fácil acceder a ellas luego.
 
-        let p1 = posiciones[ cants[ef].cantAcum2 + f].xy;
-        let p2 = posiciones[ cants[ec].cantAcum2 + c].xy;
+        let p1 = posiciones[ elems[ef].cantAcum2 + f].xy;
+        let p2 = posiciones[ elems[ec].cantAcum2 + c].xy;
 
         distancias[i] = distance(p1, p2);
 
@@ -68,19 +67,25 @@ export function computeDistancesShader(sz, ne, nr, lp, nd) { return /*wgsl*/`
     `;
 }
 
-export function computeShader(sz, ne, nr, lp) { return /*wgsl*/`
+export function computeShader(sz) { return /*wgsl*/`
 
     struct Params { 
-        n: f32,
-        ne: f32,
         ancho: f32,
         alto: f32,
+        n: u32,
+        ne: u32,
+        nr: u32,
+        nd: u32,
+        lp: u32,
+        frictionInv: f32,
+        bounceF: f32,
     }
 
     struct Rule { 
         tarInd: f32,
         srcInd: f32,
-        g: f32, q: f32,
+        g: f32, 
+        q: f32,
         mind: f32,
         maxd: f32,
         pad1: f32,
@@ -91,25 +96,20 @@ export function computeShader(sz, ne, nr, lp) { return /*wgsl*/`
         cant: u32,
         cantAcum: u32,
         cantAcum2: u32,
-        padding: u32,
+        radio: f32,
+        color: vec4f,
     }
 
-    struct DatosInteracciones {
-        list: vec2u, // lista de interacciones (Y Y Y R Y P R R...)
-        distAcum: u32,
-        distAcum2: u32,
-    }
     // Bindings 
         @group(0) @binding(0) var<storage, read> positionsIn: array<vec4f>; // read only
         @group(0) @binding(1) var<storage, read_write> positionsOut: array<vec4f>; //al poder write, lo uso como output del shader
 
         @group(1) @binding(0) var<uniform> params: Params; // parameters
         @group(1) @binding(1) var<storage, read_write> velocities: array<vec4f>; //al poder write, lo uso como output del shader
-        @group(1) @binding(2) var<uniform> rules: array<Rule,${nr}>;
+        @group(1) @binding(2) var<storage> rules: array<Rule>;
         @group(1) @binding(3) var<storage, read_write> distancias: array<f32>;
-        @group(1) @binding(4) var<uniform> cants: array<DatosElementaries, ${ne}>;
-        @group(1) @binding(5) var<storage> radios: array<f32>;
-        @group(1) @binding(7) var<uniform> ints: array<DatosInteracciones, ${lp}>;
+        @group(1) @binding(4) var<storage> elems: array<DatosElementaries>;
+        @group(1) @binding(6) var<uniform> params2: vec4f; // CPU random numbers y demás
     //
     //https://indico.cern.ch/event/93877/contributions/2118070/attachments/1104200/1575343/acat3_revised_final.pdf
     fn LFSR( z: u32, s1: u32, s2: u32, s3: u32, m:u32) -> u32 {
@@ -126,39 +126,56 @@ export function computeShader(sz, ne, nr, lp) { return /*wgsl*/`
         return f32( r0 ) * 2.3283064365387e-10 ;
     }
     
-    var<private> rand_seed : vec2<f32>;
+    // rng mostrado en Hello Triangle demos:
+    var<private> seed : vec2u;
+    var<private> rand_seed : vec2f;
 
     fn init_rng2(invocation_id : u32, seed : vec4<f32>) {
         rand_seed = seed.xz;
-        rand_seed = fract(rand_seed * cos(35.456+f32(invocation_id) * seed.yw));
-        rand_seed = fract(rand_seed * cos(41.235+f32(invocation_id) * seed.xw));
+        rand_seed = fract(rand_seed * cos(35.456 + f32(invocation_id) * seed.yw));
+        rand_seed = fract(rand_seed * cos(41.235 + f32(invocation_id) * seed.xw));
     }
 
-    fn rng2(seed: u32) -> f32 {
+    fn rng2() -> f32 {
         rand_seed.x = fract(cos(dot(rand_seed, vec2<f32>(23.14077926, 232.61690225))) * 136.8168);
         rand_seed.y = fract(cos(dot(rand_seed, vec2<f32>(54.47856553, 345.84153136))) * 534.7645);
         return rand_seed.y;
     }
-    
 
-    fn applyrule( seed: u32, posi: vec2f, posj: vec2f , d:f32, g: f32, q: f32, rmin: f32, rmax: f32 ) -> vec2f {
+    fn elemIndex(i: u32) -> u32 {
+        var k = u32();
+        while i >= elems[k].cantAcum {k++;}
+        return k;
+    }
+    
+    fn applyrule2( posi: vec2f, posj: vec2f , d:f32, g: f32, q: f32, rmin: f32, rmax: f32 ) -> vec2f {
+        // Usa el rng mostrado en HelloTriangle
+        if d > rmax {
+            return vec2f();
+        }
+        if d >= rmin {
+            let f = -g/(d*d);
+            return vec2f(posi.x - posj.x, posi.y - posj.y) * f;
+        }
+        return (vec2f(rng2(), rng2()) * 2 - 1) * q;
+    }
+    /*
+    fn applyrule( seedinput: vec2u, posi: vec2f, posj: vec2f , d:f32, g: f32, q: f32, rmin: f32, rmax: f32 ) -> vec2f {
 
         // Vf = dT * M2*G*d(vector)/d^3 + V0   cuadrática
         if d>rmax {
-            return vec2f(0.0, 0.0);
+            return vec2f();
         }
-
         if d>=rmin {
             let f = -g/(d*d);
-            return vec2f(f*(posi.x - posj.x), f*(posi.y - posj.y));
+            return vec2f(posi.x - posj.x, posi.y - posj.y) * f;
         }
-        else {
-            return 0*( vec2f(rng(seed), rng(seed)) - 0.5 )* 2 * q;
-        }
+        seed = seedinput + vec2u(posj);
+        return (vec2f(rng(seed.x), rng(seed.y)) * 2 - 1) * q;
     }
-    
-    fn applyrule2( seed: u32, posi: vec2f, posj: vec2f , d:f32, g: f32, q: f32, rmin: f32, rmax: f32 ) -> vec2f {
 
+    fn applyrule_classic( seed: u32, posi: vec2f, posj: vec2f , d:f32, g: f32, q: f32, rmin: f32, rmax: f32 ) -> vec2f {
+        // hace los ifs en el orden de la versión original de cells.
         if (d > rmin && d < rmax) {
             let f = -g/(d*d);
             return vec2f(f*(posi.x - posj.x), f*(posi.y - posj.y)); 
@@ -172,109 +189,69 @@ export function computeShader(sz, ne, nr, lp) { return /*wgsl*/`
             return ( vec2f(rng(seed), rng(seed)) - 0.5 )* 2 * q;
         }
         return vec2f(0.0, 0.0);
-
-    }
+    }*/
 
     @compute
     @workgroup_size(${sz}, 1, 1) // el tercer parámetro (z) es default 1.
     fn computeMain(@builtin(global_invocation_id) ind: vec3u){
 
         let i = ind.x; // index global
-        let n = u32(params.n);
-        var seed = u32(i);
+        let n = params.n;
+
         velocities[i].z = 0.0;
         if i >= n {
-            //velocities[i].z = f32(100);//vel.x; //store value to read
             return;
         }
-        
-        var k = u32(0); // índex de elementary
-        while i >= cants[k].cantAcum { // si cantidades[k] es 3, los índices van de 0 a 2
-            k++;
-        }
-        let il = i - cants[k].cantAcum2;    // índice local de la partícula
 
+        init_rng2(i, params2);
+        //seed = vec2u(i, i);
+        var iterations = u32(); // debug iterations counter
+        
+        let k = elemIndex(i);
         let pos = positionsIn[i].xy;
         var vel = velocities[i].xy;
-        var deltav = vec2f(0.0, 0.0);
+        var deltav = vec2f();
+        var kj = u32(); // elementary index de pj
+        
+        // por cada regla:  -- Es mucho más eficiente tomar el loop más corto como el más externo.
+        for (var r: u32 = 0; r < params.nr; r++) {
 
-        //POR CADA PARTÍCULA CON LA QUE TIENE INTERACCIONES {
-        for (var pj: u32 = 0; pj < n; pj++) {
+            if k != u32(rules[r].tarInd) { continue; }
 
-            if pj == i {continue;}
+            // Por cada partícula:
+            for (var pj: u32 = 0; pj < n; pj++) {
 
-            //determinar elementary index de pj
-            var kj = u32(0);
-            while pj >= cants[kj].cantAcum { kj++; }
+                if pj == i {continue;}
+                kj = elemIndex(pj);
 
-            //var d = f32(0);
-
-            // por cada regla:
-            for (var r: u32 = 0; r<${nr}; r++) {
-
+                iterations++;
                 // revisar si esta regla le afecta y pj es source
-                if k == u32(rules[r].tarInd) && kj == u32(rules[r].srcInd) {
+                if kj == u32(rules[r].srcInd) {
 
                     // Obtengo la posición de pj
                     let posj = positionsIn[pj].xy;
-                    let ilj = pj - cants[kj].cantAcum2; // índice local de pj
+                    let ilj = pj - elems[kj].cantAcum2; // índice local de pj
+
                     // Obtengo la distancia a pj
                     let d = distance(pos, posj);
                     
-                    // Busco el índice del par de interacción en el array de matrices distancias
-                    /*
-                    for (var inter: u32 = 0; inter < ${lp}; inter++) {
-                        
-                        if ((ints[inter].list.x == k) && (ints[inter].list.y == kj)) {
-                            // k son las filas, kj las columnas. En la matriz de distancias
-                            
-                            // let offset = ints[inter].distAcum2;
-
-                            // // Determinar índice 1d en la matriz de distancias
-                            // let cmax = cants[kj].cant; //cantidad de columnas
-                            // let c = pj - cants[kj].cantAcum2;    // índice de columna = índice local de pj
-
-                            // let index = (il * cmax) + c;     //índice 1d local en la matriz de distancias (il = índ. fila)
-                            // d = distancias[offset + index];
-                            
-                            d = distancias[ints[inter].distAcum2 + il * cants[kj].cant + ilj];
-                            break;
-                        }
-                        
-                        if ((ints[inter].list.x == kj) && (ints[inter].list.y == k)) {
-                            // k son las columnas, kj las filas. En la matriz de distancias
-                            
-                            // let offset = ints[inter].distAcum2;
-                            // let cmax = cants[k].cant;   // cantidad de columnas
-                            // let c = il;     // índice de columna = índice local de k
-                            // let ilj = pj - cants[kj].cantAcum2;    // índ. de fila = índice local de pj
-
-                            // let index = (ilj * cmax) + c;
-                            // d = distancias[offset + index];
-                            
-                            d = distancias[ints[inter].distAcum2 + ilj * cants[k].cant + il];
-                            break;
-                        }
-                    }*/
-                    let seedcomb = seed + u32( sin(pos.x) );
-                    deltav += applyrule(seedcomb, pos, posj, d, rules[r].g, rules[r].q, rules[r].mind, rules[r].maxd);
-                    //velocities[i].z += deltav.x;
-                    //velocities[i].z += (rng(seedcomb) - 0.5) * 2;
-                    //velocities[i].z =
-                    //seed++;
+                    //deltav += applyrule(seed, pos, posj, d, rules[r].g, rules[r].q, rules[r].mind, rules[r].maxd);
+                    deltav += applyrule2(pos, posj, d, rules[r].g, rules[r].q, rules[r].mind, rules[r].maxd);
                 }
             }
         }
 
-        vel = (vel + deltav) * 0.995;
+        velocities[i].z = f32(iterations);
+
+        vel = (vel + deltav) * params.frictionInv;
         let candidatepos = pos + vel;
 
-        // Colisiones
-        if abs(candidatepos.x) > params.ancho/2 - radios[k] {
-            vel.x *= -0.8;
+        // Colisiones TODO: Colisiones de alta precisión a altas velocidades (reflejar etc). Bounce dependiente del ángulo de incidencia.
+        if abs(candidatepos.x) > params.ancho/2 - elems[k].radio {
+            vel.x *= -params.bounceF;
         }
-        if abs(candidatepos.y) > params.alto/2 - radios[k] {
-            vel.y *= -0.8;
+        if abs(candidatepos.y) > params.alto/2 - elems[k].radio {
+            vel.y *= -params.bounceF;
         }
 
         positionsOut[i].x = pos.x + vel.x;
@@ -282,33 +259,37 @@ export function computeShader(sz, ne, nr, lp) { return /*wgsl*/`
         
         velocities[i].x = vel.x;
         velocities[i].y = vel.y;
-        //velocities[i].z = (rng(i+u32(pos.x))-0.5)*10000;
     }
     `;
 }
 
-export function renderShader(ne) { return /*wgsl*/`
+export function renderShader() { return /*wgsl*/`
 
-    struct Params {
-        n: f32,
-        ne: f32,
+    struct Params { 
         ancho: f32,
         alto: f32,
+        n: u32,
+        ne: u32,
+        nr: u32,
+        nd: u32,
+        lp: u32,
+        frictionInv: f32,
+        bounceF: f32,
     }
 
     struct DatosElementaries {
         cant: u32,
         cantAcum: u32,
         cantAcum2: u32,
-        padding: u32,
+        radio: f32,
+        color: vec4f,
     }
+
     // Bindings
         @group(0) @binding(0) var<storage, read> updatedpositions: array<vec4<f32>>; // read only
 
         @group(1) @binding(0) var<uniform> params: Params; // parameters
-        @group(1) @binding(4) var<uniform> cants: array<DatosElementaries, ${ne}>;
-        @group(1) @binding(5) var<storage> radios: array<f32>;
-        @group(1) @binding(6) var<storage> colores: array<vec4f>;
+        @group(1) @binding(4) var<storage> elems: array<DatosElementaries>;
     //
 
     // VERTEX SHADER
@@ -317,13 +298,30 @@ export function renderShader(ne) { return /*wgsl*/`
         @builtin(instance_index) instance: u32, // índice de cada instancia. Hay N instancias.
         @builtin(vertex_index) vertex: u32, // índice de cada vértices. Hay 6 vertices.
         @location(0) pos: vec2f, // índice 0 de la lista de vertex attributes en el vertex buffer layout.
+        // TODO: Ver si puedo traer desde el compute shader al índice de elementary (k).
     };
 
     struct VertexOutput{
         @builtin(position) pos: vec4f, // posición de cada vértice  || para el fragment shader, al parecer usa un sist. coords distinto (abs from top left)
-        @location(1) idx: f32, // Índice de instancia
-        @location(3) quadpos: vec2f,
+        @location(1) @interpolate(flat) idx: u32, // Índice de instancia
+        @location(2) quadpos: vec2f,
+        @location(3) @interpolate(flat) k: u32,
+        @location(4) @interpolate(flat) random: f32,
     };
+
+    fn LFSR( z: u32, s1: u32, s2: u32, s3: u32, m:u32) -> u32 {
+        let b = (((z << s1) ^ z) >> s2);
+        return (((z & m) << s3) ^ b);
+    }
+    fn rng(i: u32) -> f32 {
+        let seed = i*1099087573;
+        let z1 = LFSR(seed,13,19,12, u32(4294967294));
+        let z2 = LFSR(seed,2 ,25,4 , u32(4294967288));
+        let z3 = LFSR(seed,3 ,11,17, u32(4294967280));
+        let z4 = 1664525 * seed + 1013904223;
+        let r0 = z1^z2^z3^z4;
+        return f32( r0 ) * 2.3283064365387e-10 ;
+    }
 
     @vertex
     fn vertexMain(input: VertexInput) -> VertexOutput   {
@@ -335,26 +333,24 @@ export function renderShader(ne) { return /*wgsl*/`
         let ar = ancho/alto;
 
         var k = u32(0);
-        while idx >= cants[k].cantAcum {
-            k++;
-        }
+        while idx >= elems[k].cantAcum { k++; }
         
-        let diameter = f32(radios[k])*2/ancho; // diámetro en clip space  [-1 1]
+        let diameter = f32(elems[k].radio) * 2 / ancho; // diámetro en clip space  [-1 1]
 
         // OUTPUT
         var output: VertexOutput;
         output.pos = vec4f(
-            input.pos.x      * diameter + updatedpositions[idx].x*2/ancho, // Se trabajó con coordenadas absolutas, y ahora se pasan a relativas
-            input.pos.y * ar * diameter + updatedpositions[idx].y*2/alto,
+            input.pos.x      * diameter + updatedpositions[idx].x * 2 / ancho, // Se trabajó con coordenadas absolutas, y ahora se pasan a relativas
+            input.pos.y * ar * diameter + updatedpositions[idx].y * 2 / alto,
             0, 1);
 
-        output.idx = f32(idx); // índice de cada instancia, pasado a float para el fragment shader
-
+        output.idx = idx; // índice de cada instancia, pasado a float para el fragment shader
         output.quadpos = input.pos;
+        output.k = k;
+        output.random = mix(0.8, 1.2,  rng(idx) );
 
         return output;
     }
-
 
     // FRAGMENT SHADER 
 
@@ -364,408 +360,251 @@ export function renderShader(ne) { return /*wgsl*/`
         let r = length(input.quadpos);
         if r > 1 { discard; }
 
-        var idx = input.idx;
+        let idx = input.idx;
+        let k = input.k;
 
-        //if idx == 0 {
-        //    idx = 0;
-        //}
-
-        var k = u32(0);
-        while idx >= f32(cants[k].cantAcum) {
-            k++;
-        }
-
-        let negro = step (r, 0.85);
+        let negro = step (r, 1);
         let colnegro = vec4f(negro, negro, negro, 1);
         
-        return colores[k] * colnegro;// * random_darken;
+        return elems[k].color * colnegro * input.random * sqrt(1-r*r);
 
     }
     `;
 }
 
-/////////////////////////////////////////////////// shaders viejos:
+export function computeShaderConDistancias(sz, lp) { return /*wgsl*/`
 
-export function computeShaderOLD(sz=8, N=0) { return /*wgsl*/`
-
-    @group(0) @binding(0) var<uniform> canvasdims: vec2f; // recibir el grid size de un uniform buffer
-    @group(0) @binding(1) var<storage> initialpositions: array<vec4<f32>>; // read only
-    @group(0) @binding(2) var<storage, read_write> finalpositions: array<vec4<f32>>; //al poder write, lo uso como output del shader
-    @group(0) @binding(3) var<storage, read_write> velocity: array<vec2<f32>>; //al poder write, lo uso como output del shader
-
-    //override constante = 64; Este valor es el default, si "constante" no está definida en constants de la pipeline.
-
-    fn attractor( posi: vec2f, posj: vec2f , k: f32, rmin: f32) -> vec2f {
-
-        let d = posj - posi;
-        let r = length(d);
-
-        if r > rmin {
-            return k * d / (r*r*r);
-        } else {
-            return vec2f(0, 0);
-        }
+    struct Params { 
+        ancho: f32,
+        alto: f32,
+        n: u32,
+        ne: u32,
+        nr: u32,
+        nd: u32,
+        lp: u32,
     }
+
+    struct Rule { 
+        tarInd: f32,
+        srcInd: f32,
+        g: f32, 
+        q: f32,
+        mind: f32,
+        maxd: f32,
+        pad1: f32,
+        pad2: f32,
+    }
+
+    struct DatosElementaries {
+        cant: u32,
+        cantAcum: u32,
+        cantAcum2: u32,
+        radio: f32,
+        color: vec4f,
+    }
+    /*
+    struct DatosInteracciones {
+        list: vec2u, // lista de interacciones (Y Y Y R Y P R R...)
+        distAcum: u32,
+        distAcum2: u32,
+    }*/
+
+    // Bindings 
+        @group(0) @binding(0) var<storage, read> positionsIn: array<vec4f>; // read only
+        @group(0) @binding(1) var<storage, read_write> positionsOut: array<vec4f>; //al poder write, lo uso como output del shader
+
+        @group(1) @binding(0) var<uniform> params: Params; // parameters
+        @group(1) @binding(1) var<storage, read_write> velocities: array<vec4f>; //al poder write, lo uso como output del shader
+        @group(1) @binding(2) var<storage> rules: array<Rule>;
+        @group(1) @binding(3) var<storage, read_write> distancias: array<f32>;
+        @group(1) @binding(4) var<storage> elems: array<DatosElementaries>;
+    //  @group(1) @binding(5) var<uniform> ints: array<DatosInteracciones, ${lp}>;
+        @group(1) @binding(6) var<uniform> params2: vec4f; // CPU random numbers y demás
+    //
+    //https://indico.cern.ch/event/93877/contributions/2118070/attachments/1104200/1575343/acat3_revised_final.pdf
+    fn LFSR( z: u32, s1: u32, s2: u32, s3: u32, m:u32) -> u32 {
+        let b = (((z << s1) ^ z) >> s2);
+        return (((z & m) << s3) ^ b);
+    }
+    fn rng(i: u32) -> f32 {
+        let seed = i*1099087573;
+        let z1 = LFSR(seed,13,19,12, u32(4294967294));
+        let z2 = LFSR(seed,2 ,25,4 , u32(4294967288));
+        let z3 = LFSR(seed,3 ,11,17, u32(4294967280));
+        let z4 = 1664525 * seed + 1013904223;
+        let r0 = z1^z2^z3^z4;
+        return f32( r0 ) * 2.3283064365387e-10 ;
+    }
+    
+    // rng mostrado en Hello Triangle demos:
+    var<private> seed : vec2u;
+    var<private> rand_seed : vec2f;
+
+    fn init_rng2(invocation_id : u32, seed : vec4<f32>) {
+        rand_seed = seed.xz;
+        rand_seed = fract(rand_seed * cos(35.456 + f32(invocation_id) * seed.yw));
+        rand_seed = fract(rand_seed * cos(41.235 + f32(invocation_id) * seed.xw));
+    }
+
+    fn rng2() -> f32 {
+        rand_seed.x = fract(cos(dot(rand_seed, vec2<f32>(23.14077926, 232.61690225))) * 136.8168);
+        rand_seed.y = fract(cos(dot(rand_seed, vec2<f32>(54.47856553, 345.84153136))) * 534.7645);
+        return rand_seed.y;
+    }
+
+    fn elemIndex(i: u32) -> u32 {
+        var k = u32(0);
+        while i >= elems[k].cantAcum {k++;}
+        return k;
+    }
+    
+    fn applyrule2( posi: vec2f, posj: vec2f , d:f32, g: f32, q: f32, rmin: f32, rmax: f32 ) -> vec2f {
+        // Usa el rng mostrado en HelloTriangle
+        if d > rmax {
+            return vec2f();
+        }
+        if d >= rmin {
+            let f = -g/(d*d);
+            return vec2f(posi.x - posj.x, posi.y - posj.y) * f;
+        }
+        return (vec2f(rng2(), rng2()) * 2 - 1) * q;
+    }
+    /*
+    fn applyrule( seedinput: vec2u, posi: vec2f, posj: vec2f , d:f32, g: f32, q: f32, rmin: f32, rmax: f32 ) -> vec2f {
+
+        // Vf = dT * M2*G*d(vector)/d^3 + V0   cuadrática
+        if d>rmax {
+            return vec2f();
+        }
+        if d>=rmin {
+            let f = -g/(d*d);
+            return vec2f(posi.x - posj.x, posi.y - posj.y) * f;
+        }
+        seed = seedinput + vec2u(posj);
+        return (vec2f(rng(seed.x), rng(seed.y)) * 2 - 1) * q;
+    }
+
+    fn applyrule_classic( seed: u32, posi: vec2f, posj: vec2f , d:f32, g: f32, q: f32, rmin: f32, rmax: f32 ) -> vec2f {
+        // hace los ifs en el orden de la versión original de cells.
+        if (d > rmin && d < rmax) {
+            let f = -g/(d*d);
+            return vec2f(f*(posi.x - posj.x), f*(posi.y - posj.y)); 
+        }
+
+        if d < rmin {
+
+            let sx = u32(floor(posi.y + posj.x)) * (3 + 1099087573);
+            let sy = u32(ceil(posi.x + posj.y)) * (7 + 1099087573);
+
+            return ( vec2f(rng(seed), rng(seed)) - 0.5 )* 2 * q;
+        }
+        return vec2f(0.0, 0.0);
+    }*/
 
     @compute
     @workgroup_size(${sz}, 1, 1) // el tercer parámetro (z) es default 1.
     fn computeMain(@builtin(global_invocation_id) ind: vec3u){
 
-        let i = ind.x;
-        let positioni = vec4f(initialpositions[i]);
-        var vel = vec4f(velocity[i], 0, 0);
+        let i = ind.x; // index global
+        let n = params.n;
 
-        for (var i: i32 = 0; i < ${N}; i++) {
-            
-            vel += vec4f(attractor(positioni.xy, initialpositions[i].xy, 2.0, 3.0), 0, 0);
-
+        velocities[i].z = 0.0;
+        if i >= n {
+            return;
         }
 
-        //vel += vec4f(attractor(positioni.xy, vec2f(100, 0), 10, 5.0), 0, 0);
-
-        let candidatepos = positioni + vel;
-        let lims = canvasdims;
-        if abs(candidatepos.x) > lims.x {
-            vel.x *= -.1;
-        }
-        if abs(candidatepos.y) > lims.y{
-            vel.y *= -.1;
-        }
-
-        finalpositions[i] = positioni + vel;
-        velocity[i] = vel.xy;
-    }
-`;
-}
-
-export function renderShaderOLD() { return /*wgsl*/`
-
-@group(0) @binding(0) var<uniform> canvasdims: vec2f; // uniform buffer
-@group(0) @binding(1) var<storage> updatedpositions: array<vec4<f32>>; // storage buffer, u32 coincide con el Uint32 array en java
-//@group(0) @binding(2) var<storage, read_write> updatedpositions: array<vec4<f32>>; //al poder write, lo uso como output del shader
-
-// VERTEX SHADER
-
-struct VertexInput {
-    @location(0) pos: vec2f, //A
-    @builtin(instance_index) instance: u32,
-};
-
-struct VertexOutput{
-    @builtin(position) pos: vec4f,
-    //@location(0) pcoord: vec2f, //A
-    @location(1) idx: f32, //B
-};
-
-// de momento N = manualmente, luego veo cómo pasar N a este shader.
-
-@vertex
-fn vertexMain(input: VertexInput) -> VertexOutput   {
-
-    let ar = canvasdims.x / canvasdims.y;
-    //convertir de clip space [-1 1] a [canvasmin canvasmax]
-    var pabs = input.pos * canvasdims;
-
-    //actualmente los vértices están en las esquinas del clipspace. Los hago cuadrados:
-    let pradius = f32(1);
-    pabs = (pabs / canvasdims) * pradius; // particle size
-    
-    //desplazar instancias
-    let idx = f32(input.instance);
-
-    pabs = pabs + updatedpositions[input.instance].xy;
-
-    //volver a clip space
-    let pfinal = pabs / canvasdims;
-
-    // OUTPUT
-    var output: VertexOutput;
-    output.pos = vec4f(pfinal, 0, 1);
-    //output.pcoord = output.pos.xy;
-    output.idx = idx;
-    return output;
-
-}
-
-
-// FRAGMENT SHADER 
-
-
-@fragment   
-fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {  // @location(n) está asociado al índice n del colorAttachment en el renderpass a utilizar
-
-    //let offset = vec2f(-0.2, 0);
-    //let ppos = input.ppos.xy;
-
-    //let diff = vec2f(input.pos-ppos/10000);
-    let px = input.pos.x / 1000;
-    let py = input.pos.y;
-
-    //let dist = f32( length(diff) );
-
-    return vec4f(input.idx/10000, 1-input.idx/10000, 0, 1 );
-
-}
-
-`
-}
-
-////////////////////////////////////////////////////
-
-export function computeShaderNBody() { return /*wgsl*/`
-
-    // TODO AQUÍ ES EN UNIDADES DE PÍXELES DEL CANVAS
-    struct Params {
-        deltaTime: f32,
-        rmin: f32,
-        rmax: f32,
-        g: f32,
-        lims: vec2f,
-        n: f32,
-        pd: f32,
-        colorshift: f32,
-    }
-
-    //@group(0) @binding(0) var<uniform> params : mat2x4<f32>; // compute
-    @group(0) @binding(0) var<uniform> params : Params;
-    @group(0) @binding(1) var<storage, read> positionsIn : array<vec4f>; // positionsIn.w será la masa de cada partícula
-    @group(0) @binding(2) var<storage, read_write> positionsOut : array<vec4f>; 
-    @group(0) @binding(3) var<storage, read_write> velocities : array<vec4f>;   // velocities.w puede usarse para el radio de cada partícula
-    
-    override constante = 64; //Este valor es el default, si "constante" no está definida en constants de la pipeline.
-
-    fn attractor( posi: vec2f, posj: vec2f , k: f32, rmin: f32, rmax: f32) -> vec2<f32> {
-
-        let d = posj - posi;
-        let r = length(d);
-
-        if r > rmax {
-            return vec2<f32>(0.0, 0.0);
-        }
-        if r > rmin {
-            return k * d / (r*r*r);
-        }
-        return vec2<f32>(0.0, 0.0);
+        init_rng2(i, params2);
+        //seed = vec2u(i, i);
+        var iterations = u32(); // debug iterations counter
         
-    }
 
-    @compute
-    @workgroup_size(constante, 1, 1) // el tercer parámetro (z) es default 1.
-    fn computeMain(@builtin(global_invocation_id) ind: vec3u) {
-
-        // índice y datos de partícula a modificar
-        let i = ind.x;
+        //let il = i - elems[k].cantAcum2;    // índice local de la partícula
+        let k = elemIndex(i);
         let pos = positionsIn[i].xy;
         var vel = velocities[i].xy;
+        var deltav = vec2f();
+        var kj = u32(); // elementary index de pj
+        
+        // Por cada partícula:
+        for (var pj: u32 = 0; pj < n; pj++) {
+            if pj == i {continue;}
+            kj = elemIndex(pj);
 
-        // Fuerzas modifican la velocidad
+            //var d = f32(0);
 
-        for (var i: i32 = 0; i < i32(params.n); i++) {
+            // por cada regla:
+            for (var r: u32 = 0; r < params.nr; r++) {
 
-            vel += attractor(pos, positionsIn[i].xy, params.g, params.rmin, params.rmax);
+                iterations++;
 
+                // revisar si esta regla le afecta y pj es source
+                if k == u32(rules[r].tarInd) && kj == u32(rules[r].srcInd) {
+
+                    // Obtengo la posición de pj
+                    let posj = positionsIn[pj].xy;
+                    let ilj = pj - elems[kj].cantAcum2; // índice local de pj
+                    // Obtengo la distancia a pj
+                    let d = distance(pos, posj);
+                    
+                    // Busco el índice del par de interacción en el array de matrices distancias
+                    /*
+                    for (var inter: u32 = 0; inter < params.lp; inter++) {
+                        
+                        if ((ints[inter].list.x == k) && (ints[inter].list.y == kj)) {
+                            // k son las filas, kj las columnas. En la matriz de distancias
+                            
+                            // let offset = ints[inter].distAcum2;
+
+                            // // Determinar índice 1d en la matriz de distancias
+                            // let cmax = elems[kj].cant; //cantidad de columnas
+                            // let c = pj - elems[kj].cantAcum2;    // índice de columna = índice local de pj
+
+                            // let index = (il * cmax) + c;     //índice 1d local en la matriz de distancias (il = índ. fila)
+                            // d = distancias[offset + index];
+                            
+                            d = distancias[ints[inter].distAcum2 + il * elems[kj].cant + ilj];
+                            break;
+                        }
+                        
+                        if ((ints[inter].list.x == kj) && (ints[inter].list.y == k)) {
+                            // k son las columnas, kj las filas. En la matriz de distancias
+                            
+                            // let offset = ints[inter].distAcum2;
+                            // let cmax = elems[k].cant;   // cantidad de columnas
+                            // let c = il;     // índice de columna = índice local de k
+                            // let ilj = pj - elems[kj].cantAcum2;    // índ. de fila = índice local de pj
+
+                            // let index = (ilj * cmax) + c;
+                            // d = distancias[offset + index];
+                            
+                            d = distancias[ints[inter].distAcum2 + ilj * elems[k].cant + il];
+                            break;
+                        }
+                    }*/
+
+                    //deltav += applyrule(seed, pos, posj, d, rules[r].g, rules[r].q, rules[r].mind, rules[r].maxd);
+                    deltav += applyrule2(pos, posj, d, rules[r].g, rules[r].q, rules[r].mind, rules[r].maxd);
+                }
+            }
         }
-        // Revisar colisiones
+        velocities[i].z = deltav.x;
+
+        vel = (vel + deltav) * 0.995;
         let candidatepos = pos + vel;
-        if abs(candidatepos.x) > params.lims.x {
-            vel.x *= -.1;
+
+        // Colisiones
+        if abs(candidatepos.x) > params.ancho/2 - elems[k].radio {
+            vel.x *= -0.8;
         }
-        if abs(candidatepos.y) > params.lims.y {
-            vel.y *= -.1;
+        if abs(candidatepos.y) > params.alto/2 - elems[k].radio {
+            vel.y *= -0.8;
         }
 
-        // Sobreescribir datos de partícula al buffer
-        positionsOut[i].x = pos.x + vel.x; // positionsOut[i].xy = pos + vel; // Tira error por algún motivo
+        positionsOut[i].x = pos.x + vel.x;
         positionsOut[i].y = pos.y + vel.y;
+        
         velocities[i].x = vel.x;
         velocities[i].y = vel.y;
     }
-`;
-}
-
-export function renderShaderNBody() { return /*wgsl*/`
-
-    struct Params {
-        deltaTime: f32,
-        rmin: f32,
-        rmax: f32,
-        g: f32,
-        lims: vec2f,
-        n: f32,
-        pd: f32,
-        colorshift: f32,
-    }
-
-    //@group(0) @binding(0) var<uniform> params: mat2x4<f32>; // shader
-    @group(0) @binding(0) var<uniform> params: Params; // shader
-    @group(0) @binding(1) var<storage> updatedpositions: array<vec4<f32>>; // PositionsOut de compute. Coordenadas absolutas
-
-    // VERTEX SHADER
-
-    struct VertexInput {
-        @builtin(instance_index) instance: u32, // índice de cada instancia. Hay N instancias.
-        @builtin(vertex_index) vertex: u32, // índice de cada vértices. Hay 6 vertices.
-        @location(0) pos: vec2f, // índice 0 de la lista de vertex attributes en el vertex buffer layout.
-    };
-
-    struct VertexOutput{
-        @builtin(position) pos: vec4f, // posición de cada vértice  || para el fragment shader, al parecer usa un sist. coords distinto (abs from top left)
-        @location(1) idx: f32, // Índice de instancia
-        @location(3) quadpos: vec2f,
-    };
-
-    @vertex
-    fn vertexMain(input: VertexInput) -> VertexOutput   {
-
-        let idx = input.instance;
-
-        let ancho = params.lims.x;
-        let alto = params.lims.y;
-        let ar = ancho/alto;
-        let diameter = params.pd; // diámetro en clip space
-
-        // OUTPUT
-        var output: VertexOutput;
-        output.pos = vec4f( input.pos.x      * diameter + updatedpositions[idx].x/ancho, // Se trabajó con coordenadas absolutas, y ahora se pasan a relativas
-                            input.pos.y * ar * diameter + updatedpositions[idx].y/alto,
-                            0, 1);
-
-        output.idx = f32(idx); // índice de cada instancia, pasado a float para el fragment shader
-
-        output.quadpos = input.pos;
-
-        return output;
-    }
-
-    // FRAGMENT SHADER 
-
-    fn hueShift( color: vec3f, hueAdjust: f32 ) -> vec3f {
-
-        let kRGBToYPrime = vec3f (0.299, 0.587, 0.114);
-        let kRGBToI      = vec3f (0.596, -0.275, -0.321);
-        let kRGBToQ      = vec3f (0.212, -0.523, 0.311);
-    
-        let kYIQToR     = vec3f (1.0, 0.956, 0.621);
-        let kYIQToG     = vec3f (1.0, -0.272, -0.647);
-        let kYIQToB     = vec3f (1.0, -1.107, 1.704);
-    
-        let YPrime  = dot (color, kRGBToYPrime);
-        var I       = dot (color, kRGBToI);
-        var Q       = dot (color, kRGBToQ);
-        var hue     = atan2 (Q, I);
-        let chroma  = sqrt (I * I + Q * Q);
-    
-        hue += hueAdjust;
-    
-        Q = chroma * sin (hue);
-        I = chroma * cos (hue);
-    
-        let   yIQ   = vec3f (YPrime, I, Q);
-    
-        return vec3f( dot (yIQ, kYIQToR), dot (yIQ, kYIQToG), dot (yIQ, kYIQToB) );
-    
-    }
-
-
-    @fragment   
-    fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {  // @location(n) está asociado al índice n del colorAttachment en el renderpass a utilizar
-
-        let r = length(input.quadpos);
-        if r > 1 {
-            discard;
-        }
-
-        //let color = params.color;
-
-        let color = vec3f(1, 1-r, 0);
-
-        let negro = step (r, 0.8);
-
-        return vec4f( hueShift(color, params.colorshift) * 1 , 1 );
-
-    }
-
-`
-}
-
-export function renderShaderNBodyB() { return /*wgsl*/`     // Dibuja particulas radiales sin requerir vertex buffers extra
-
-    struct Params {
-        deltaTime: f32,
-        rmin: f32,
-        rmax: f32,
-        g: f32,
-        lims: vec2f,
-        n: f32,
-    }
-
-    //@group(0) @binding(0) var<uniform> params: mat2x4<f32>; // shader
-    @group(0) @binding(0) var<uniform> params: Params; // shader
-    @group(0) @binding(1) var<storage> updatedpositions: array<vec4<f32>>; // PositionsOut de compute. Coordenadas absolutas
-
-    // VERTEX SHADER
-
-    struct VertexInput {
-        @builtin(instance_index) instance: u32, // índice de cada instancia. Hay N instancias.
-        @builtin(vertex_index) vertex: u32, // índice de cada vértices. Hay 6 vertices.
-        @location(0) pos: vec2f, // índice 0 de la lista de vertex attributes en el vertex buffer layout.
-    };
-
-    struct VertexOutput{
-        @builtin(position) pos: vec4f, // posición de cada vértice  || para el fragment shader, al parecer usa un sist. coords distinto (abs from top left)
-        @location(1) idx: f32, // Índice de instancia
-        @location(2) posi: vec2f, // intento: posición de cada partícula
-    };
-
-    @vertex
-    fn vertexMain(input: VertexInput) -> VertexOutput   {
-
-        let idx = input.instance;
-
-        let ancho = params.lims.x;
-        let alto = params.lims.y;
-        let ar = ancho/alto;
-        let diameter = f32(0.02); // diámetro en clip space
-
-        // OUTPUT
-        var output: VertexOutput;
-        output.pos = vec4f( input.pos.x      * diameter + updatedpositions[idx].x/ancho, // Se trabajó con coordenadas absolutas, y ahora se pasan a relativas
-                            input.pos.y * ar * diameter + updatedpositions[idx].y/alto,
-                            0, 1);
-                            //vec4f(pfinal, 0, 1);
-
-        output.idx = f32(idx); // índice de cada instancia, pasado a float para el fragment shader
-
-        output.posi = vec2f( updatedpositions[idx].x/2,
-                             updatedpositions[idx].y/2,
-                            );
-
-        return output;
-    }
-
-    // FRAGMENT SHADER 
-    @fragment   
-    fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {  // @location(n) está asociado al índice n del colorAttachment en el renderpass a utilizar
-
-        let pos1 = (input.pos.xy - params.lims/2) * vec2f(1.0, -1.0) ; // pixel position centralizada absoluta
-        let pos2 = input.posi;  // particle position centralizada absoluta
-
-        let pos1r = vec2f(pos1.x / (params.lims.x/2), pos1.y / (params.lims.y/2)); //posiciones centrales relativas
-        let pos2r = vec2f(pos2.x / (params.lims.x/2), pos2.y / (params.lims.y/2));
-        //let pos2r = vec2f() pos2 / 1000;
-
-        var r = length( pos1 - pos2 ); //-input.pos); // posi es un valor que aumenta desde el centro, parece que parte desde 1
-        //r = length(pos1);
-
-        if (r > 6) {
-           discard;
-        }
-
-        //return vec4f(input.idx/25, 1-input.idx/25, 0, 1 );
-        //return vec4f(input.pos.x/985 * m, input.pos.y/512 * m, 0, 1 );
-        return vec4f(pos2r, 0, 1 );
-        // Tiene problemas: al iniciar estando con mucho zoom, se ven cuadradas.
-    }
-
-`
+    `;
 }

@@ -1,0 +1,16 @@
+`\
+	${CURRENT_VERSION}
+
+	* Unas cuantas. Algunas son:
+
+	* Nuevos controles: H, I, D... Capaz algún otro...
+
+	* Ampliada la funcionalidad al exportar. QoL en los controles.
+
+	* Falta implementar el ruido ""cuántico"" y ya salimos de Beta. Contale a tus amigos!
+
+	* Si encontrás algún bug avisame porfa. No le cuentes a tus amigos!
+
+	* Esto debería aparecer cada vez que publico una nueva versión. Para ello estoy usando un par de bytes\
+	en tu equipo. Desde ya muchas gracias. No, no te los devuelvo.
+`

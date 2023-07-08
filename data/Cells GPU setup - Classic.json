@@ -1,0 +1,161 @@
+{
+  "seed": "",
+  "friction": "0.005",
+  "bounce": "80",
+  "maxInitVel": "0",
+  "elementaries": [
+    {
+      "nombre": "A",
+      "color": [
+        1,
+        1,
+        0,
+        1
+      ],
+      "cantidad": 300,
+      "radio": 3,
+      "posiciones": [],
+      "velocidades": []
+    },
+    {
+      "nombre": "R",
+      "color": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "cantidad": 80,
+      "radio": 4,
+      "posiciones": [],
+      "velocidades": []
+    },
+    {
+      "nombre": "P",
+      "color": [
+        0.5764706134796143,
+        0.43921568989753723,
+        0.8588235378265381,
+        1
+      ],
+      "cantidad": 30,
+      "radio": 5,
+      "posiciones": [],
+      "velocidades": []
+    },
+    {
+      "nombre": "V",
+      "color": [
+        0,
+        0.501960813999176,
+        0,
+        1
+      ],
+      "cantidad": 5,
+      "radio": 7,
+      "posiciones": [],
+      "velocidades": []
+    }
+  ],
+  "rules": [
+    {
+      "ruleName": "R ← R",
+      "targetName": "R",
+      "sourceName": "R",
+      "intensity": 0.5,
+      "quantumForce": 0.025,
+      "minDist": 15,
+      "maxDist": 100,
+      "targetIndex": 1,
+      "sourceIndex": 1
+    },
+    {
+      "ruleName": "A ← R",
+      "targetName": "A",
+      "sourceName": "R",
+      "intensity": 0.5,
+      "quantumForce": 0,
+      "minDist": 60,
+      "maxDist": 600,
+      "targetIndex": 0,
+      "sourceIndex": 1
+    },
+    {
+      "ruleName": "A ← A",
+      "targetName": "A",
+      "sourceName": "A",
+      "intensity": -0.1,
+      "quantumForce": 0.025,
+      "minDist": 20,
+      "maxDist": 600,
+      "targetIndex": 0,
+      "sourceIndex": 0
+    },
+    {
+      "ruleName": "P ← R",
+      "targetName": "P",
+      "sourceName": "R",
+      "intensity": 0.4,
+      "quantumForce": 0,
+      "minDist": 0.1,
+      "maxDist": 150,
+      "targetIndex": 2,
+      "sourceIndex": 1
+    },
+    {
+      "ruleName": "P ← A",
+      "targetName": "P",
+      "sourceName": "A",
+      "intensity": -0.2,
+      "quantumForce": 0.05,
+      "minDist": 0.1,
+      "maxDist": 100,
+      "targetIndex": 2,
+      "sourceIndex": 0
+    },
+    {
+      "ruleName": "A ← P",
+      "targetName": "A",
+      "sourceName": "P",
+      "intensity": 0.2,
+      "quantumForce": 0,
+      "minDist": 0.1,
+      "maxDist": 100,
+      "targetIndex": 0,
+      "sourceIndex": 2
+    },
+    {
+      "ruleName": "R ← P",
+      "targetName": "R",
+      "sourceName": "P",
+      "intensity": 1,
+      "quantumForce": 0.25,
+      "minDist": 0.1,
+      "maxDist": 10,
+      "targetIndex": 1,
+      "sourceIndex": 2
+    },
+    {
+      "ruleName": "R ← V",
+      "targetName": "R",
+      "sourceName": "V",
+      "intensity": 0.3,
+      "quantumForce": 0,
+      "minDist": 50,
+      "maxDist": 1000,
+      "targetIndex": 1,
+      "sourceIndex": 3
+    },
+    {
+      "ruleName": "V ← V",
+      "targetName": "V",
+      "sourceName": "V",
+      "intensity": -0.2,
+      "quantumForce": 0.01,
+      "minDist": 50,
+      "maxDist": 200,
+      "targetIndex": 3,
+      "sourceIndex": 3
+    }
+  ]
+}

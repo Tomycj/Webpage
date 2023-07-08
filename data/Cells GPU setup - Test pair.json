@@ -1,5 +1,8 @@
 {
   "seed": "",
+  "friction": "0",
+  "bounce": "100",
+  "maxInitVel": "0",
   "elementaries": [
     {
       "nombre": "A",

@@ -1,6 +1,6 @@
 import { inicializarCells } from "./misFunciones.js";
-import { renderShaderNBody } from "../shaders/shadersCellsGPU.js";
-import { computeShaderNBody } from "../shaders/shadersCellsGPU.js";
+import { renderShaderNBody } from "../shaders/shadersNBody.js";
+import { computeShaderNBody } from "../shaders/shadersNBody.js";
 
 // INITIAL VARIABLES
 const [device, canvas, canvasFormat, context, timer] = await inicializarCells(); //TODO: ver en misFunciones

@@ -1,16 +1,17 @@
-import { inicializarCells } from "./misFunciones.js";
-import { renderShader } from "../shaders/shadersCellsGPU.js";
-import { computeShader } from "../shaders/shadersCellsGPU.js";
-import { computeDistancesShader } from "../shaders/shadersCellsGPU.js";
+import { inicializarCells } from "inicializar-webgpu";
+import { renderShader, computeShader, computeDistancesShader } from "shaders";
+
 // ref https://www.cg.tuwien.ac.at/research/publications/2023/PETER-2023-PSW/PETER-2023-PSW-.pdf
 
 const 
 [device, canvas, canvasFormat, context, timer] = await inicializarCells(false),
 
-VELOCITY_FACTOR = 0,
 WORKGROUP_SIZE = 64,
 SAMPLE_SETUP = {
 	seed: "sampleSeed",
+	friction: "0.0",
+	bounce: "10",
+	maxInitVel: "0.0",
 	elementaries: [
 		{
 			nombre: "sampleName",
@@ -39,54 +40,59 @@ LAST_VISITED_VERSION = localStorage.getItem("STORED_VERSION_NUMBER"),
 CHANGELOG = `\
 	${CURRENT_VERSION}
 
-	* Unas cuantas. Algunas son:
-
-	* Nuevos controles: H, I, D... Capaz algún otro...
-
-	* Ampliada la funcionalidad al exportar. QoL en los controles.
-
-	* Falta implementar el ruido ""cuántico"" y ya salimos de Beta. Contale a tus amigos!
+	* Objetivo primario del proyecto completado, y por eso ya salimos de Beta! Contale a tus amigos!
 
 	* Si encontrás algún bug avisame porfa. No le cuentes a tus amigos!
+
+	* Más QoL en las opciones. Partículas ahora con relieve esférico y pequeñas variaciones de color.
+	Nuevas opciones: Entorno y colocación manual de partículas.
+	Rework del manejo de buffers de WebGPU, para hacerlo más flexible.
+	Un cambio sin identificar redujo el rendimiento un 50%, pero una optimización en los shaders lo\
+	aumentó un 100% así que no problem!
+	Planeando más features y mejoras si tengo tiempo.
 
 	* Esto debería aparecer cada vez que publico una nueva versión. Para ello estoy usando un par de bytes\
 	en tu equipo. Desde ya muchas gracias. No, no te los devuelvo.
 `,
 uiSettings = {
 	bgColor : [0, 0, 0, 1],
+},
+ambient = {
+	friction: 1 - 0.995, // 0.995 en el shader
+	bounce: 80, // 0.8 en el shader
+	maxInitVel: 0,
 };
 
 let 
 N = 0, 	// cantidad total de partículas
+elementaries = [], // cada elemento es un objeto que almacena toda la info de una familia de parts.
+rules = [],   // cada elemento es una regla, formada por un objeto que la define.
 workgroupCount,		// workgroups para ejecutar reglas de interacción
 workgroupCount2, 	// worgroups para calcular distancias entre partículas
 rng,
 frame = 0, // simulation steps
 animationId,
 paused = true,
-elementaries = [], // cada elemento es un objeto que almacena toda la info de una familia de parts.
-rules = [],   // cada elemento es una regla, formada por un objeto que la define.
-//D = [], // "diccionario" que asocia cada indice de una matriz al indice de cada familia que tenga interacciones.
-//m = [], // matriz triangular que codifica las interacciones entre familias.
 listaInteracciones = [],
 updatingParameters = true,
 resetPosiVels = true,
 editingBuffers = true,
-hayReglasActivas = false,
+editingAmbient = false,
 stepping = false,
 muted = false,
 fps = 0,
 frameCounter = 0,
 refTime,
-preloadPositions = false; //determina si las posiciones se cargan al crear el elementary o al iniciar la simulación.
+//preloadPositions = false, // CODE 0
+placePartOnClic = false;
 
 // TIMING & DEBUG 
-	const START_WITH_SETUP = true;
-	const plotBufferOutput = false;
+	const START_WITH_SETUP = 1
+	const SHOW_DEBUG = 0
 	//localStorage.setItem("NEW_USER", 1);
 	//localStorage.setItem("STORED_VERSION_NUMBER", 1);
 	const debugSetup = "Cells q tests.json";
-	let usaDistancias = false;
+	let PRECALCULAR_DISTANCIAS = false;
 	let debug = false;
 	let capacity = 4; //Max number of timestamps 
 	let t = [];
@@ -114,7 +120,7 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 		rng = new alea(seed);
 		seedInput.placeholder = seed;
 	}
-	function hexString_to_rgba(hexString, a){
+	function hexString_to_rgba(hexString, a) {
 		
 		hexString = hexString.replace("#",""); // remove possible initial #
 
@@ -126,18 +132,18 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 
 		return new Float32Array([red, green, blue, a]); // Store the RGB values in an array
 	}
-	function randomPosition(margin = 0){
+	function randomPosition(margin = 0) {
 		return new Float32Array([
-			(rng() - 0.5) * (canvas.width - margin),
+			(rng() - 0.5) * (canvas.width - margin), // TODO: así como está es eficiente pero el margen no es el esperado
 			(rng() - 0.5) * (canvas.height - margin),
 			0,
 			1
 		]);
 	}
-	function randomVelocity(){
+	function randomVelocity() {
 		return new Float32Array([
-			(rng() - 0.5)*VELOCITY_FACTOR,
-			(rng() - 0.5)*VELOCITY_FACTOR,
+			(2 * rng() - 1) * ambient.maxInitVel,
+			(2 * rng() - 1) * ambient.maxInitVel,
 			0,
 			1,
 		]);
@@ -165,23 +171,39 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 		*/
 		return [pos, vel]
 	}
-	function validarNumberInput(input){
-		// input es un objeto representando un html element input de type number
-		const val = parseInt(input.value);
-		const min = parseInt(input.min);
-		const max = parseInt(input.max);
+	function validarNumberInput(input, estricto=true) {
+		/* input es un objeto representando un html element input de type number.
+		Estricto significa que no admite valores afuera del rango. */
 
-		if ( val < min || val > max || isNaN(val) ){
-			//console.log(`Entrada inválida: ${input.id}`);
-			titilarBorde(input);
+		if (input.validity.valid) {
+			return true;
+		}
+
+		if (input.validity.badInput) {
+			titilarBorde(input, "red");
 			return false;
 		}
-		return true;
+
+		const outsideRange = (input.validity.rangeUnderflow || input.validity.rangeOverflow);
+
+		if (!outsideRange) {
+			return true;
+		}
+
+		if (!estricto && outsideRange) {
+			titilarBorde(input, "yellow"); //console.log(`${input.id} returns true in validar`)
+			return true;
+		}
+
+		//console.table(input.validity)
+
+		titilarBorde(input, "red");
+		return false;
 	}
-	function includesIn2nd(array, num){ // busca num entre el 2do elemento de los subarrays dentro de array
+	function includesIn2nd(array, num) { // busca num entre el 2do elemento de los subarrays dentro de array
 		return array.some(subarray => subarray[1] == num);
 	}
-	function findIndexOf2nd(array, num){ // devuelve el índice del subarray que cumple includesIn2nd
+	function findIndexOf2nd(array, num) { // devuelve el índice del subarray que cumple includesIn2nd
 		return array.findIndex(subarray => subarray[1] == num);
 	}
 	function expandir(m) { // agrega una columna y fila de ceros a una matriz
@@ -231,7 +253,7 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 		if ( 
 			typeof nombre === "string" && 
 			color.constructor === Float32Array && color.length === 4 &&
-			Number.isInteger(cantidad) && cantidad > 0 &&
+			Number.isInteger(cantidad) && cantidad >= 0 &&
 			typeof radio === "number" && radio >= 0  &&
 			(posiciones.constructor === Float32Array || (Array.isArray(posiciones) && posiciones.length === 0) ) && 
 			(velocidades.constructor === Float32Array || (Array.isArray(velocidades) && velocidades.length === 0) )
@@ -252,11 +274,11 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 	function cargarElementary(newElementary) {
 		let i = elementaries.length;
 		if ( elementaries.some(dict => dict.nombre == newElementary.nombre) ){
-			console.log("Reemplazando partículas del mismo nombre...")
+			console.log("Reemplazando partículas homónimas...")
 			i = elementaries.findIndex(dict => dict.nombre == newElementary.nombre);
 			elementaries [i] = newElementary;
 		} else {
-			elementaries.push( newElementary );
+			elementaries.push(newElementary);
 			actualizarElemSelectors(newElementary); // actualizar lista de nombres en el creador de reglas de interacción
 		}
 		partiControls.selector.selectedIndex = i;
@@ -264,7 +286,7 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 	function cargarRule(newRule) {
 		let i = rules.length;
 		if ( rules.some(dict => dict.ruleName === newRule.ruleName) ){
-			console.log("Reemplazando regla del mismo nombre...")
+			console.log("Reemplazando regla homónima...")
 			i = rules.findIndex(dict => dict.ruleName === newRule.ruleName);
 			rules[i] = newRule;
 		} else {
@@ -310,7 +332,14 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 			}
 		}
 		
-		const setup = { seed, elementaries, rules};
+		const setup = {
+			seed,
+			friction: ambientControls.frictionInput.placeholder,
+			bounce: ambientControls.bounceInput.placeholder,
+			maxInitVel: ambientControls.velInput.placeholder,
+			elementaries,
+			rules,
+		};
 		const jsonString = JSON.stringify(setup, null, 2);
 
 		const blob = new Blob([jsonString], { type: "application/json" });
@@ -364,29 +393,38 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 			seedInput.value = setup.seed;
 		}
 
-		for (let elem of setup.elementaries) {
-			actualizarElemSelectors(elem);
+		ambientControls.frictionInput.value = setup.friction;
+		ambientControls.bounceInput.value = setup.bounce;
+		ambientControls.velInput.value = setup.maxInitVel;
+
+		elementaries = setup.elementaries;
+		rules = setup.rules;
+
+		for (let elem of elementaries) {
 			const L = elem.cantidad*4;
 			const posiVelsIncompleto = (elem.posiciones.length !== L || elem.velocidades.length !== L);
 
-			if (preloadPositions && posiVelsIncompleto) { // si faltan posiVels y PP está activado, crearlas. 
+			if (/*preloadPositions &&*/ posiVelsIncompleto) { // si faltan posiVels /*y PP está activado*/, crearlas. 
 				console.log(`Import: Creando posiVels para ${elem.nombre}.`);
 				const [pos, vel] = crearPosiVel(elem.cantidad, elem.radio * 2, debug);
 				elem.posiciones = pos;
 				elem.velocidades = vel;
 			}
-
+			/*
 			if (!posiVelsIncompleto) { // si tiene todas las posiVels, indicar que se tomen al reiniciar.
 				preloadPositions = true;
-				switchPP(true);
-			}
-
+				switchClass(preloadPosButton, true);
+			}*/
+			elem.color = new Float32Array(elem.color);
+			actualizarElemSelectors(elem);
 		}
-		for (let rule of setup.rules) {
+		if (elementaries.length) {partiControls.placeButton.hidden = false;}
+
+
+		for (let rule of rules) {
 			actualizarRuleSelector(rule);
 		}
-		rules = setup.rules;
-		elementaries = setup.elementaries;
+		aplicarAmbiente();
 		setPlaceholdersParticles();
 		setPlaceholdersRules();
 	}
@@ -415,18 +453,25 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 		}
 		return true;
 	}
-	function removeChilds(htmlElement) {
-		while (htmlElement.firstChild) {
-			htmlElement.removeChild(htmlElement.firstChild);
-		}
+	function removeOptions(htmlElement) { 
+		htmlElement.options.length = 0; //<- only for select elements
+		//htmlElement.innerHTML = "";
+		//while (htmlElement.firstChild) {
+		//	htmlElement.removeChild(htmlElement.firstChild);
+			//htmlElement.remove(0) <- only for select elements
+		//}
+		//$(htmlElement).children().remove();
 	}
-	function vaciarSelectors(){
-		removeChilds(partiControls.selector);
-		removeChilds(ruleControls.selector);
-		removeChilds(ruleControls.targetSelector);
-		removeChilds(ruleControls.sourceSelector);
+	function vaciarSelectors(){ // orig: 1ms // innerhtml ="": 0.76ms // length = 0: 0.73ms + no html recomp.
+		removeOptions(partiControls.selector);
+		removeOptions(ruleControls.selector);
+		removeOptions(ruleControls.targetSelector);
+		removeOptions(ruleControls.sourceSelector);
 	}
 	function actualizarElemSelectors(elementary) {
+
+		const selectorsEstabanVacíos = (ruleControls.targetSelector.options.length === 0) 
+
 		const option = document.createElement("option");
 
 		option.value = elementary.nombre;
@@ -439,6 +484,9 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 
 		const option3 = option.cloneNode(true);
 		partiControls.selector.appendChild(option3);
+
+		if (selectorsEstabanVacíos) { setPlaceholderRuleName(); }
+
 	}
 	function actualizarRuleSelector(rule) {
 		const option = document.createElement("option");
@@ -459,14 +507,13 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 			maxDist,
 		} 
 	}
-	function generarSetupClásico(seed, conReglas=true, debug = false) {
+	function generarSetupClásico(m, seed, conReglas=true, debug = false) {
 		const e = new Float32Array([]);
 		let elementaries = [];
-
 		elementaries = [
-			crearElementary("A", new Float32Array([1,1,0,1]), 300, 3, e, e), //300
-			crearElementary("R", new Float32Array([1,0,0,1]), 80, 4, e, e),	//80
-			crearElementary("P", new Float32Array([147/255,112/255,219/255,1]), 30, 5, e, e),	//30
+			crearElementary("A", new Float32Array([1,1,0,1]), 300*m, 3, e, e), //300
+			crearElementary("R", new Float32Array([1,0,0,1]), 80*m, 4, e, e),	//80
+			crearElementary("P", new Float32Array([147/255,112/255,219/255,1]), 30*m, 5, e, e),	//30
 			crearElementary("V", new Float32Array([0,128/255,0,1]), 5, 7, e, e),				//5 r7
 		];
 
@@ -478,23 +525,30 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 				//crearElementary("green", new Float32Array([0,128/255,0,1]), 2, 7, e, e),				//5 r7
 			];
 		}
-
+		/*q = 0.25 * g_clásico * q_clásico. q_clásico = [0.2, 0, 1, 0, 1, 0, 1, 0, 0.2] */
 		let rules = [];
 		if (conReglas) {
-			rules = [
-				crearRule("","R","R", 0.5, 0.2, 15, 100), 		// los núcleos se tratan de juntar si están cerca
-				crearRule("","A","R", 0.5, 0, 60, 600), 		// los electrones siguen a los núcleos, pero son caóticos
-				crearRule("","A","A", -0.1, 1, 20, 600),
-				crearRule("","P","R", 0.4, 0, 0.1, 150), 	// los virus persiguen a los núcleos
-				crearRule("","P","A", -0.2, 1, 0.1, 100), // los virus son repelidos por los electrones
-				crearRule("","A","P", 0.2, 0, 0.1, 100), 	// los electrones persiguen a los virus
-				crearRule("","R","P", 1, 1, 0.1, 10), 		// los virus desorganizan los núcleos
-				crearRule("","R","V", 0.3, 0, 50, 1000), 		// los núcleos buscan comida
-				crearRule("","V","V", -0.2, 0.2, 50, 500), 	// la comida se mueve un poco y estabiliza las células
+			rules = [ //  nom/tar/src /I    /q    /dmin/dmax
+				crearRule("","R","R",  0.5, 0.025, 15,	100 ), 	// los núcleos se tratan de juntar si están cerca
+				crearRule("","A","R",  0.5, 0.0,   60,	600 ), 	// los electrones siguen a los núcleos, pero son caóticos
+				crearRule("","A","A", -0.1, 0.025, 20,	600 ),
+				crearRule("","P","R",  0.4, 0.0,   0.1, 150 ), 	// los virus persiguen a los núcleos
+				crearRule("","P","A", -0.2, 0.05,  0.1, 100 ),	// los virus son repelidos por los electrones
+				crearRule("","A","P",  0.2, 0.0,   0.1, 100 ), 	// los electrones persiguen a los virus
+				crearRule("","R","P",  1.0, 0.25,  0.1, 10  ), 	// los virus desorganizan los núcleos
+				crearRule("","R","V",  0.3, 0.0,   50,  1000), 	// los núcleos buscan comida
+				crearRule("","V","V", -0.2, 0.01,  50,  200 ), 	// la comida se mueve un poco y estabiliza las células
 			];
 		}
 
-		const setup = {seed, elementaries, rules};
+		const setup = {
+			seed,
+			friction: "0.005",
+			bounce: "80",
+			maxInitVel: "0",
+			elementaries,
+			rules
+		};
 		cargarSetup(setup, debug)
 		console.log("Setup clásico cargado!")
 	}
@@ -553,24 +607,56 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 		ruleControls.dmin.placeholder = rules[i].minDist;
 		ruleControls.dmax.placeholder = rules[i].maxDist;
 	}
-	function titilarBorde(element) {
+	function setPlaceholderRuleName() {
+		const A = elementaries[ruleControls.targetSelector.selectedIndex].nombre;
+		const B = elementaries[ruleControls.sourceSelector.selectedIndex].nombre;
+		ruleControls.nameInput.placeholder = A + " ← " + B;
+	}
+	function removePartiControlsValues() {
+		partiControls.nameInput.value = "";
+		partiControls.cantInput.value = "";
+		partiControls.radiusInput.value = "";
+	}
+	function removeRuleControlsValues() {
+		ruleControls.nameInput.value = "";
+		ruleControls.intens.value = "";
+		ruleControls.qm.value = "";
+		ruleControls.dmin.value = "";
+		ruleControls.dmax.value = "";
+	}
+	function titilarBorde(element, color="red") {
 		element.classList.add("titilante");
+		element.style.setProperty("--titil-color", color);
 	}
 	function sqMatVal(m, f, c) {
 		const numCols = Math.sqrt(m.length);
 		return m[f * numCols + c]
 	}
-	function switchPP(state) {
-		// por defecto lo switchea. Si tiene una input, lo pone acorde a ella.
+	function switchClass(element, state) {
+		// por defecto lo switchea. Si tiene una input, lo pone acorde a ella. Devuelve el estado.
+
+		const className = "switchedoff";
+		const list = element.classList;
+
 		if (state === undefined) {
-			preloadPositions ^= true; //console.log("switched");
-		}
-		else {
-			preloadPositions = state; // console.log(`setted: ${preloadPositions}`);
+			if (list.contains(className)) {
+				list.remove(className);
+				return false;
+			}
+			else {
+				list.add(className);
+				return true;
+			}
 		}
 
-		if (!preloadPositions) { preloadPosButton.classList.add("switchedoff"); }
-		else { preloadPosButton.classList.remove("switchedoff"); }
+		if (state) {
+			list.add(className);
+			return true;
+		} else {
+			list.remove(className)
+			return false;
+		}
+
 	}
 	function switchVisibility(element) {
 		element.hidden ^= true;
@@ -601,6 +687,7 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 		resetButton.hidden = false;
 	}
 	function resetear() {
+		aplicarAmbiente();
 		updatingParameters = true;
 		editingBuffers = true;
 		resetPosiVels = true;
@@ -612,8 +699,23 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 		soundElement.play(); 
 	};
 	function timestamp(i, encoder) {
+
+		if (i >= capacity) {
+			console.warn(`Discarded timestamp index ${i} >= ${capacity}`);
+			return;
+		}
+
 		if (timer) {
 			encoder.writeTimestamp(querySet, i);
+			if (i === capacity - 1) {
+				encoder.resolveQuerySet(
+					querySet,
+					0,				// index of first query to resolve 
+					capacity,		// number of queries to resolve
+					queryBuffer,
+					0				// destination offset
+				);
+			}
 		} else { t[i] = window.performance.now(); }
 	}
 	function generateHistogram2(data, lim=1, nBins=10) {
@@ -635,13 +737,15 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 			histogram[binIndex]++;
 		});
 
+		let logLines = "";
 		// Display histogram
 		for (let i = 0; i < nBins; i++) {
 			const binStart = min + i * binSize;
 			const binEnd = binStart + binSize;
 			const binCount = histogram[i];
-			console.log(`[${binStart.toFixed(2)} :: ${binEnd.toFixed(2)}]: ${binCount}`);
+			logLines += `[${binStart.toFixed(2)} :: ${binEnd.toFixed(2)}]: ${binCount}\n`
 		}
+		console.log(logLines);
 
 		const sumNeg = histogram.slice(0, 4+1).reduce((a,b)=>a+b,0);
 		const sumPos = histogram.slice(5, 9+1).reduce((a,b)=>a+b,0);
@@ -659,10 +763,76 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 		const gpuReadBuffer = device.createBuffer({size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
 		const copyEncoder = device.createCommandEncoder();
 		copyEncoder.copyBufferToBuffer(buffer, 0, gpuReadBuffer, 0, size);
-		const copyCommands = copyEncoder.finish();
-		device.queue.submit([copyCommands]);
+		device.queue.submit([copyEncoder.finish()]);
 		await gpuReadBuffer.mapAsync(GPUMapMode.READ);
 		return gpuReadBuffer.getMappedRange();
+	}
+	function setAutomaticInputElementWidth (inputElement, min, max, padding) {
+		// falla para xxxxe porque allí value = "" -> length = 0
+
+		if (inputElement.validity.badInput) {return;}
+
+		const ancho = Math.max(inputElement.value.length, inputElement.placeholder.length);
+		inputElement.style.width = `${ Math.min(Math.max(ancho, min) + padding, max) }ch`;
+	}
+	function writeAmbientToBuffer() {
+		ambientArr.set([1 - ambient.friction, ambient.bounce / 100]);
+		device.queue.writeBuffer(paramsBuffer, 28, paramsArrBuffer, 28, 8); 
+	}
+	function checkAndGetNumberInput(input, failFlag, strict = true, P=true) {
+		// For chained checks before value usage. Supports exponential notation.
+		if (!validarNumberInput(input, strict)) { 			// Is it a bad input (aka not a number)?
+			return [undefined, true];							// fail, set flag.
+		}
+		else if (P && !input.value && input.placeholder) { 	// Is it empty and has a placeholder (asumed valid)?
+			return [Number(input.placeholder), failFlag];		// return placeholder number, pass flag.
+		}
+		else if (input.value) {								// Is it not empty?
+			if (input.step === "1") {							// Is it supposed to be an integer?
+				return [Math.trunc(input.value), failFlag];		// return int, pass flag.
+			} else {
+				return [parseFloat(input.value), failFlag];		// return float, pass flag.
+			}
+		}
+		else {												// No placeholder or valid value.
+			titilarBorde(input,"red");
+			return [undefined, true];							// fail, set flag.
+		}
+	}
+	function aplicarAmbiente() {
+		let mustUpdate = false;
+		const [friction, frictionInvalid] = checkAndGetNumberInput(ambientControls.frictionInput, false, false);
+		
+		if (!frictionInvalid) {
+			ambientControls.frictionInput.value = "";
+			if (ambient.friction != friction) {
+				ambient.friction = friction;
+				ambientControls.frictionInput.placeholder = friction;
+				mustUpdate = true;
+			}
+			
+		}
+		const [bounce, bounceInvalid] = checkAndGetNumberInput(ambientControls.bounceInput, false, false);
+		if (!bounceInvalid) {
+			ambientControls.bounceInput.value = "";
+			if ( ambient.bounce != Math.max(bounce, 0)) {
+				ambient.bounce = Math.max(bounce, 0);
+				ambientControls.bounceInput.placeholder = ambient.bounce;
+				mustUpdate = true;
+				setAutomaticInputElementWidth(ambientControls.bounceInput, 3, 12, 0);
+			}
+		}
+		const [vel, velInvalid] = checkAndGetNumberInput(ambientControls.velInput, false, true);
+		if (!velInvalid) {
+			ambientControls.velInput.value = "";
+			if ( vel != ambient.maxInitVel) {
+				ambient.maxInitVel = vel;
+				ambientControls.velInput.placeholder = vel;
+				mustUpdate = true
+			}
+		}
+
+		if (mustUpdate) {editingAmbient = true;}
 	}
 //
 
@@ -682,17 +852,26 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 	panelTitle = document.getElementById("controlPanelTitle"),
 	CPOptions = document.getElementById("controlPanelOptions"),
 	// opciones
+	pauseButton = document.getElementById("pausebutton"),
+	stepButton = document.getElementById("stepbutton"),
+	resetButton = document.getElementById("resetbutton"),
+
 	seedInput = document.getElementById("seed"),
-	preloadPosButton = document.getElementById("preloadpositions"),
+	//preloadPosButton = document.getElementById("preloadPositions"), CODE 0
 
 	bgColorPicker = document.getElementById("bgcolorpicker"),
 
 	volumeRange = document.getElementById("volume"),
 	clickSound = document.getElementById("clicksound"),
 
-	pauseButton = document.getElementById("pausebutton"),
-	stepButton = document.getElementById("stepbutton"),
-	resetButton = document.getElementById("resetbutton"),
+	ambientOptionsTitle = document.getElementById("ambientoptionstitle"),
+	ambientOptionsPanel = document.getElementById("ambientoptions"),
+	ambientControls = {
+		frictionInput: document.getElementById("friction"),
+		bounceInput: document.getElementById("bounce"),
+		velInput: document.getElementById("initialvel"),
+		updateButton: document.getElementById("ambientupdate"),
+	},
 
 	creadorPartTitle = document.getElementById("creadorparticulasTitle"),
 	creadorPartPanel = document.getElementById("creadorparticulas"),
@@ -703,6 +882,7 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 		radiusInput:document.getElementById("c.radius"),
 		selector: document.getElementById("particleselect"),
 		submitButton: document.getElementById("c.elemsubmit"),
+		placeButton: document.getElementById("c.place"),
 	},
 	borraParticleButton = document.getElementById("borraparticula"),
 
@@ -733,7 +913,11 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 	newsDialog = document.getElementById("newsdialog"),
 	newsText = document.getElementById("newstext"),
 	dialogOk2Button = document.getElementById("dialogok2"),
-	dialogNVM2Button = document.getElementById("dialognvm2");
+	dialogNVM2Button = document.getElementById("dialognvm2"),
+
+	circle = document.getElementById("circle"),
+	arrowEnd = document.getElementById("arrowend"),
+	line = document.getElementById("line");
 //
 
 // EVENT HANDLING
@@ -743,6 +927,7 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 
 	// Ocultar interfaces
 	panelTitle.onclick =_=> hideCPOptions();
+	ambientOptionsTitle.onclick =_=> switchVisibility(ambientOptionsPanel);
 	creadorPartTitle.onclick =_=> switchVisibility(creadorPartPanel);
 	creadorReglasTitle.onclick =_=> switchVisibility(creadorReglasPanel);
 
@@ -753,10 +938,133 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 			seedInput.value = seedInput.placeholder;
 		}
 	}
-	preloadPosButton.onclick =_=> switchPP();
+	//preloadPosButton.onclick =_=> { preloadPositions = !preloadPositions; switchClass(preloadPosButton); }
 
 	// Canvas color
 	bgColorPicker.onchange =_=> { uiSettings.bgColor = hexString_to_rgba(bgColorPicker.value, 1); }
+
+
+	function getCoords(ev) {
+		const canvasPos = canvas.getBoundingClientRect();
+		return [ev.offsetX + canvasPos.x - 8, ev.offsetY]
+	}
+	let mDownCanvasX = 0;
+	let mDownCanvasY = 0;
+	let mouseIsDown = false;
+	let particulasQueActualizar = [];
+	// Canvas dragging
+	canvas.onmousedown = (ev)=> {
+		if (!placePartOnClic || ev.buttons !==1) { return; }
+		mouseIsDown = true;
+		canvas.style.cursor = "none";
+		panels.style.pointerEvents = "none";
+
+		[mDownCanvasX, mDownCanvasY] = getCoords(ev);
+
+		const elem =  elementaries[partiControls.selector.selectedIndex];
+		circle.style.width = elem.radio * 2 + "px";
+		circle.style.backgroundColor = "rgba(" + elem.color.subarray(0, 3).map(x => x * 255) + "," + 0.6 + ")";
+		
+		const strx = mDownCanvasX + "px";
+		const stry = mDownCanvasY + "px";
+		circle.style.left = strx;
+		circle.style.top =  stry;
+
+		line.style.left = strx;
+		line.style.top =  stry;
+
+		arrowEnd.style.setProperty("--origin", "0px 0px" /*strx + " " + stry*/)
+
+		circle.hidden = false;
+	}
+	canvas.onmousemove = (ev) => {
+
+		if (!placePartOnClic || !mouseIsDown) { 
+			return;
+		}
+		
+		if (ev.buttons !== 1) {
+			mouseIsDown = false;
+			circle.hidden = true;
+			arrowEnd.hidden = true;
+			line.hidden = true;
+			panels.style.pointerEvents = "auto";
+			canvas.style.cursor = "crosshair";
+			return;
+		}
+
+		const x1 = mDownCanvasX;
+		const y1 = mDownCanvasY;
+		const [x2, y2] = getCoords(ev);
+		const dx = x2 - x1;
+		const dy = y2 - y1;
+		const d = Math.sqrt(dx*dx + dy*dy);
+
+		const a = Math.atan2(dy,dx);
+
+		line.style.width = d + "px";
+		line.style.setProperty("--rot", a + "rad")
+
+		arrowEnd.style.setProperty("--rot", a + "rad")
+		arrowEnd.style.left = x2 + "px";
+		arrowEnd.style.top = y2 + "px";
+
+		arrowEnd.hidden = false;
+		line.hidden = false;
+	}
+	canvas.onmouseup = (ev)=> {
+		
+		if (!placePartOnClic) { return; }
+		mouseIsDown = false;
+		circle.hidden = true;
+		arrowEnd.hidden = true;
+		line.hidden = true;
+		canvas.style.cursor = "crosshair";
+
+		const x1 = mDownCanvasX;
+		const y1 = mDownCanvasY;
+		const [x2, y2] = getCoords(ev);
+		const dx = x2 - x1;
+		const dy = y2 - y1;
+
+		arrowEnd.style.left = x2 + "px";
+		arrowEnd.style.top = y2 + "px";
+
+		circle.hidden = true;
+		arrowEnd.hidden = true;
+		panels.style.pointerEvents = "auto";
+
+		/*
+		const i = partiControls.selector.selectedIndex
+		const elem =  elementaries[i];
+
+		const n = ++elem.cantidad * 4;
+		const newPos = new Float32Array(n);
+		const newVel = new Float32Array(n);
+
+		newPos.set(elem.posiciones);
+		newPos.set([ x1-canvas.width/2, -(y1-canvas.height/2), 0, 1], n-4);
+
+		newVel.set(elem.velocidades);
+		newVel.set([dx/50, -dy/50, 0, 1], n-4);
+
+		elem.posiciones = newPos;
+		elem.velocidades = newVel;
+		partiControls.cantInput.placeholder = elem.cantidad;
+
+		if (!particulasQueActualizar[i]) {
+			particulasQueActualizar[i] = 1;
+		} else {
+			particulasQueActualizar[i]++;
+		}
+		
+
+		console.log(particulasQueActualizar)
+		updatingParameters = true;
+
+		console.log(elementaries);
+		*/
+	}
 
 	// Botones de tiempo
 	pauseButton.onclick =_=> pausar();
@@ -782,7 +1090,7 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 				hideCPOptions(); //playSound(clickSound);
 				break;
 			case "KeyM":
-				muted ^= true;
+				muted = !muted;
 				clickSound.volume = `${volumeRange.value * !muted}`;
 				let alpha = 1;
 				if (muted) { alpha = 0.3;}
@@ -813,7 +1121,7 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 			resetear();
 		})
 		.catch((error) => {
-			window.alert("Error, archivo descartado");
+			window.alert("Error al importar, archivo descartado.\n" + error);
 			console.error(error);
 		});
 	}
@@ -829,37 +1137,33 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 		}
 	});
 
-	// Creador de partículas
+	// Opciones del ambiente/simulación
+	ambientControls.bounceInput.oninput =_=> setAutomaticInputElementWidth(ambientControls.bounceInput, 3, 12, 0);
+	ambientControls.updateButton.onclick =_=> aplicarAmbiente();
+
+	// Creador de elementaries
 	partiControls.submitButton.onclick =()=> {
 
-		let returnFlag = false;
-
-		let name = partiControls.nameInput;
-		let cant = partiControls.cantInput;
-		let radius = partiControls.radiusInput;
+		let returnFlag = false,
+		name = partiControls.nameInput,
+		radius, cant;
 
 		// Usar placeholders si vacíos. Si no lo están: validar.
 		if (name.value) { name = name.value; } 
 		else if (name.placeholder) { name = name.placeholder; }
 		else { titilarBorde(name); returnFlag = true; }
+
+		[cant, returnFlag] = checkAndGetNumberInput(partiControls.cantInput, returnFlag);
+		[radius, returnFlag] = checkAndGetNumberInput(partiControls.radiusInput, returnFlag);
 		
-
-		if (!cant.value && cant.placeholder) { cant = cant.placeholder; } 
-		else if (!validarNumberInput(cant)) { returnFlag = true; }
-		else { cant = cant.value; }
-
-		if (!radius.value && radius.placeholder) { radius = radius.placeholder; } 
-		else if (!validarNumberInput(radius)) { returnFlag = true; }
-		else { radius = radius.value; }
-
 		if (returnFlag) { return; }
 
 		// Una vez validado todo:
-		cant = parseInt(cant);
-		radius = parseFloat(radius);
+		/*let [pos, vel] = [[], []];
 
-		let [pos, vel] = [[], []];
-		if (preloadPositions) {[pos, vel] = crearPosiVel(cant, radius * 2, false);}
+		if (preloadPositions) {[pos, vel] = crearPosiVel(cant, radius * 2, false);}  CODE 0 */ 
+
+		const [pos, vel] = crearPosiVel(cant, radius * 2, false);
 
 		cargarElementary( crearElementary(
 			name,
@@ -870,19 +1174,23 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 			vel,
 		));
 		setPlaceholdersParticles();
+		removePartiControlsValues();
+		borraParticleButton.hidden = false;
+		partiControls.placeButton.hidden = false;
+	}
+	partiControls.placeButton.onclick =_=> {
+		placePartOnClic = !placePartOnClic;
+		switchClass(partiControls.placeButton);
+		if (placePartOnClic) { canvas.style.cursor = "crosshair"; }
+		else { canvas.style.cursor = "default"; }
 	}
 
 	// Creador de reglas de interacción
 	ruleControls.submitButton.onclick =(event)=> {
 
-		let returnFlag = false;
-		let newRuleName = ruleControls.nameInput;
-		const entradasNum = {
-			intens: ruleControls.intens,
-			qm: ruleControls.qm,
-			dmin: ruleControls.dmin,
-			dmax: ruleControls.dmax,
-		}
+		let returnFlag = false,
+		newRuleName = ruleControls.nameInput,
+		intens, qm, dmin, dmax;
 
 		if (!ruleControls.targetSelector.options.length) {
 			titilarBorde(ruleControls.targetSelector);
@@ -894,13 +1202,10 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 			returnFlag = true;
 		}
 
-		for (let entrada in entradasNum) {
-			if (entradasNum[entrada].value === "" && entradasNum[entrada].placeholder !== "") {
-				entradasNum[entrada] = entradasNum[entrada].placeholder; 
-			} 
-			else if (!validarNumberInput(entradasNum[entrada])) { returnFlag = true; }
-			else { entradasNum[entrada] = entradasNum[entrada].value; }
-		}
+		[intens, returnFlag] = checkAndGetNumberInput(ruleControls.intens, returnFlag);
+		[qm, returnFlag] = checkAndGetNumberInput(ruleControls.qm, returnFlag);
+		[dmin, returnFlag] = checkAndGetNumberInput(ruleControls.dmin, returnFlag);
+		[dmax, returnFlag] = checkAndGetNumberInput(ruleControls.dmax, returnFlag);
 
 		if (returnFlag) { return; }
 
@@ -931,46 +1236,81 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 			newRuleName,
 			ruleControls.targetSelector.value,
 			ruleControls.sourceSelector.value,
-			parseFloat(entradasNum.intens),
-			parseFloat(entradasNum.qm),
-			parseFloat(entradasNum.dmin),
-			parseFloat(entradasNum.dmax),
+			intens,
+			qm,
+			dmin,
+			dmax,
 		);
 
 		cargarRule(newRule)
 
 		setPlaceholdersRules();
+		removeRuleControlsValues();
+		borraRuleButton.hidden = false;
 	}
 	ruleControls.updateButton.onclick =_=> updatingParameters = true;
+	ruleControls.targetSelector.onchange =_=> setPlaceholderRuleName();
+	ruleControls.sourceSelector.onchange =_=> setPlaceholderRuleName();
 
 	// Rule manager
-	borraRuleButton.onclick =_=> {
+	borraRuleButton.onclick =(event)=> {
 		const indexToDelete = ruleControls.selector.selectedIndex;
-		rules.splice(indexToDelete,1);
-		ruleControls.selector.options[indexToDelete].remove();
+		if (indexToDelete === -1) {
+			console.log("Esto no debería haber pasado...")
+			titilarBorde(ruleControls.selector)
+			return;
+		}
+
+		if (event.ctrlKey) {
+			rules = [];
+			ruleControls.selector.innerHTML = "";
+			borraRuleButton.hidden = true;
+		} else {
+			rules.splice(indexToDelete,1);
+			ruleControls.selector.options[indexToDelete].remove();
+			if (!ruleControls.selector.length) {
+				borraRuleButton.hidden = true;
+			}
+		}
 		setPlaceholdersRules();
 	}
 	ruleControls.selector.onchange =_=> setPlaceholdersRules();
 
 	// Particle manager
-	borraParticleButton.onclick =_=> {
+	borraParticleButton.onclick =(event)=> {
 		const indexToDelete = partiControls.selector.selectedIndex;
-		elementaries.splice(indexToDelete, 1);
-		partiControls.selector.options[indexToDelete].remove();
-		ruleControls.targetSelector.options[indexToDelete].remove();
-		ruleControls.sourceSelector.options[indexToDelete].remove();
+		if (indexToDelete === -1) {
+			console.log("Esto no debería haber pasado...")
+			titilarBorde(partiControls.selector)
+			return;
+		}
+
+		if (event.ctrlKey) {
+			elementaries = [];
+			partiControls.selector.innerHTML = "";
+			ruleControls.targetSelector.innerHTML = "";
+			ruleControls.sourceSelector.innerHTML = "";
+			borraParticleButton.hidden = true;
+			partiControls.placeButton.hidden = true;
+		} else {
+			elementaries.splice(indexToDelete, 1);
+			partiControls.selector.options[indexToDelete].remove();
+			ruleControls.targetSelector.options[indexToDelete].remove();
+			ruleControls.sourceSelector.options[indexToDelete].remove();
+			if (!partiControls.selector.options.length) {
+				borraParticleButton.hidden = true;
+				partiControls.placeButton.hidden = true;
+			}
+		}
 		setPlaceholdersParticles();
 	}
 	partiControls.selector.onchange =_=> setPlaceholdersParticles();
 
 //
 
-//posiciones = new Float32Array(await readBuffer(device, positionBuffers[0]))
-
 // INICIALIZACIÓN
 
 	// Novedades
-	
 	if (LAST_VISITED_VERSION !== CURRENT_VERSION) {
 
 		newsText.innerText = CHANGELOG;
@@ -985,8 +1325,6 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 			newsDialog.open = false;
 		}
 	}
-	
-
 	// Diálogo de ayuda
 	if ((NEW_USER === "1"|| NEW_USER === null)) {
 	
@@ -1001,20 +1339,29 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 			helpDialog.open = false;
 		}
 	}
-
+	// Tamaño canvas y sonido
 	canvasInfo.innerText = `${canvas.width} x ${canvas.height} (${(canvas.width/canvas.height).toFixed(6)})`;
 	clickSound.volume = volumeRange.value;
+	// Valores por defecto
+	//ambientControls.frictionInput.value = parseFloat(ambient.friction.toFixed(4));
+	ambientControls.frictionInput.placeholder = ambient.friction.toFixed(3);
+	//ambientControls.bounceInput.value = parseInt(ambient.bounce);
+	ambientControls.bounceInput.placeholder = ambient.bounce;
+	//ambientControls.velInput.value = parseFloat(ambient.maxInitVel);
+	ambientControls.velInput.placeholder = ambient.maxInitVel;
 
 	// Inicializar seed o importar
 	if (START_WITH_SETUP) {
-		generarSetupClásico("", true, debug);
+		generarSetupClásico(10, "0.6452130", true, debug);
 	} else {
 		setRNG(seedInput.value);
 	}
+	// Interfaz
+	if (SHOW_DEBUG) {switchVisibility(debugInfo); switchVisibility(infoPanel); }
 
 //
 
-// VERTEX SETUP
+// Vértices
 
 	const v = 1; // ojo!: afecta el shader
 	const vertices = new Float32Array([ // Coordenadas en clip space
@@ -1044,102 +1391,95 @@ preloadPositions = false; //determina si las posiciones se cargan al crear el el
 	};
 //
 
-// ARMAR BUFFERS Y PIPELINES
+// Buffers y pipelines
 
-const renderPassDescriptor = {	//Parámetros para el render pass que se ejecutará cada frame
-	colorAttachments: [{		// es un array, de momento sólo hay uno, su @location en el fragment shader es entonces 0
-		view: context.getCurrentTexture().createView(),
-		loadOp: "clear",
-		clearValue: uiSettings.bgColor,
-		storeOp: "store",
-	}]
-};
+	const renderPassDescriptor = {	//Parámetros para el render pass que se ejecutará cada frame
+		colorAttachments: [{		// es un array, de momento sólo hay uno, su @location en el fragment shader es entonces 0
+			view: context.getCurrentTexture().createView(),
+			loadOp: "clear",
+			clearValue: uiSettings.bgColor,
+			storeOp: "store",
+		}]
+	};
 
-let simulationPipeline;
-let simulationPipeline2;
-let bindGroups = [];
-let particleRenderPipeline;
+	let simulationPipeline;
+	let simulationPipeline2;
+	let particleRenderPipeline;
+	let bindGroups = [];
 
-let positionBuffers = [];
-let velocitiesBuffer = [];
-let distanciasBuffer;
+	let positionBuffers = [];	// tienen que estar afuera de editBuffers porque no siempre los necesita cambiar
+	let velocitiesBuffer;
+
+	const params2Buffer = device.createBuffer({ // está afuera porque no necesita cambiar nunca. Sólo se le escribe con nros random.
+		label: "Random Numbers from CPU & frame number",
+		size: 16, //828.5 días de simulación hasta overflow u32. Podría poner el frame number. Usando arraybuffer
+		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+	})
+
+	// Parámetros de longitud fija (por lo tanto buffers de size fijo)
+	const paramsBufferSize = 8 + 4 + 4 + 4 + 4 + 4 + 8; // [canvasDims], N, Ne, Nr, Nd, Np, [frictionInv, bounceF] 
+
+	const paramsArrBuffer = new ArrayBuffer(paramsBufferSize);
+
+	const canvasDimsArr = new Float32Array(paramsArrBuffer, 0, 2); // offset en bytes, longitud en cant de elementos
+
+	const NArr = new Uint32Array(paramsArrBuffer, 8, 1);	// N
+	const NeArr = new Uint32Array(paramsArrBuffer, 12, 1);	// Ne
+	const NrArr = new Uint32Array(paramsArrBuffer, 16, 1);	// Nr
+	const NdArr = new Uint32Array(paramsArrBuffer, 20, 1);	// Nd
+	const LpArr = new Uint32Array(paramsArrBuffer, 24, 1);	// Np
+
+	const ambientArr = new Float32Array(paramsArrBuffer, 28, 2)
+	
+	const paramsBuffer = device.createBuffer({
+		label: "Params buffer",
+		size: paramsBufferSize,
+		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+	});
+	writeAmbientToBuffer();
+
+	let distanciasBuffer;
+	let datosInteraccionesBuffer;
+
+//
 
 function editBuffers() {
 
+	// Cantidades y parámetros varios
+
 	const Ne = elementaries.length;
-	const cants = [];
+
+	const datosElemsSize = (3 * 4 + 4 + 16) * Ne; // 3 cants, radio, color
+	const datosElementariesArrBuffer = new ArrayBuffer(datosElemsSize);
 
 	N = 0;
-	for (let elementary of elementaries) { 
-		const nLocal = elementary.cantidad;
+	for (let i = 0; i < Ne; i++) { 
+
+		const nLocal = elementaries[i].cantidad;
 		N += nLocal; // N también hace de acumulador para este for.
-		cants.push([nLocal, N, N-nLocal, 0]); // [cants, cantsacum, cantsAcum2, padding]
+
+		const cants = new Uint32Array(datosElementariesArrBuffer, i * 8*4, 3);
+		const radioColor = new Float32Array(datosElementariesArrBuffer, (i * 8*4) + 3*4, 5);
+
+		cants.set([nLocal, N, N-nLocal]);	// [cants, cantsacum, cantsAcum2]
+		radioColor.set([elementaries[i].radio]);
+		radioColor.set(elementaries[i].color,1);
+
 	}
 
-	// Parámetros de longitud fija los pongo en un ArrayBuffer
-	const paramsArrBuffer = new ArrayBuffer(4 + 4 + 8); // Ne*4 colores + Ne*1 radios, cada uno de éstos tiene 4 bytes. 8 bytes para los 2 límites
-
-	const cantParticulas = new Float32Array(paramsArrBuffer, 0, 1);		// N
-	const cantElementaries = new Float32Array(paramsArrBuffer, 4, 1);	// Ne
-	const canvasDims = new Float32Array(paramsArrBuffer, 4 + 4, 2); 	// canvasDims. Podría hacerse aparte si hace falta.
-	
-	cantParticulas.set([N]);	
-	cantElementaries.set([Ne]);
-	canvasDims.set([canvas.width, canvas.height]);
-
-	const paramsArray = new Float32Array(paramsArrBuffer); // F32Array que referencia al buffer
-
-	// Parámetros de longitud variable
-	const radios = new Float32Array(Ne);			// byte offset de 16Ne, Ne radios: [r1, r2, r3, ...]
-	const colores = new Float32Array(Ne*4);				// 4 elementos por cada color: [R1 G1 B1 A1, R2, G2, B2, A2, ...]
-	
-	for (let i=0; i < Ne ; i++) { 
-		radios.set([elementaries[i].radio], i);
-		colores.set(elementaries[i].color, i*4);
-	}
-	
-	//mostrarParamsArray(paramsArray, Ne);
-
-	const uniformBuffer = device.createBuffer({
-		label: "N, Ne, canvasDims buffer",
-		size: 4 + 4 + 8,
-		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-	});
-	device.queue.writeBuffer(uniformBuffer, 0, paramsArray, 0, 4) //buffer, bufferOffset, data, dataOffset, size ( ults 2 en elements por ser typed array)
-
-	const cantsArray = new Uint32Array(cants.flat().length);
-	for (let i=0; i < cantsArray.length; i += 4) {
-		cantsArray.set(cants[i/4], i);
-	}
-	const cantsBuffer = device.createBuffer({
-		label: "cants buffer",
-		size: cantsArray.byteLength,
-		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+	const datosElementariesBuffer = device.createBuffer({
+		label: "Buffer: datos elementaries",
+		size: datosElemsSize,
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 	})
-	device.queue.writeBuffer(cantsBuffer, 0, cantsArray);
-
-	const storageRadios = device.createBuffer({
-		label: "radios buffer",
-		size: Ne*4,
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-	});
-	device.queue.writeBuffer(storageRadios, 0, radios)
-
-	const storageColores = device.createBuffer({
-		label: "colores buffer",
-		size: Ne*4*4,
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-	});
-	device.queue.writeBuffer(storageColores, 0, colores)
+	device.queue.writeBuffer(datosElementariesBuffer, 0, datosElementariesArrBuffer, 0, datosElemsSize);
 
 	// Distancias
 
 	const reglasActivas = [];
-
 	const m = new Uint8Array(Ne**2);
 	
 	for (let rule of rules) {
-
 		const targetIndex = elementaries.findIndex(elementary => {return elementary.nombre == rule.targetName});
 		const sourceIndex = elementaries.findIndex(elementary => {return elementary.nombre == rule.sourceName});
 
@@ -1150,59 +1490,50 @@ function editBuffers() {
 
 		const index = (f * Ne) + c;
 		m[index]++;
-
 	}
+	const Nr = reglasActivas.length;
+	
+	let Nd = 0;
+	let Np = 0;
+	let datosInteracciones = [];
+	if (PRECALCULAR_DISTANCIAS && Nr) {
 
-	let Nd;
-	let datosInteracciones;
-
-	if (reglasActivas.length) {
-		datosInteracciones = [];
 		Nd = 0;
-		hayReglasActivas = true;
-
+		datosInteracciones = [];
+		// recorro la matriz simétrica de interacciones
 		for (let f = 0; f < Ne; f++) {
 			for (let c = f; c < Ne; c++) {
 	
 				if ( sqMatVal(m, f, c) ) {
 					const ndLocal = elementaries[f].cantidad * elementaries[c].cantidad;
 					Nd += ndLocal; // Nd también hace de acumulador para este for.
-		
+
 					datosInteracciones.push([f, c, Nd, Nd - ndLocal]); // pares de interacciones y cants de distancias acum.
-	
 				}
 			}
 		}
-	} else {
-		hayReglasActivas = false;
+		Np = datosInteracciones.length;
 	}
 
 	distanciasBuffer = device.createBuffer({
 		label: "Distancias buffer",
-		size: (Nd ?? 4) * 4, // Si no hay reglas activas, Nd = undefined => uso 16 de relleno.
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC, // storage porque entre cada frame las distancias cambian
+		size: Nd * 4 || 4,
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
 	});
-	
-	/*const NdUniformBuffer = device.createBuffer({
-		label: "Nd buffer",
-		size: 4,
-		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-	});
-	device.queue.writeBuffer(NdUniformBuffer, 0, new Uint32Array([Nd]));*/
 
-	const datosInteraccionesArray = new Uint32Array((datosInteracciones ?? [0]).flat()) // Si no hay reglas activas uso [0] de relleno.
-	const datosInteraccionesBuffer = device.createBuffer({
+	const datosInteraccionesArray = new Uint32Array(datosInteracciones.flat());
+	datosInteraccionesBuffer = device.createBuffer({
 		label: "datos interacciones buffer",
-		size: datosInteraccionesArray.byteLength,
+		size: Nd * 4 * 4 || 4,
 		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
 	});
 	device.queue.writeBuffer(datosInteraccionesBuffer, 0, datosInteraccionesArray);
-
+	
 	// Reglas
 
-	const rulesArray = new Float32Array(reglasActivas.length * 8);
+	const rulesArray = new Float32Array(Nr * 8);
 
-	for (let i = 0; i < reglasActivas.length; i++) { // llenar el array de reglas
+	for (let i = 0; i < Nr; i++) { // llenar el array de reglas
 		rulesArray.set([
 			reglasActivas[i].targetIndex = elementaries.findIndex(elementary => {return elementary.nombre == reglasActivas[i].targetName}),
 			reglasActivas[i].sourceIndex = elementaries.findIndex(elementary => {return elementary.nombre == reglasActivas[i].sourceName}),
@@ -1218,48 +1549,38 @@ function editBuffers() {
 	const reglasBuffer = device.createBuffer({
 		label: "Reglas",
 		size: rulesArray.byteLength || 32,
-		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 	});
 	device.queue.writeBuffer(reglasBuffer, 0, rulesArray)
 
 	// Posiciones y velocidades
 
+
+	let offset = 0;
 	if (resetPosiVels) {
-		let offsetPos = 0, offsetVel = 0;
 		const positionsArray = new Float32Array(N*4);
 		const velocitiesArray = new Float32Array(N*4);
 
-		for (let elementary of elementaries) { // llenar los arrays de posiciones y velocidades ya presentes en elementaries
+		for (let elementary of elementaries){
 			const L = elementary.cantidad*4;
-			const posiVelsIncompleto = elementary.posiciones.length !== L || elementary.velocidades.length !== L;
-			if (!preloadPositions || posiVelsIncompleto) {
-				// if (posiVelsIncompleto) {console.log(`Recalculando posiciones y velocidades de ${elementary.nombre}`)}
-				const [pos, vel] = crearPosiVel(elementary.cantidad, elementary.radio * 2);
-				positionsArray.set(pos, offsetPos);
-				velocitiesArray.set(vel, offsetVel);
-				// Guardar las posiciones también en elementaries, para poder usarlas en CPU si hace falta
-				elementary.posiciones = pos;
-				elementary.velocidades = vel;
-
-			} else {
-				positionsArray.set(elementary.posiciones, offsetPos);
-				velocitiesArray.set(elementary.velocidades, offsetVel);
-			}
-
-			offsetPos += L;
-			offsetVel += L;
+			const [pos, vel] = crearPosiVel(elementary.cantidad, elementary.radio * 2);
+			positionsArray.set(pos, offset);
+			velocitiesArray.set(vel, offset);
+			elementary.posiciones = pos;
+			elementary.velocidades = vel;
+			offset +=L
 		}
 
 		positionBuffers = [
 			device.createBuffer({
 				label: "Positions buffer IN",
 				size: positionsArray.byteLength,
-				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 			}),
 			device.createBuffer({
 				label: "Positions buffer OUT",
 				size: positionsArray.byteLength,
-				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 			})
 		];
 		device.queue.writeBuffer(positionBuffers[0], 0, positionsArray);
@@ -1270,25 +1591,69 @@ function editBuffers() {
 			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
 		});
 		device.queue.writeBuffer(velocitiesBuffer, 0, velocitiesArray);
+
 		resetPosiVels = false;
+
+	} else {
+		/*
+		for (let i = 0; i < Ne; i++) { // llenar los arrays de posiciones y velocidades ya presentes en elementaries
+			
+
+			// write al buffer las particulas que hay que actualizar
+			if (particulasQueActualizar[i]) {
+
+				const L = particulasQueActualizar[i] * 4
+
+				const newPos = elementaries[i].posiciones.slice(-L);
+				const newVel = elementaries[i].velocidades.slice(-L);
+
+
+			}
+
+
+
+
+			const L = elementary.cantidad * 4;
+			positionsArray.set(elementary.posiciones, offset);
+			velocitiesArray.set(elementary.velocidades, offset);
+			offset += L;
+
+
+		}
+		device.queue.writeBuffer(positionBuffers[0], 0, positionsArray);
+		*/
 	}
+
+
+
+	// Parámetros de longitud fija
+
+	canvasDimsArr.set([canvas.width, canvas.height]);
+	NArr.set([N]);
+	NeArr.set([Ne]);
+	NrArr.set([Nr]);
+	NdArr.set([Nd]);
+	LpArr.set([Np]);
+
+	device.queue.writeBuffer(paramsBuffer, 0, paramsArrBuffer, 0, 28); 
+	/* buffer, buferOffset (B), data, dataOffset (B*), size (B*) 
+	* = B porque data no es typedArray. De lo contrario sería en cant. de elementos. */
 
 	editingBuffers = false;
 	return [
 		{
 			positionBuffers,
 			velocitiesBuffer,
-			uniformBuffer, 
-			storageBuffers: [storageRadios, storageColores],
+			paramsBuffer,
+			datosElementariesBuffer,
 			distanciasBuffer,
 			reglasBuffer,
 			datosInteraccionesBuffer,
-			cantsBuffer,
 		},
-		Nd ?? 1,
+		Nd,
 		Ne,
-		(datosInteracciones ?? [0]).length, // cantidad de pares distintos de interacción
-		reglasActivas.length || 1,
+		Np, // Np, cantidad de pares distintos de interacción
+		Nr || 1,
 	]
 }
 
@@ -1298,7 +1663,7 @@ function updateSimulationParameters() {
 	setRNG(seedInput.value);
 
 	// CREACIÓN DE BUFFERS
-	const [GPUBuffers, Nd, Ne, Lp, Nr] = editBuffers(); // diccionario con todos los buffers y datos para shader
+	const [GPUBuffers, Nd, Ne, Np, Nr] = editBuffers(); // diccionario con todos los buffers y datos para shader
 
 	if (N === 0) { updatingParameters = false; return;}
 
@@ -1311,12 +1676,13 @@ function updateSimulationParameters() {
 	
 	const simulationShaderModule = device.createShaderModule({
 		label: "Compute shader",
-		code: computeShader(WORKGROUP_SIZE, Ne, Nr, Lp),
+		code: computeShader(WORKGROUP_SIZE, Np),
 	})
-	if (usaDistancias) {
+
+	if (PRECALCULAR_DISTANCIAS) {
 		const distancesShaderModule = device.createShaderModule({
 			label: "Distances compute shader",
-			code: computeDistancesShader(WORKGROUP_SIZE, Ne, Nr, Lp, Nd),
+			code: computeDistancesShader(WORKGROUP_SIZE, Nd),
 		})
 	}
 
@@ -1337,9 +1703,9 @@ function updateSimulationParameters() {
 	const bindGroupLayoutResto = device.createBindGroupLayout({
 		label: "Resto Bind Group Layout",
 		entries: [{
-			binding: 0, // N, Ne, canvasDims
+			binding: 0, // Parámetros de longitud fija
 			visibility: GPUShaderStage.VERTEX | GPUShaderStage.COMPUTE | GPUShaderStage.FRAGMENT,
-			buffer: {}
+			buffer: { type: "uniform"}
 		}, {
 			binding: 1, // velocidades
 			visibility: GPUShaderStage.COMPUTE,
@@ -1347,25 +1713,21 @@ function updateSimulationParameters() {
 		}, {
 			binding: 2, // reglas
 			visibility: GPUShaderStage.COMPUTE,
-			buffer: {}
+			buffer: { type: "read-only-storage"}
 		}, {
 			binding: 3, // distancias
 			visibility: GPUShaderStage.COMPUTE,
 			buffer: { type: "storage" }
 		}, {
-			binding: 4, // cantidades de cada familia
+			binding: 4, // Datos elementaries (cantidades, radio, color)
 			visibility: GPUShaderStage.COMPUTE | GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+			buffer: { type: "read-only-storage" }
+		}, {
+			binding: 5,	// datos interacciones
+			visibility: GPUShaderStage.COMPUTE,
 			buffer: { type: "uniform" }
 		}, {
-			binding: 5, // radios
-			visibility: GPUShaderStage.COMPUTE | GPUShaderStage.VERTEX,
-			buffer: { type: "read-only-storage" }
-		}, {
-			binding: 6, // colores
-			visibility: GPUShaderStage.FRAGMENT,
-			buffer: { type: "read-only-storage" }
-		}, {
-			binding: 7,	// datos interacciones
+			binding: 6, // random numbers
 			visibility: GPUShaderStage.COMPUTE,
 			buffer: { type: "uniform" }
 		}]
@@ -1406,34 +1768,33 @@ function updateSimulationParameters() {
 		device.createBindGroup({ // el resto de bind groups
 			label: "Resto bind group",
 			layout: bindGroupLayoutResto,
-			entries: [{
-				binding: 0,	// N, Ne, canvasDims
-				resource: { buffer: GPUBuffers.uniformBuffer, } 
-			}, {
-				binding: 1,
-				resource: { buffer: GPUBuffers.velocitiesBuffer }
-			}, {
-				binding: 2,
-				resource: { buffer: GPUBuffers.reglasBuffer }
-			}, {
-				binding: 3,
-				resource: { buffer: GPUBuffers.distanciasBuffer }
-			}, {
-				binding: 4, // cantidades acumuladas de cada familia
-				resource: { buffer: GPUBuffers.cantsBuffer, 
-					//offset: 0, // min: 256
-					//size: Ne * 4
+			entries: [
+				{
+					binding: 0,	// Parámetros de longitud fija
+					resource: { buffer: GPUBuffers.paramsBuffer, } 
+				}, {
+					binding: 1,
+					resource: { buffer: GPUBuffers.velocitiesBuffer }
+				}, {
+					binding: 2,
+					resource: { buffer: GPUBuffers.reglasBuffer }
+				}, {
+					binding: 3,
+					resource: { buffer: GPUBuffers.distanciasBuffer }
+				}, {
+					binding: 4, // Datos elementaries (cantidades, radio, color)
+					resource: { buffer: GPUBuffers.datosElementariesBuffer, 
+						//offset: 0, // min: 256
+						//size: Ne * 4
+					}
+				}, {
+					binding: 5,
+					resource: { buffer: GPUBuffers.datosInteraccionesBuffer }
+				}, {
+					binding: 6, // random numbers
+					resource: { buffer: params2Buffer }
 				}
-			}, {
-				binding: 5, // radios de cada familia
-				resource: { buffer: GPUBuffers.storageBuffers[0], }
-			}, {
-				binding: 6,	// colores de cada familia
-				resource: { buffer: GPUBuffers.storageBuffers[1], }
-			}, {
-				binding: 7,
-				resource: { buffer: GPUBuffers.datosInteraccionesBuffer}
-			}],
+			],
 		}),
 		/*device.createBindGroup({
 			label: "Distances computation bindgroup",
@@ -1488,7 +1849,7 @@ function updateSimulationParameters() {
 		},
 	});
 
-	if (usaDistancias) {
+	if (PRECALCULAR_DISTANCIAS) {
 		simulationPipeline2 = device.createComputePipeline({
 			label: "Distances pipeline",
 			layout: pipelineLayout,
@@ -1501,32 +1862,37 @@ function updateSimulationParameters() {
 
 	workgroupCount = Math.ceil(N / WORKGROUP_SIZE);
 	workgroupCount2 = Math.ceil(Nd / WORKGROUP_SIZE);
-
+	//console.log( `N / workgroup size: ${N} / ${WORKGROUP_SIZE} = ${N/WORKGROUP_SIZE}\nworkgroup count: ${workgroupCount}`);
 	updatingParameters = false;
 }
 
 // ANIMATION LOOP
 
 async function newFrame(){
-	
+
 	if (paused && !stepping) { return; }
 
 	if ( updatingParameters ){	// Rearmar buffers y pipeline
 		frame = 0;
 		updateSimulationParameters();
-		//console.log( `N / workgroup size: ${N} / ${WORKGROUP_SIZE} = ${N/WORKGROUP_SIZE}\nworkgroup count: ${workgroupCount}`);
 		console.log("updated!");
 	}
 
-	if ( editingBuffers ) { editBuffers(); } // permite editar los buffers sin tener que recrear la pipeline.
+	if (editingBuffers) { editBuffers(); } // permite editar los buffers sin tener que recrear la pipeline.
+
+	if (editingAmbient) {
+		writeAmbientToBuffer();
+		editingAmbient = false;
+		console.log("Updated ambient parameters.");
+	}
 
 	const encoder = device.createCommandEncoder();
 
 	timestamp(0, encoder); // Initial timestamp - before compute pass
 
-	if (N) {
+	if (N) { // Aunque no haya reglas activas, las partículas pueden estar moviéndose. Hay que calcular su pos.
 
-		if (usaDistancias) {
+		if (PRECALCULAR_DISTANCIAS) {
 			// Calcular distancias
 			const computePass2 = encoder.beginComputePass();
 			computePass2.setPipeline(simulationPipeline2);
@@ -1539,6 +1905,17 @@ async function newFrame(){
 
 		timestamp(1, encoder);
 
+		device.queue.writeBuffer(
+			params2Buffer,
+			0,
+			new Float32Array([
+				rng() * 100,
+				rng() * 100, // seed.xy
+				1 + rng(),
+				1 + rng(), // seed.zw
+			])
+		);
+		
 		// Calcular simulación (actualizar posiciones y velocidades)
 		const computePass = encoder.beginComputePass();
 		computePass.setPipeline(simulationPipeline);
@@ -1561,36 +1938,31 @@ async function newFrame(){
 	if (N) {
 		pass.setPipeline(particleRenderPipeline);
 		pass.setVertexBuffer(0, vertexBuffer);
-		pass.setBindGroup(0, bindGroups[((frame+1) % 2)]);
+		pass.setBindGroup(0, bindGroups[((frame + 1) % 2)]);
 		pass.setBindGroup(1, bindGroups[2]);
 		pass.draw(vertices.length /2, N);	// 6 vertices. renderizados N veces
 	}
 
 	pass.end(); // finaliza el render pass
 	
-	if (timer) {	 // Timestamp - after render pass
-		encoder.writeTimestamp(querySet, 3);
-		encoder.resolveQuerySet(
-			querySet, 
-			0, // index of first query to resolve 
-			capacity, //number of queries to resolve
-			queryBuffer, 
-			0); // destination offset
-	} else { t[3] = window.performance.now(); }
+	timestamp(3, encoder);
+
 
 	device.queue.submit([encoder.finish()]);
 
-	if (plotBufferOutput && (frame % 60 === 30)) {
+	if ( false && (frame % 60 === 30)) {
+
 		const values = new Float32Array(await readBuffer(device, velocitiesBuffer ));
 		
-		//const values2 = [];
-		//for (let i=2; i<values.length; i += 4) { values2.push(values[i]); }
-		//generateHistogram2(values2, 50, 10);
+		const values2 = [];
+		for (let i=2; i<values.length; i += 4) { values2.push(values[i]); }
+		//generateHistogram2(values2, 0.6, 10);
 		
-		//console.log(values[0])
+		console.log(values2)
+		//console.log(values[2])
 	}
 	
-	if (frame % 60 === 0) {	// Leer el storage buffer y mostrarlo en debug info (debe estar después de encoder.finish())
+	if (frame % 30 === 0) {	// Leer el storage buffer y mostrarlo en debug info (debe estar después de encoder.finish())
 		let dif1, dif2, dif3, text = "";
 		if (timer) {
 			const arrayBuffer = await readBuffer(device, queryBuffer);
@@ -1631,5 +2003,6 @@ async function newFrame(){
 //TODO:
 /* Pasar los parámetros pertinentes mediante writebuffer en lugar de recrear nuevos buffers */
 /* Agregar partículas con click */
+/* Functiones para quitar o agregar partículas. permite mergers/eaters */
 /* Revisar que PP no se haya roto */
 /* Antialiasing / renderizar a mayor resolución */
