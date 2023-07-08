@@ -84,7 +84,9 @@ fps = 0,
 frameCounter = 0,
 refTime,
 //preloadPositions = false, // CODE 0
-placePartOnClic = false;
+placePartOnClic = false,
+cargarPosiVelsAlBuffer;
+
 
 // TIMING & DEBUG 
 	const START_WITH_SETUP = 1
@@ -385,7 +387,6 @@ placePartOnClic = false;
 	}
 	function cargarSetup(setup, debug = false) {  // reemplaza el setup actual. Rellena aleatoriamente posiciones y velocidades
 		if (!hasSameStructure(setup, SAMPLE_SETUP)) { throw new Error("Falló la verificación, no es un objeto tipo setup")}
-
 		vaciarSelectors();
 
 		setRNG(setup.seed);
@@ -399,7 +400,7 @@ placePartOnClic = false;
 
 		elementaries = setup.elementaries;
 		rules = setup.rules;
-
+		let i = 0;
 		for (let elem of elementaries) {
 			const L = elem.cantidad*4;
 			const posiVelsIncompleto = (elem.posiciones.length !== L || elem.velocidades.length !== L);
@@ -409,6 +410,10 @@ placePartOnClic = false;
 				const [pos, vel] = crearPosiVel(elem.cantidad, elem.radio * 2, debug);
 				elem.posiciones = pos;
 				elem.velocidades = vel;
+			} else {
+				elem.posiciones = new Float32Array(setup.elementaries[i].posiciones);
+				elem.velocidades = new Float32Array(setup.elementaries[i].velocidades);
+				cargarPosiVelsAlBuffer = true;
 			}
 			/*
 			if (!posiVelsIncompleto) { // si tiene todas las posiVels, indicar que se tomen al reiniciar.
@@ -417,9 +422,9 @@ placePartOnClic = false;
 			}*/
 			elem.color = new Float32Array(elem.color);
 			actualizarElemSelectors(elem);
+			i++;
 		}
 		if (elementaries.length) {partiControls.placeButton.hidden = false;}
-
 
 		for (let rule of rules) {
 			actualizarRuleSelector(rule);
@@ -1116,7 +1121,7 @@ placePartOnClic = false;
 
 	importButton.onclick =_=> {
 		importarJson()
-		.then((setup) => { 
+		.then((setup) => {
 			cargarSetup(setup);
 			resetear();
 		})
@@ -1352,7 +1357,7 @@ placePartOnClic = false;
 
 	// Inicializar seed o importar
 	if (START_WITH_SETUP) {
-		generarSetupClásico(10, "0.6452130", true, debug);
+		generarSetupClásico(10, "", true, debug); //"0.6452130" x10
 	} else {
 		setRNG(seedInput.value);
 	}
@@ -1555,21 +1560,41 @@ function editBuffers() {
 
 	// Posiciones y velocidades
 
+	const positionsArray = new Float32Array(N*4);
+	const velocitiesArray = new Float32Array(N*4);
 
 	let offset = 0;
-	if (resetPosiVels) {
-		const positionsArray = new Float32Array(N*4);
-		const velocitiesArray = new Float32Array(N*4);
 
-		for (let elementary of elementaries){
-			const L = elementary.cantidad*4;
-			const [pos, vel] = crearPosiVel(elementary.cantidad, elementary.radio * 2);
+	for (let elem of elementaries) {
+		const L = elem.cantidad * 4;
+		const posiVelsIncompleto = (elem.posiciones.length !== L || elem.velocidades.length !== L);
+		if (posiVelsIncompleto) {
+			resetPosiVels = true;
+			break;
+		}
+	}
+
+	if (resetPosiVels || cargarPosiVelsAlBuffer) {
+
+
+		for (let elementary of elementaries) {
+			let pos, vel;
+			if (cargarPosiVelsAlBuffer) {
+				pos = elementary.posiciones;
+				vel = elementary.velocidades;
+				cargarPosiVelsAlBuffer = false;
+			} else {
+				[pos, vel] = crearPosiVel(elementary.cantidad, elementary.radio * 2);
+			}
+
 			positionsArray.set(pos, offset);
 			velocitiesArray.set(vel, offset);
 			elementary.posiciones = pos;
 			elementary.velocidades = vel;
-			offset +=L
+			offset += elementary.cantidad*4;
 		}
+
+
 
 		positionBuffers = [
 			device.createBuffer({
@@ -1595,10 +1620,8 @@ function editBuffers() {
 		resetPosiVels = false;
 
 	} else {
-		/*
 		for (let i = 0; i < Ne; i++) { // llenar los arrays de posiciones y velocidades ya presentes en elementaries
-			
-
+			/*
 			// write al buffer las particulas que hay que actualizar
 			if (particulasQueActualizar[i]) {
 
@@ -1608,21 +1631,17 @@ function editBuffers() {
 				const newVel = elementaries[i].velocidades.slice(-L);
 
 
-			}
+			}*/
 
-
-
-
-			const L = elementary.cantidad * 4;
-			positionsArray.set(elementary.posiciones, offset);
-			velocitiesArray.set(elementary.velocidades, offset);
-			offset += L;
-
+			//const L = elementaries[i].cantidad * 4;
+			//positionsArray.set(elementaries[i].posiciones, offset);
+			//velocitiesArray.set(elementaries[i].velocidades, offset);
+			//offset += L;
 
 		}
-		device.queue.writeBuffer(positionBuffers[0], 0, positionsArray);
-		*/
 	}
+
+
 
 
 

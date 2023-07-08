@@ -208,7 +208,7 @@ export function computeShader(sz) { return /*wgsl*/`
         var iterations = u32(); // debug iterations counter
         
         let k = elemIndex(i);
-        let pos = positionsIn[i].xy;
+        var pos = positionsIn[i].xy;
         var vel = velocities[i].xy;
         var deltav = vec2f();
         var kj = u32(); // elementary index de pj
@@ -244,18 +244,26 @@ export function computeShader(sz) { return /*wgsl*/`
         velocities[i].z = f32(iterations);
 
         vel = (vel + deltav) * params.frictionInv;
-        let candidatepos = pos + vel;
+
+        pos += vel;
 
         // Colisiones TODO: Colisiones de alta precisión a altas velocidades (reflejar etc). Bounce dependiente del ángulo de incidencia.
-        if abs(candidatepos.x) > params.ancho/2 - elems[k].radio {
+        
+        let bordex = params.ancho/2;
+        let bordey = params.alto/2;
+        let r = elems[k].radio;
+
+        if abs(pos.x) > bordex - r {
+            pos.x = 2 * sign(vel.x) * (bordex - r) - (pos.x); // parece que es seguro usar sign: vel nunca es 0 aquí.
             vel.x *= -params.bounceF;
         }
-        if abs(candidatepos.y) > params.alto/2 - elems[k].radio {
+        if abs(pos.y) > bordey - r {
+            pos.y = 2 * sign(vel.y) * (bordey - r) - (pos.y);
             vel.y *= -params.bounceF;
         }
 
-        positionsOut[i].x = pos.x + vel.x;
-        positionsOut[i].y = pos.y + vel.y;
+        positionsOut[i].x = pos.x;
+        positionsOut[i].y = pos.y;
         
         velocities[i].x = vel.x;
         velocities[i].y = vel.y;
