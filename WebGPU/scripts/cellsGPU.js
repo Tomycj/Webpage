@@ -45,11 +45,13 @@ CHANGELOG = `\
 	* Si encontrás algún bug avisame porfa. No le cuentes a tus amigos!
 
 	* Más QoL en las opciones. Partículas ahora con relieve esférico y pequeñas variaciones de color.
-	Nuevas opciones: Entorno y colocación manual de partículas.
-	Rework del manejo de buffers de WebGPU, para hacerlo más flexible.
+	Nuevas opciones: Entorno. Colocación manual de partículas en desarrollo.
+	Rework del manejo de buffers de WebGPU, para hacerlo más flexible. Falta todavía más.
 	Un cambio sin identificar redujo el rendimiento un 50%, pero una optimización en los shaders lo\
 	aumentó un 100% así que no problem!
 	Planeando más features y mejoras si tengo tiempo.
+
+	* Mejora en el sistema de colisiones: ahora deberían ser más precisas a altas velocidades.
 
 	* Esto debería aparecer cada vez que publico una nueva versión. Para ello estoy usando un par de bytes\
 	en tu equipo. Desde ya muchas gracias. No, no te los devuelvo.
@@ -91,8 +93,8 @@ cargarPosiVelsAlBuffer;
 // TIMING & DEBUG 
 	const START_WITH_SETUP = 1
 	const SHOW_DEBUG = 0
-	//localStorage.setItem("NEW_USER", 1);
-	//localStorage.setItem("STORED_VERSION_NUMBER", 1);
+	localStorage.setItem("NEW_USER", 1);
+	localStorage.setItem("STORED_VERSION_NUMBER", 1);
 	const debugSetup = "Cells q tests.json";
 	let PRECALCULAR_DISTANCIAS = false;
 	let debug = false;

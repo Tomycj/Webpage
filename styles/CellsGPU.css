@@ -89,6 +89,7 @@ span {
 	text-align: center;
 	background: rgba(0, 0, 0, 0.9);
 	font-family: Arial;
+	overscroll-behavior: contain;
 }
 #helpdialog {
 	position: fixed;
@@ -102,7 +103,9 @@ span {
 	top: 100px;
 	left: 50%;
 	transform: translate(-50%, 0);
-	max-width: 60ch;
+	max-width: 65ch;
+	overflow-y: auto;
+	height: calc(100vh - 150px);
 }
 #canvas {
 	user-select: none;
