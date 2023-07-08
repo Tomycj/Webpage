@@ -32,7 +32,7 @@ export async function inicializarCells(conTitulos=true){
 	//Revisar si existe el objeto que sirve como punto de partida para acceder a la GPU. Es para revisar si el dispositivo es compatible con WebGPU
 	if (!navigator.gpu) {
 		navigator.gpu;
-		estatus.innerText = "Error: Este navegador parece no ser compatible con WebGPU";
+		estatus.innerText = "Error: Este navegador/equipo parece no ser compatible con WebGPU";
 		throw new Error("WebGPU not supported on this browser.");
 	}
 	
