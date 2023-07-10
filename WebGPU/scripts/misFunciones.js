@@ -32,14 +32,14 @@ export async function inicializarCells(conTitulos=true){
 	//Revisar si existe el objeto que sirve como punto de partida para acceder a la GPU. Es para revisar si el dispositivo es compatible con WebGPU
 	if (!navigator.gpu) {
 		navigator.gpu;
-		estatus.innerText = "Error: Este navegador/equipo parece no ser compatible con WebGPU";
+		estatus.innerText = "Error: Este navegador/equipo parece no ser compatible con WebGPU.";
 		throw new Error("WebGPU not supported on this browser.");
 	}
 	
 	//Solicitar un GPUAdapter, que es cómo se representa una pieza del GPU. Devuelve un objeto tipo promesa, por eso se lo llama con await
 	const adapter = await navigator.gpu.requestAdapter(); //puede recibir argumentos extra sobre qué clase de GPU prefiere usar (performance vs power etc)
 	if (!adapter){
-		estatus.innerText = "Error: No se detectó GPU. Asegúrese de usar un dispositivo con GPU (placa de video / acelerador de gráficos)";
+		estatus.innerText = "Error: No se detectó GPU. Asegúrese de usar un dispositivo con GPU (placa de video / acelerador de gráficos).";
 		throw new Error("No se encontró GPUAdapter.");
 	} // si no hay adapter, puede devolver null
 	
@@ -68,14 +68,14 @@ export async function inicializarCells(conTitulos=true){
 			C:\Program Files (x86)\Google\Chrome\Application>chrome.exe --disable-dawn-features=disallow_unsafe_apis */
 			requiredLimits: requiredLimits
 		});
-		console.log("Advertencia: usando device con timestamp-query");
+		console.log("Advertencia: usando device con timestamp-query.");
 		timer = true;
 	} catch(error) {
 		device = await adapter.requestDevice({
 			requiredLimits: requiredLimits,
 		});
-		console.log("Usando device sin timestamp-query");
-		console.log("[Chrome] Para habilitar, cerrar el navegador y reabrirlo desde la consola con la flag --disable-dawn-features=disallow_unsafe_apis");
+		console.log("Usando device sin timestamp-query.");
+		console.log("[Chrome] Para habilitar, cerrar el navegador y reabrirlo desde la consola con la flag --disable-dawn-features=disallow_unsafe_apis.");
 	}
 
 	const context = canvas.getContext("webgpu");

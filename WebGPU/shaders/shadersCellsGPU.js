@@ -141,13 +141,7 @@ export function computeShader(sz) { return /*wgsl*/`
         rand_seed.y = fract(cos(dot(rand_seed, vec2<f32>(54.47856553, 345.84153136))) * 534.7645);
         return rand_seed.y;
     }
-
-    fn elemIndex(i: u32) -> u32 {
-        var k = u32();
-        while i >= elems[k].cantAcum {k++;}
-        return k;
-    }
-    
+  
     fn applyrule2( posi: vec2f, posj: vec2f , d:f32, g: f32, q: f32, rmin: f32, rmax: f32 ) -> vec2f {
         // Usa el rng mostrado en HelloTriangle
         if d > rmax {
@@ -160,6 +154,12 @@ export function computeShader(sz) { return /*wgsl*/`
         return (vec2f(rng2(), rng2()) * 2 - 1) * q;
     }
     /*
+    fn elemIndex(i: u32) -> u32 { // elementary index using cantAcum (doesn't work for manually placed particles)
+        var k = u32();
+        while i >= elems[k].cantAcum {k++;}
+        return k;
+    }
+    
     fn applyrule( seedinput: vec2u, posi: vec2f, posj: vec2f , d:f32, g: f32, q: f32, rmin: f32, rmax: f32 ) -> vec2f {
 
         // Vf = dT * M2*G*d(vector)/d^3 + V0   cuadrática
@@ -198,16 +198,16 @@ export function computeShader(sz) { return /*wgsl*/`
         let i = ind.x; // index global
         let n = params.n;
 
-        velocities[i].z = 0.0;
         if i >= n {
             return;
         }
 
         init_rng2(i, params2);
         //seed = vec2u(i, i);
-        var iterations = u32(); // debug iterations counter
+        //var iterations = u32(); // debug iterations counter
         
-        let k = elemIndex(i);
+        let k = u32(positionsIn[i].w); // pos.w is used as elementary index.
+
         var pos = positionsIn[i].xy;
         var vel = velocities[i].xy;
         var deltav = vec2f();
@@ -222,9 +222,10 @@ export function computeShader(sz) { return /*wgsl*/`
             for (var pj: u32 = 0; pj < n; pj++) {
 
                 if pj == i {continue;}
-                kj = elemIndex(pj);
-
-                iterations++;
+                
+                kj = u32(positionsIn[pj].w);
+                
+                //iterations++;
                 // revisar si esta regla le afecta y pj es source
                 if kj == u32(rules[r].srcInd) {
 
@@ -240,8 +241,6 @@ export function computeShader(sz) { return /*wgsl*/`
                 }
             }
         }
-
-        velocities[i].z = f32(iterations);
 
         vel = (vel + deltav) * params.frictionInv;
 
@@ -264,6 +263,7 @@ export function computeShader(sz) { return /*wgsl*/`
 
         positionsOut[i].x = pos.x;
         positionsOut[i].y = pos.y;
+        positionsOut[i].w = positionsIn[i].w; 
         
         velocities[i].x = vel.x;
         velocities[i].y = vel.y;
@@ -340,8 +340,9 @@ export function renderShader() { return /*wgsl*/`
         let alto = params.alto;
         let ar = ancho/alto;
 
-        var k = u32(0);
-        while idx >= elems[k].cantAcum { k++; }
+        //var k = u32(0);
+        //while idx >= elems[k].cantAcum { k++; }
+        let k = u32(updatedpositions[idx].w);
         
         let diameter = f32(elems[k].radio) * 2 / ancho; // diámetro en clip space  [-1 1]
 

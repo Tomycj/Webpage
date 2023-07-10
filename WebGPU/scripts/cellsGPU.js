@@ -42,16 +42,14 @@ CHANGELOG = `\
 
 	* Objetivo primario del proyecto completado, y por eso ya salimos de Beta! Contale a tus amigos!
 
-	* Si encontrás algún bug avisame porfa. No le cuentes a tus amigos!
+	* Si encontrás algún bug avisame porfa (*). No le cuentes a tus amigos!
 
-	* Más QoL en las opciones. Partículas ahora con relieve esférico y pequeñas variaciones de color.
-	Nuevas opciones: Entorno. Colocación manual de partículas en desarrollo.
-	Rework del manejo de buffers de WebGPU, para hacerlo más flexible. Falta todavía más.
-	Un cambio sin identificar redujo el rendimiento un 50%, pero una optimización en los shaders lo\
-	aumentó un 100% así que no problem!
-	Planeando más features y mejoras si tengo tiempo.
+	* Más QoL en las opciones. Ahora se puede cambiar el fondo en pausa!
 
-	* Mejora en el sistema de colisiones: ahora deberían ser más precisas a altas velocidades.
+	* Sistema para poner partículas manualmente ya está disponible! Sigue en Beta porque tiene cierto bug,\
+	pero no es grave.
+
+	* Unos pocos setups para importar y probar: https://github.com/Tomycj/Webpage/tree/main/data
 
 	* Esto debería aparecer cada vez que publico una nueva versión. Para ello estoy usando un par de bytes\
 	en tu equipo. Desde ya muchas gracias. No, no te los devuelvo.
@@ -77,7 +75,7 @@ animationId,
 paused = true,
 listaInteracciones = [],
 updatingParameters = true,
-resetPosiVels = true,
+resetPosiVels = false,
 editingBuffers = true,
 editingAmbient = false,
 stepping = false,
@@ -85,16 +83,15 @@ muted = false,
 fps = 0,
 frameCounter = 0,
 refTime,
-//preloadPositions = false, // CODE 0
 placePartOnClic = false,
-cargarPosiVelsAlBuffer;
-
+noResetearPosiVels, // Al importar setups con partículas precargadas (posiciones y vels pre-definidas)
+newParticles = []; // PosiVels de partículas creadas manualmente para cada elementary
 
 // TIMING & DEBUG 
 	const START_WITH_SETUP = 1
 	const SHOW_DEBUG = 0
 	//localStorage.setItem("NEW_USER", 1);
-	//localStorage.setItem("STORED_VERSION_NUMBER", 1);
+	//localStorage.setItem("STORED_VERSION_NUMBER", -1);
 	const debugSetup = "Cells q tests.json";
 	let PRECALCULAR_DISTANCIAS = false;
 	let debug = false;
@@ -136,12 +133,12 @@ cargarPosiVelsAlBuffer;
 
 		return new Float32Array([red, green, blue, a]); // Store the RGB values in an array
 	}
-	function randomPosition(margin = 0) {
+	function randomPosition(elementaryIndex, margin = 0, ) {
 		return new Float32Array([
 			(rng() - 0.5) * (canvas.width - margin), // TODO: así como está es eficiente pero el margen no es el esperado
 			(rng() - 0.5) * (canvas.height - margin),
 			0,
-			1
+			elementaryIndex
 		]);
 	}
 	function randomVelocity() {
@@ -152,7 +149,7 @@ cargarPosiVelsAlBuffer;
 			1,
 		]);
 	}
-	function crearPosiVel(n, margin = 0, debug = false) { // crea dos n-arrays con las posiciones y velocidades de n partículas
+	function crearPosiVel(n, index, margin = 0, debug = false) { // crea dos n-arrays con las posiciones y velocidades de n partículas
 
 		const buffer = new ArrayBuffer(n * 8 * 4) // n partículas, cada una tiene 28B (4*4B para la pos y 3*4B para la vel)
 
@@ -160,7 +157,7 @@ cargarPosiVelsAlBuffer;
 		const vel = new Float32Array(buffer, n*4*4, n*4);
 
 		for (let i=0 ; i < n*4 ; i += 4) {
-			[ pos [i], pos[i+1], pos [i+2], pos[i+3] ] = randomPosition(margin); // randomPosition devuelve un array [x,y,z,w]
+			[ pos [i], pos[i+1], pos [i+2], pos[i+3] ] = randomPosition(index, margin); // randomPosition devuelve un array [x,y,z,w]
 			[ vel [i], vel[i+1], vel [i+2], vel[i+3] ] = randomVelocity();
 		}
 		if (debug) {
@@ -284,6 +281,7 @@ cargarPosiVelsAlBuffer;
 		} else {
 			elementaries.push(newElementary);
 			actualizarElemSelectors(newElementary); // actualizar lista de nombres en el creador de reglas de interacción
+			if (newParticles.length) { newParticles.push([]); } // Si estoy colocando partículas manualmente, agregar el slot.
 		}
 		partiControls.selector.selectedIndex = i;
 	}
@@ -407,21 +405,17 @@ cargarPosiVelsAlBuffer;
 			const L = elem.cantidad*4;
 			const posiVelsIncompleto = (elem.posiciones.length !== L || elem.velocidades.length !== L);
 
-			if (/*preloadPositions &&*/ posiVelsIncompleto) { // si faltan posiVels /*y PP está activado*/, crearlas. 
-				console.log(`Import: Creando posiVels para ${elem.nombre}.`);
-				const [pos, vel] = crearPosiVel(elem.cantidad, elem.radio * 2, debug);
+			if (posiVelsIncompleto) { // si faltan posiVels, crearlas. 
+				console.log("Import: Creando partículas para "+ elem.nombre +".");
+				const [pos, vel] = crearPosiVel(elem.cantidad, i, elem.radio * 2, debug);
 				elem.posiciones = pos;
 				elem.velocidades = vel;
 			} else {
+				console.log("Import: Cargando partículas para " + elem.nombre +".");
 				elem.posiciones = new Float32Array(setup.elementaries[i].posiciones);
 				elem.velocidades = new Float32Array(setup.elementaries[i].velocidades);
-				cargarPosiVelsAlBuffer = true;
+				noResetearPosiVels = true;
 			}
-			/*
-			if (!posiVelsIncompleto) { // si tiene todas las posiVels, indicar que se tomen al reiniciar.
-				preloadPositions = true;
-				switchClass(preloadPosButton, true);
-			}*/
 			elem.color = new Float32Array(elem.color);
 			actualizarElemSelectors(elem);
 			i++;
@@ -431,9 +425,11 @@ cargarPosiVelsAlBuffer;
 		for (let rule of rules) {
 			actualizarRuleSelector(rule);
 		}
-		aplicarAmbiente();
+
+		resetear();
 		setPlaceholdersParticles();
 		setPlaceholdersRules();
+		console.log("Setup cargado.");
 	}
 	function hasSameStructure(obj1, obj2) { // no revisa la estructura de los arrays de elementaries y rules TODO: se puede mejorar
 		const keys1 = Object.keys(obj1).sort();
@@ -557,7 +553,43 @@ cargarPosiVelsAlBuffer;
 			rules
 		};
 		cargarSetup(setup, debug)
-		console.log("Setup clásico cargado!")
+		console.log("Setup clásico (X"+m+") cargado!")
+	}
+	function generarSetupDebug(conReglas=false) {
+		const e = new Float32Array([]);
+		let elementaries = [];
+		elementaries = [
+			crearElementary("A", new Float32Array([1,1,0,1]), 0, 3, e, e), //300
+			crearElementary("R", new Float32Array([1,0,0,1]), 0, 4, e, e),	//80
+			crearElementary("P", new Float32Array([147/255,112/255,219/255,1]), 0, 5, e, e),	//30
+			crearElementary("V", new Float32Array([0,128/255,0,1]), 0, 7, e, e),				//5 r7
+		];
+
+		let rules = [];
+		if (conReglas) {
+			rules = [ //  nom/tar/src /I    /q    /dmin/dmax
+				crearRule("","R","R",  0.5, 0.025, 15,	100 ), 	// los núcleos se tratan de juntar si están cerca
+				crearRule("","A","R",  0.5, 0.0,   60,	600 ), 	// los electrones siguen a los núcleos, pero son caóticos
+				crearRule("","A","A", -0.1, 0.025, 20,	600 ),
+				crearRule("","P","R",  0.4, 0.0,   0.1, 150 ), 	// los virus persiguen a los núcleos
+				crearRule("","P","A", -0.2, 0.05,  0.1, 100 ),	// los virus son repelidos por los electrones
+				crearRule("","A","P",  0.2, 0.0,   0.1, 100 ), 	// los electrones persiguen a los virus
+				crearRule("","R","P",  1.0, 0.25,  0.1, 10  ), 	// los virus desorganizan los núcleos
+				crearRule("","R","V",  0.3, 0.0,   50,  1000), 	// los núcleos buscan comida
+				crearRule("","V","V", -0.2, 0.01,  50,  200 ), 	// la comida se mueve un poco y estabiliza las células
+			];
+		}
+
+		const setup = {
+			seed:"",
+			friction: "0.005",
+			bounce: "80",
+			maxInitVel: "0",
+			elementaries,
+			rules
+		};
+		cargarSetup(setup)
+		console.log("Setup debug cargado")
 	}
 	function mostrarParamsArray (paramsArray, Ne) {
 		const debugHelp = ["N", "Ne", "ancho", "alto",];
@@ -694,6 +726,7 @@ cargarPosiVelsAlBuffer;
 		resetButton.hidden = false;
 	}
 	function resetear() {
+		frame = 0;
 		aplicarAmbiente();
 		updatingParameters = true;
 		editingBuffers = true;
@@ -841,6 +874,35 @@ cargarPosiVelsAlBuffer;
 
 		if (mustUpdate) {editingAmbient = true;}
 	}
+	function createPosiVelsGPUBuffers (sizeP, sizeV) {
+		positionBuffers = [
+			device.createBuffer({
+				label: "Positions buffer IN",
+				size: sizeP,
+				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+			}),
+			device.createBuffer({
+				label: "Positions buffer OUT",
+				size: sizeP,
+				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+			})
+		];
+		velocitiesBuffer = device.createBuffer({
+			label: "Velocities buffer",
+			size: sizeV,
+			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+		});
+	}
+	function MAX_SAFE_Integer () {
+		let n = 0;
+		try{
+		while (n+1 > n-1) {
+			++n;
+		}} catch(error) {
+			return n-2; // security margin
+		}
+		return n
+	}
 //
 
 // ELEMENTOS HTML
@@ -924,7 +986,8 @@ cargarPosiVelsAlBuffer;
 
 	circle = document.getElementById("circle"),
 	arrowEnd = document.getElementById("arrowend"),
-	line = document.getElementById("line");
+	line = document.getElementById("line"),
+	tempParticles = document.getElementById("temporarycircles");
 //
 
 // EVENT HANDLING
@@ -948,17 +1011,25 @@ cargarPosiVelsAlBuffer;
 	//preloadPosButton.onclick =_=> { preloadPositions = !preloadPositions; switchClass(preloadPosButton); }
 
 	// Canvas color
-	bgColorPicker.onchange =_=> { uiSettings.bgColor = hexString_to_rgba(bgColorPicker.value, 1); }
-
-
-	function getCoords(ev) {
-		const canvasPos = canvas.getBoundingClientRect();
-		return [ev.offsetX + canvasPos.x - 8, ev.offsetY]
+	bgColorPicker.onchange =_=> {
+		uiSettings.bgColor = hexString_to_rgba(bgColorPicker.value, 1);
+		if (paused) {
+			const encoder = device.createCommandEncoder();
+			render(encoder, frame - 1); // -1 porque al final del loop anterior se incrementó.
+			device.queue.submit([encoder.finish()]);
+		}
 	}
-	let mDownCanvasX = 0;
-	let mDownCanvasY = 0;
-	let mouseIsDown = false;
-	let particulasQueActualizar = [];
+
+	function getCoords(ev) { // Viewport coordinates
+		const canvasPos = canvas.getBoundingClientRect();
+		return [ev.offsetX + canvasPos.x - 8, ev.offsetY];
+		
+	}
+	let mDownVpX = 0,
+	mDownVpY = 0,
+	mDownCanvasX = 0,
+	mDownCanvasY = 0,
+	mouseIsDown = false;
 	// Canvas dragging
 	canvas.onmousedown = (ev)=> {
 		if (!placePartOnClic || ev.buttons !==1) { return; }
@@ -966,14 +1037,16 @@ cargarPosiVelsAlBuffer;
 		canvas.style.cursor = "none";
 		panels.style.pointerEvents = "none";
 
-		[mDownCanvasX, mDownCanvasY] = getCoords(ev);
+		[mDownVpX, mDownVpY] = getCoords(ev);
+		mDownCanvasX = ev.offsetX;
+		mDownCanvasY = ev.offsetY;
 
 		const elem =  elementaries[partiControls.selector.selectedIndex];
 		circle.style.width = elem.radio * 2 + "px";
 		circle.style.backgroundColor = "rgba(" + elem.color.subarray(0, 3).map(x => x * 255) + "," + 0.6 + ")";
 		
-		const strx = mDownCanvasX + "px";
-		const stry = mDownCanvasY + "px";
+		const strx = mDownVpX + "px";
+		const stry = mDownVpY + "px";
 		circle.style.left = strx;
 		circle.style.top =  stry;
 
@@ -1000,8 +1073,8 @@ cargarPosiVelsAlBuffer;
 			return;
 		}
 
-		const x1 = mDownCanvasX;
-		const y1 = mDownCanvasY;
+		const x1 = mDownVpX;
+		const y1 = mDownVpY;
 		const [x2, y2] = getCoords(ev);
 		const dx = x2 - x1;
 		const dy = y2 - y1;
@@ -1022,14 +1095,16 @@ cargarPosiVelsAlBuffer;
 	canvas.onmouseup = (ev)=> {
 		
 		if (!placePartOnClic) { return; }
-		mouseIsDown = false;
 		circle.hidden = true;
 		arrowEnd.hidden = true;
 		line.hidden = true;
 		canvas.style.cursor = "crosshair";
 
-		const x1 = mDownCanvasX;
-		const y1 = mDownCanvasY;
+		if (!newParticles.length) { newParticles = Array.from(Array(elementaries.length), () => []); }
+
+		mouseIsDown = false;
+		const x1 = mDownVpX;
+		const y1 = mDownVpY;
 		const [x2, y2] = getCoords(ev);
 		const dx = x2 - x1;
 		const dy = y2 - y1;
@@ -1041,36 +1116,54 @@ cargarPosiVelsAlBuffer;
 		arrowEnd.hidden = true;
 		panels.style.pointerEvents = "auto";
 
-		/*
 		const i = partiControls.selector.selectedIndex
-		const elem =  elementaries[i];
+		const elem = elementaries[i];
 
+		// Revisar si entra en el canvas
+		const pos = [mDownCanvasX - canvas.width/2, -(mDownCanvasY - canvas.height/2), 0, i];
+		const vel = [dx/50, -dy/50, 0, 1];
+
+		if (Math.abs(pos[0]) + elem.radio > canvas.width/2 || Math.abs(pos[1] + elem.radio > canvas.height/2)) {
+			return;
+		}
+
+		// Agregar partícula a elementaries
 		const n = ++elem.cantidad * 4;
 		const newPos = new Float32Array(n);
 		const newVel = new Float32Array(n);
 
 		newPos.set(elem.posiciones);
-		newPos.set([ x1-canvas.width/2, -(y1-canvas.height/2), 0, 1], n-4);
-
+		newPos.set(pos, n-4);
 		newVel.set(elem.velocidades);
-		newVel.set([dx/50, -dy/50, 0, 1], n-4);
-
+		newVel.set(vel, n-4);
 		elem.posiciones = newPos;
 		elem.velocidades = newVel;
+
+		// Agregar a lista temporal para pasar al GPUBuffer
+		newParticles[i].push([pos, vel]);
+		
+		// Si está pausado, dibujar preview temporal con HTML y CSS. En lugar de eso podría pasarse al GPUBuffer y renderizar.
+		if (paused) {
+			const newPartC = circle.cloneNode(false);
+			const id = newParticles.flat().length/2;
+			newPartC.id = "newpartc" + id;
+
+			if (dx || dy) {
+				const newPartL = line.cloneNode(false);
+				newPartL.id = "newpartl" + id;
+				newPartL.style.setProperty("--alpha", "0.2")
+				tempParticles.appendChild(newPartL);	
+				newPartL.hidden = false;
+			}
+			tempParticles.appendChild(newPartC);
+			newPartC.hidden = false;
+		}
+
 		partiControls.cantInput.placeholder = elem.cantidad;
 
-		if (!particulasQueActualizar[i]) {
-			particulasQueActualizar[i] = 1;
-		} else {
-			particulasQueActualizar[i]++;
-		}
-		
-
-		console.log(particulasQueActualizar)
+		// Levantar flags
 		updatingParameters = true;
-
-		console.log(elementaries);
-		*/
+		resetPosiVels = false;
 	}
 
 	// Botones de tiempo
@@ -1123,9 +1216,14 @@ cargarPosiVelsAlBuffer;
 
 	importButton.onclick =_=> {
 		importarJson()
-		.then((setup) => {
+		.then((setup) => { // TODO: Estudiar bien como funciona esto, para poder hacer lo siguiente a cargar luego del catch
 			cargarSetup(setup);
-			resetear();
+			updateSimulationParameters(); // Prepara el setup para renderizarlo
+			if (paused) {
+				const encoder = device.createCommandEncoder();
+				render(encoder, 0);
+				device.queue.submit([encoder.finish()]);
+			}
 		})
 		.catch((error) => {
 			window.alert("Error al importar, archivo descartado.\n" + error);
@@ -1148,7 +1246,7 @@ cargarPosiVelsAlBuffer;
 	ambientControls.bounceInput.oninput =_=> setAutomaticInputElementWidth(ambientControls.bounceInput, 3, 12, 0);
 	ambientControls.updateButton.onclick =_=> aplicarAmbiente();
 
-	// Creador de elementaries
+	// Creador de elementaries / partículas
 	partiControls.submitButton.onclick =()=> {
 
 		let returnFlag = false,
@@ -1161,16 +1259,15 @@ cargarPosiVelsAlBuffer;
 		else { titilarBorde(name); returnFlag = true; }
 
 		[cant, returnFlag] = checkAndGetNumberInput(partiControls.cantInput, returnFlag);
+		partiControls.radiusInput.max = Math.min(canvas.height, canvas.width)/2;
+		console.log(partiControls.radiusInput.max);
 		[radius, returnFlag] = checkAndGetNumberInput(partiControls.radiusInput, returnFlag);
 		
 		if (returnFlag) { return; }
 
-		// Una vez validado todo:
-		/*let [pos, vel] = [[], []];
+		const elemIndex = partiControls.selector.selectedIndex;
 
-		if (preloadPositions) {[pos, vel] = crearPosiVel(cant, radius * 2, false);}  CODE 0 */ 
-
-		const [pos, vel] = crearPosiVel(cant, radius * 2, false);
+		const [pos, vel] = crearPosiVel(cant, elemIndex, radius * 2, false);
 
 		cargarElementary( crearElementary(
 			name,
@@ -1287,26 +1384,32 @@ cargarPosiVelsAlBuffer;
 	borraParticleButton.onclick =(event)=> {
 		const indexToDelete = partiControls.selector.selectedIndex;
 		if (indexToDelete === -1) {
-			console.log("Esto no debería haber pasado...")
+			console.warn("Esto no debería haber pasado...")
 			titilarBorde(partiControls.selector)
 			return;
 		}
+		function allParticlesDeleted() {
+			borraParticleButton.hidden = true;
+			partiControls.placeButton.hidden = true;
 
+			placePartOnClic = false; // TODO: Corregir bug: en pausa poner particulas y borrar la familia a la que pertenecen
+			switchClass(partiControls.placeButton, false);
+			canvas.style.cursor = "default";
+
+		}
 		if (event.ctrlKey) {
 			elementaries = [];
 			partiControls.selector.innerHTML = "";
 			ruleControls.targetSelector.innerHTML = "";
 			ruleControls.sourceSelector.innerHTML = "";
-			borraParticleButton.hidden = true;
-			partiControls.placeButton.hidden = true;
+			allParticlesDeleted();
 		} else {
 			elementaries.splice(indexToDelete, 1);
 			partiControls.selector.options[indexToDelete].remove();
 			ruleControls.targetSelector.options[indexToDelete].remove();
 			ruleControls.sourceSelector.options[indexToDelete].remove();
 			if (!partiControls.selector.options.length) {
-				borraParticleButton.hidden = true;
-				partiControls.placeButton.hidden = true;
+				allParticlesDeleted();
 			}
 		}
 		setPlaceholdersParticles();
@@ -1358,11 +1461,18 @@ cargarPosiVelsAlBuffer;
 	ambientControls.velInput.placeholder = ambient.maxInitVel;
 
 	// Inicializar seed o importar
-	if (START_WITH_SETUP) {
-		generarSetupClásico(10, "", true, debug); //"0.6452130" x10
-	} else {
-		setRNG(seedInput.value);
+	switch (START_WITH_SETUP) {
+		case 0:
+			setRNG(seedInput.value);
+			break;
+		case 1:
+			generarSetupClásico(10, "", true, debug); //"0.6452130" x10
+			break;
+		case 2: 
+			generarSetupDebug(true);
+			break;
 	}
+
 	// Interfaz
 	if (SHOW_DEBUG) {switchVisibility(debugInfo); switchVisibility(infoPanel); }
 
@@ -1408,7 +1518,7 @@ cargarPosiVelsAlBuffer;
 			storeOp: "store",
 		}]
 	};
-
+	
 	let simulationPipeline;
 	let simulationPipeline2;
 	let particleRenderPipeline;
@@ -1460,7 +1570,7 @@ function editBuffers() {
 	const datosElementariesArrBuffer = new ArrayBuffer(datosElemsSize);
 
 	N = 0;
-	for (let i = 0; i < Ne; i++) { 
+	for (let i = 0; i < Ne; i++) {  //N, radios, colores, cantidades
 
 		const nLocal = elementaries[i].cantidad;
 		N += nLocal; // N también hace de acumulador para este for.
@@ -1562,90 +1672,113 @@ function editBuffers() {
 
 	// Posiciones y velocidades
 
-	const positionsArray = new Float32Array(N*4);
-	const velocitiesArray = new Float32Array(N*4);
-
-	let offset = 0;
+	if (noResetearPosiVels) { 
+		resetPosiVels = false;
+	}
 
 	for (let elem of elementaries) {
 		const L = elem.cantidad * 4;
 		const posiVelsIncompleto = (elem.posiciones.length !== L || elem.velocidades.length !== L);
 		if (posiVelsIncompleto) {
 			resetPosiVels = true;
+			console.warn("Detectadas partículas faltantes, reseteando posiciones y velocidades...");
 			break;
 		}
 	}
 
-	if (resetPosiVels || cargarPosiVelsAlBuffer) {
+	if (newParticles.length && !resetPosiVels) {
 
+		const newParticlesF = newParticles.flat();
+		const oldSize = velocitiesBuffer?.size ?? 0;
+		const newSize = oldSize + newParticlesF.length * 4 * 4;
 
-		for (let elementary of elementaries) {
-			let pos, vel;
-			if (cargarPosiVelsAlBuffer) {
-				pos = elementary.posiciones;
-				vel = elementary.velocidades;
-				cargarPosiVelsAlBuffer = false;
+		//console.log("oldSize: " + oldSize + ", newSize: " + newSize);
+
+		const newPositions = new Float32Array(newParticlesF.length * 4);
+		const newVelocities = new Float32Array(newParticlesF.length * 4);
+		let offset = 0;
+
+		for (let i = 0; i<Ne; i++) {
+			for (let p = 0; p < newParticles[i].length; p++ ) {
+				newPositions.set(newParticles[i][p][0], offset);
+				newVelocities.set(newParticles[i][p][1], offset);
+				offset += 4;
+			}
+		}
+
+		// In the simulation loop, I'm using 3 buffers of size oldSize: 
+		// positionBuffers[0], positionBuffers[1], velocitiesBuffer.
+
+		// New temporary buffers of size newSize > oldSize
+		const tempPosBuffer = device.createBuffer({
+			label: "Temp positions buffer",
+			size: newSize,
+			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+		});
+		const tempVelBuffer = device.createBuffer({
+			label: "Temp velocities buffer",
+			size: newSize,
+			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+		});
+
+		// Fill the new section with the new data 
+		device.queue.writeBuffer(tempPosBuffer, oldSize, newPositions);
+		device.queue.writeBuffer(tempVelBuffer, oldSize, newVelocities);
+
+		// Fill the old section with the old data
+		const copyEncoder = device.createCommandEncoder(); // Create encoder
+
+		if (positionBuffers && velocitiesBuffer) {
+			copyEncoder.copyBufferToBuffer(positionBuffers[frame % 2], 0, tempPosBuffer, 0, oldSize);
+			copyEncoder.copyBufferToBuffer(velocitiesBuffer, 0, tempVelBuffer, 0, oldSize);
+		}
+
+		// Re-create the used buffers
+		createPosiVelsGPUBuffers (newSize, newSize);
+
+		// Fill them with the data from the temporary buffers
+		copyEncoder.copyBufferToBuffer(tempPosBuffer, 0, positionBuffers[frame % 2], 0, newSize);
+		copyEncoder.copyBufferToBuffer(tempVelBuffer, 0, velocitiesBuffer, 0, newSize);
+
+		device.queue.submit([copyEncoder.finish()]); // Submit encoder
+
+		console.log("Frame " +frame+ ": Añadidas partículas manuales a los GPUBuffers");
+		tempParticles.replaceChildren();
+		newParticles = [];
+	}
+
+	if (noResetearPosiVels || resetPosiVels || frame === 0) {
+
+		let offset = 0, pos = [], vel = [];
+		const positionsArray = new Float32Array(N*4);
+		const velocitiesArray = new Float32Array(N*4);
+		for (let i = 0; i<Ne; i++) {
+			if (resetPosiVels) {
+				[pos, vel] = crearPosiVel(elementaries[i].cantidad, i, elementaries[i].radio * 2);
+				elementaries[i].posiciones = pos;
+				elementaries[i].velocidades = vel;
 			} else {
-				[pos, vel] = crearPosiVel(elementary.cantidad, elementary.radio * 2);
+				pos = elementaries[i].posiciones;
+				vel = elementaries[i].velocidades;
 			}
 
 			positionsArray.set(pos, offset);
 			velocitiesArray.set(vel, offset);
-			elementary.posiciones = pos;
-			elementary.velocidades = vel;
-			offset += elementary.cantidad*4;
+
+			offset += elementaries[i].cantidad*4;
 		}
 
-
-
-		positionBuffers = [
-			device.createBuffer({
-				label: "Positions buffer IN",
-				size: positionsArray.byteLength,
-				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-			}),
-			device.createBuffer({
-				label: "Positions buffer OUT",
-				size: positionsArray.byteLength,
-				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-			})
-		];
+		createPosiVelsGPUBuffers (positionsArray.byteLength, velocitiesArray.byteLength);
 		device.queue.writeBuffer(positionBuffers[0], 0, positionsArray);
-		
-		velocitiesBuffer = device.createBuffer({
-			label: "Velocities buffer",
-			size: velocitiesArray.byteLength,
-			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-		});
 		device.queue.writeBuffer(velocitiesBuffer, 0, velocitiesArray);
 
+		if (resetPosiVels) { console.log("Partículas reseteadas y asignadas a los GPUBuffers."); }
+		else { console.log("Partículas asignadas a los GPUBuffers."); }
+		
 		resetPosiVels = false;
-
-	} else {
-		for (let i = 0; i < Ne; i++) { // llenar los arrays de posiciones y velocidades ya presentes en elementaries
-			/*
-			// write al buffer las particulas que hay que actualizar
-			if (particulasQueActualizar[i]) {
-
-				const L = particulasQueActualizar[i] * 4
-
-				const newPos = elementaries[i].posiciones.slice(-L);
-				const newVel = elementaries[i].velocidades.slice(-L);
-
-
-			}*/
-
-			//const L = elementaries[i].cantidad * 4;
-			//positionsArray.set(elementaries[i].posiciones, offset);
-			//velocitiesArray.set(elementaries[i].velocidades, offset);
-			//offset += L;
-
-		}
+		noResetearPosiVels = false;
+		newParticles = [];
 	}
-
-
-
-
 
 	// Parámetros de longitud fija
 
@@ -1680,7 +1813,6 @@ function editBuffers() {
 
 function updateSimulationParameters() {
 
-	console.log("Updating simulation parameters...");
 	setRNG(seedInput.value);
 
 	// CREACIÓN DE BUFFERS
@@ -1711,7 +1843,7 @@ function updateSimulationParameters() {
 	const bindGroupLayoutPos = device.createBindGroupLayout({
 		label: "Positions Bind Group Layout",
 		entries: [{
-			binding: 0, // entrada
+			binding: 0, // Entrada. Siempre voy a renderizar éste.
 			visibility: GPUShaderStage.VERTEX | GPUShaderStage.COMPUTE,
 			buffer: { type: "read-only-storage" }
 		}, {
@@ -1885,6 +2017,22 @@ function updateSimulationParameters() {
 	workgroupCount2 = Math.ceil(Nd / WORKGROUP_SIZE);
 	//console.log( `N / workgroup size: ${N} / ${WORKGROUP_SIZE} = ${N/WORKGROUP_SIZE}\nworkgroup count: ${workgroupCount}`);
 	updatingParameters = false;
+	console.log("Updated simulation parameters.");
+}
+
+function render(encoder, frame) {
+	renderPassDescriptor.colorAttachments[0].clearValue = uiSettings.bgColor; // Actualizar color de fondo.
+	renderPassDescriptor.colorAttachments[0].view = context.getCurrentTexture().createView();
+	const pass = encoder.beginRenderPass(renderPassDescriptor);
+	if (N) {
+		pass.setPipeline(particleRenderPipeline);
+		pass.setVertexBuffer(0, vertexBuffer);
+		pass.setBindGroup(0, bindGroups[((frame) % 2)]);
+		pass.setBindGroup(1, bindGroups[2]);
+		pass.draw(vertices.length /2, N);	// 6 vertices. renderizados N veces
+	}
+	pass.end(); // finaliza el render pass
+	ageInfo.innerText = frame + 1; // "Edad = frame drawn on screen + 1"
 }
 
 // ANIMATION LOOP
@@ -1894,12 +2042,10 @@ async function newFrame(){
 	if (paused && !stepping) { return; }
 
 	if ( updatingParameters ){	// Rearmar buffers y pipeline
-		frame = 0;
 		updateSimulationParameters();
-		console.log("updated!");
 	}
 
-	if (editingBuffers) { editBuffers(); } // permite editar los buffers sin tener que recrear la pipeline.
+	//if (editingBuffers) { editBuffers(); } // permite editar los buffers sin tener que recrear la pipeline.
 
 	if (editingAmbient) {
 		writeAmbientToBuffer();
@@ -1909,7 +2055,12 @@ async function newFrame(){
 
 	const encoder = device.createCommandEncoder();
 
-	timestamp(0, encoder); // Initial timestamp - before compute pass
+	timestamp(0, encoder); // Initial timestamp
+
+	// Iniciar un render pass (que usará los resultados del compute pass)
+	render(encoder, frame); 
+
+	timestamp(1, encoder); // Render
 
 	if (N) { // Aunque no haya reglas activas, las partículas pueden estar moviéndose. Hay que calcular su pos.
 
@@ -1924,7 +2075,7 @@ async function newFrame(){
 			computePass2.end();
 		}
 
-		timestamp(1, encoder);
+		timestamp(2, encoder); // Compute dist
 
 		device.queue.writeBuffer(
 			params2Buffer,
@@ -1946,28 +2097,9 @@ async function newFrame(){
 		computePass.dispatchWorkgroups(workgroupCount, 1, 1); // Este vec3<u32> tiene su propio @builtin en el compute shader.
 		computePass.end();
 
-	} else {timestamp(1, encoder);}
+	} else {timestamp(2, encoder);}  // render - compute all (=0)
 
-	timestamp(2, encoder); // Post compute passes
-
-	// Iniciar un render pass (que usará los resultados del compute pass)
-	
-	renderPassDescriptor.colorAttachments[0].clearValue = uiSettings.bgColor; // Actualizar color de fondo.
-	renderPassDescriptor.colorAttachments[0].view = context.getCurrentTexture().createView();
-	const pass = encoder.beginRenderPass(renderPassDescriptor);
-
-	if (N) {
-		pass.setPipeline(particleRenderPipeline);
-		pass.setVertexBuffer(0, vertexBuffer);
-		pass.setBindGroup(0, bindGroups[((frame + 1) % 2)]);
-		pass.setBindGroup(1, bindGroups[2]);
-		pass.draw(vertices.length /2, N);	// 6 vertices. renderizados N veces
-	}
-
-	pass.end(); // finaliza el render pass
-	
 	timestamp(3, encoder);
-
 
 	device.queue.submit([encoder.finish()]);
 
@@ -1979,7 +2111,7 @@ async function newFrame(){
 		for (let i=2; i<values.length; i += 4) { values2.push(values[i]); }
 		//generateHistogram2(values2, 0.6, 10);
 		
-		console.log(values2)
+		console.log(values2);
 		//console.log(values[2])
 	}
 	
@@ -1988,26 +2120,27 @@ async function newFrame(){
 		if (timer) {
 			const arrayBuffer = await readBuffer(device, queryBuffer);
 			const timingsNanoseconds = new BigInt64Array(arrayBuffer);
-			dif1 = (Number(timingsNanoseconds[1]-timingsNanoseconds[0])/1_000_000)//.toFixed(6);
-			dif2 = (Number(timingsNanoseconds[2]-timingsNanoseconds[1])/1_000_000)//.toFixed(6);
-			dif3 = (Number(timingsNanoseconds[3]-timingsNanoseconds[2])/1_000_000)//.toFixed(6);
+			dif1 = (Number(timingsNanoseconds[1]-timingsNanoseconds[0])/1_000_000);
+			dif2 = (Number(timingsNanoseconds[2]-timingsNanoseconds[1])/1_000_000);
+			dif3 = (Number(timingsNanoseconds[3]-timingsNanoseconds[2])/1_000_000);
 		} else {
 			dif1 = (t[1] - t[0]);
 			dif2 = (t[2] - t[1]);
 			dif3 = (t[3] - t[2]);
 			text +="⚠ GPU Timing desact.\n"
 		}
-		text += `Compute 1: ${dif1.toFixed(4)} ms\nCompute 2: ${dif2.toFixed(4)} ms\nCompute T: ${(dif1+dif2).toFixed(4)} ms`;
-		text += `\nDraw: ${dif3.toFixed(4)} ms`;
+		text += `Draw: ${dif1.toFixed(3)} ms\
+				\nCompute 1: ${dif2.toFixed(3)} ms\
+				\nCompute 2: ${dif3.toFixed(3)} ms\
+				\nCompute T: ${(dif2+dif3).toFixed(3)} ms`;
+		
 		if (dif1 + dif2 + dif3 > 30) {
-			text = text + "\nGPU: Brrrrrrrrrrr";
+			text += "\nGPU: Brrrrrrrrrrr";
 		}
 		displayTiming.innerText = text;
 	}
 
-	ageInfo.innerText = frame;
 	frame++; frameCounter++;
-
 	const timeNow = performance.now();
 	if (timeNow - refTime >= 1000) {
 		fps = frameCounter;
@@ -2023,7 +2156,6 @@ async function newFrame(){
 
 //TODO:
 /* Pasar los parámetros pertinentes mediante writebuffer en lugar de recrear nuevos buffers */
-/* Agregar partículas con click */
 /* Functiones para quitar o agregar partículas. permite mergers/eaters */
-/* Revisar que PP no se haya roto */
 /* Antialiasing / renderizar a mayor resolución */
+/* Fondo con efectos con shader */
