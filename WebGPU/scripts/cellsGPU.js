@@ -42,7 +42,7 @@ CHANGELOG = `\
 
 	* Objetivo primario del proyecto completado, y por eso ya salimos de Beta! Contale a tus amigos!
 
-	* Si encontrás algún bug avisame porfa (*). No le cuentes a tus amigos!
+	* Si encontrás algún bug avisame porfa. No le cuentes a tus amigos!
 
 	* Más QoL en las opciones. Ahora se puede cambiar el fondo en pausa!
 
@@ -1260,7 +1260,7 @@ newParticles = []; // PosiVels de partículas creadas manualmente para cada elem
 
 		[cant, returnFlag] = checkAndGetNumberInput(partiControls.cantInput, returnFlag);
 		partiControls.radiusInput.max = Math.min(canvas.height, canvas.width)/2;
-		console.log(partiControls.radiusInput.max);
+		//console.log(partiControls.radiusInput.max);
 		[radius, returnFlag] = checkAndGetNumberInput(partiControls.radiusInput, returnFlag);
 		
 		if (returnFlag) { return; }
@@ -1393,7 +1393,7 @@ newParticles = []; // PosiVels de partículas creadas manualmente para cada elem
 			partiControls.placeButton.hidden = true;
 
 			placePartOnClic = false; // TODO: Corregir bug: en pausa poner particulas y borrar la familia a la que pertenecen
-			switchClass(partiControls.placeButton, false);
+			switchClass(partiControls.placeButton, true);
 			canvas.style.cursor = "default";
 
 		}
