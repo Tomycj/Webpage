@@ -45,12 +45,14 @@ export async function inicializarCells(conTitulos=true){
 	
 	const canvas = document.querySelector("canvas");
 	const div = document.getElementById("canvascontainer");
+	const devicePixelRatio = window.devicePixelRatio || 1;
+	if (devicePixelRatio !== 1) { console.log("Pixel ratio: " + devicePixelRatio); }
 	if (!conTitulos) { 
 		estatus.hidden = true; 
 		const bodyMargin = parseInt(window.getComputedStyle(document.body).margin);
-		canvas.height = window.innerHeight - bodyMargin * 2;
+		canvas.height = window.innerHeight - bodyMargin * 2 * devicePixelRatio;
 	}
-	canvas.width = div.clientWidth;
+	canvas.width = div.clientWidth * devicePixelRatio;
 	canvas.hidden = false;
 
 	estatus.innerText= "La GPU de tu equipo está calculando y renderizando esto!"

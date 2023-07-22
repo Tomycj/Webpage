@@ -10,6 +10,18 @@ span {
 	cursor: default;
 }
 
+body::-webkit-scrollbar {
+	width: 0.6em;
+	height: 0.6em;
+}
+body::-webkit-scrollbar-thumb {
+	background-color: rgba(64,64,64,1);
+}
+body::-webkit-scrollbar-corner {
+	background-color: black;
+}
+
+
 .overlayed {
     position: relative;
 	overflow: visible;
@@ -64,6 +76,7 @@ span {
 	background: rgba(0, 0, 0, 0.3);
 	z-index: 1;
 }
+
 .overlay:hover {
 	background: rgba(0, 0, 0, 0.8);
 }
@@ -167,8 +180,7 @@ span {
 	cursor: pointer;
 }
 
-
-input[type="range"] {
+.rangeinput {
 	--thumbg: rgba(255, 255, 255, 1);
 	-webkit-appearance: none;
 	width: 60%;
@@ -180,24 +192,29 @@ input[type="range"] {
 }
 
 /* Chrome, Safari, Edge, Opera */
-input[type="range"]::-webkit-slider-thumb {
+.rangeinput::-webkit-slider-thumb {
 	-webkit-appearance: none;
 	height: 15px;
 	width: 6px;
+	border-top: 6px solid var(--thumbg);
+	border-bottom: 6px solid var(--thumbg);
 	background: var(--thumbg);
 	cursor: ew-resize;
 }
-
-input[type=range]::-webkit-slider-runnable-track  {
+.rangeinput::-webkit-slider-runnable-track  {
 	-webkit-appearance: none;
 	box-shadow: none;
 	border: none;
 	background: transparent;
 }
-
-/* Firefox */
-/* TODO */
-
+.discrete::-webkit-slider-thumb {
+	--col: rgba(255, 255, 255, 0.3);
+	width: 33%;
+	background: none;
+	border-top: 6px solid var(--col);
+	border-bottom: 6px solid var(--col);
+}
+/* TODO: Firefox */
 
 .button {
 	border: 2px solid black;

@@ -7,7 +7,7 @@ const
 [device, canvas, canvasFormat, context, timer] = await inicializarCells(false),
 
 WORKGROUP_SIZE = 64,
-SAMPLE_SETUP = {
+SAMPLE_SETUP = { //TODO: Creo que en lugar de esto debería crear una Clase y usarla
 	seed: "sampleSeed",
 	friction: "0.0",
 	bounce: "10",
@@ -40,22 +40,21 @@ LAST_VISITED_VERSION = localStorage.getItem("STORED_VERSION_NUMBER"),
 CHANGELOG = `\
 	${CURRENT_VERSION}
 
-	* Objetivo primario del proyecto completado, y por eso ya salimos de Beta! Contale a tus amigos!
+	* Un par de nuevas opciones de estilo.
 
-	* Si encontrás algún bug avisame porfa. No le cuentes a tus amigos!
+	* Implementado antialiasing MSAA (desgraciadamente no se nota la diferencia).
 
-	* Más QoL en las opciones. Ahora se puede cambiar el fondo en pausa!
+	* El sistema para poner partículas manualmente sigue en Beta.
 
-	* Sistema para poner partículas manualmente ya está disponible! Sigue en Beta porque tiene cierto bug,\
-	pero no es grave.
+	* Pequeñas optimizaciones (se re-crean menos variables y datos al actualizar la simulación).\
+	Mitiga cierto bug.
 
-	* Unos pocos setups para importar y probar: https://github.com/Tomycj/Webpage/tree/main/data
+	* Algunos setups para importar y probar: https://github.com/Tomycj/Webpage/tree/main/data
 
-	* Esto debería aparecer cada vez que publico una nueva versión. Para ello estoy usando un par de bytes\
-	en tu equipo. Desde ya muchas gracias. No, no te los devuelvo.
 `,
-uiSettings = {
-	bgColor : [0, 0, 0, 1],
+styleSettings = {
+	bgColor: [0, 0, 0, 1],
+	particleStyle: [1, 1],
 },
 ambient = {
 	friction: 1 - 0.995, // 0.995 en el shader
@@ -65,6 +64,7 @@ ambient = {
 
 let 
 N = 0, 	// cantidad total de partículas
+Nd = 0, // Cantidad total de distancias a precalcular (si habilitado)
 elementaries = [], // cada elemento es un objeto que almacena toda la info de una familia de parts.
 rules = [],   // cada elemento es una regla, formada por un objeto que la define.
 workgroupCount,		// workgroups para ejecutar reglas de interacción
@@ -78,6 +78,7 @@ updatingParameters = true,
 resetPosiVels = false,
 editingBuffers = true,
 editingAmbient = false,
+editingPStyle = true,
 stepping = false,
 muted = false,
 fps = 0,
@@ -85,7 +86,8 @@ frameCounter = 0,
 refTime,
 placePartOnClic = false,
 noResetearPosiVels, // Al importar setups con partículas precargadas (posiciones y vels pre-definidas)
-newParticles = []; // PosiVels de partículas creadas manualmente para cada elementary
+newParticles = [], // PosiVels de partículas creadas manualmente para cada elementary
+sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 
 // TIMING & DEBUG 
 	const START_WITH_SETUP = 1
@@ -816,8 +818,12 @@ newParticles = []; // PosiVels de partículas creadas manualmente para cada elem
 		inputElement.style.width = `${ Math.min(Math.max(ancho, min) + padding, max) }ch`;
 	}
 	function writeAmbientToBuffer() {
-		ambientArr.set([1 - ambient.friction, ambient.bounce / 100]);
+		paramsArrays.ambient.set([1 - ambient.friction, ambient.bounce / 100]);
 		device.queue.writeBuffer(paramsBuffer, 28, paramsArrBuffer, 28, 8); 
+	}
+	function writePStyleToBuffer() {
+		paramsArrays.pStyle.set(styleSettings.particleStyle);
+		device.queue.writeBuffer(paramsBuffer, 36, paramsArrBuffer, 36, 8); 
 	}
 	function checkAndGetNumberInput(input, failFlag, strict = true, P=true) {
 		// For chained checks before value usage. Supports exponential notation.
@@ -893,6 +899,14 @@ newParticles = []; // PosiVels de partículas creadas manualmente para cada elem
 			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
 		});
 	}
+	function allParticlesDeleted() {
+		borraParticleButton.hidden = true;
+		partiControls.placeButton.hidden = true;
+
+		placePartOnClic = false; // TODO: Corregir bug: en pausa poner particulas y borrar la familia a la que pertenecen
+		switchClass(partiControls.placeButton, true);
+		canvas.style.cursor = "default";
+	}
 	function MAX_SAFE_Integer () {
 		let n = 0;
 		try{
@@ -929,6 +943,7 @@ newParticles = []; // PosiVels de partículas creadas manualmente para cada elem
 	//preloadPosButton = document.getElementById("preloadPositions"), CODE 0
 
 	bgColorPicker = document.getElementById("bgcolorpicker"),
+	pStyleRange = document.getElementById("pstyle"),
 
 	volumeRange = document.getElementById("volume"),
 	clickSound = document.getElementById("clicksound"),
@@ -1012,14 +1027,42 @@ newParticles = []; // PosiVels de partículas creadas manualmente para cada elem
 
 	// Canvas color
 	bgColorPicker.onchange =_=> {
-		uiSettings.bgColor = hexString_to_rgba(bgColorPicker.value, 1);
+		styleSettings.bgColor = hexString_to_rgba(bgColorPicker.value, 1);
 		if (paused) {
 			const encoder = device.createCommandEncoder();
-			render(encoder, frame - 1); // -1 porque al final del loop anterior se incrementó.
+			render(encoder, Math.max(frame - 1, 0)); // -1 porque al final del loop anterior se incrementó.
 			device.queue.submit([encoder.finish()]);
 		}
 	}
 
+	// Particles stye 
+	pStyleRange.oninput =_=> {
+		switch (parseInt(pStyleRange.value)) {
+			case 0:
+				styleSettings.particleStyle = [1, 0];
+				break;
+			case 1:
+				styleSettings.particleStyle = [0.85, 0];
+				break;
+			case 2:
+				styleSettings.particleStyle = [1, 1];
+				break;
+			default: 
+				console.warn("Error: slider out of range");
+				break;
+		}
+
+		if (paused) {
+			writePStyleToBuffer()
+			const encoder = device.createCommandEncoder();
+			render(encoder, Math.max(frame - 1, 0));
+			device.queue.submit([encoder.finish()]);
+		} else {
+			editingPStyle = true;
+		}
+	}
+
+	// Particle placing
 	function getCoords(ev) { // Viewport coordinates
 		const canvasPos = canvas.getBoundingClientRect();
 		return [ev.offsetX + canvasPos.x - 8, ev.offsetY];
@@ -1030,7 +1073,7 @@ newParticles = []; // PosiVels de partículas creadas manualmente para cada elem
 	mDownCanvasX = 0,
 	mDownCanvasY = 0,
 	mouseIsDown = false;
-	// Canvas dragging
+	
 	canvas.onmousedown = (ev)=> {
 		if (!placePartOnClic || ev.buttons !==1) { return; }
 		mouseIsDown = true;
@@ -1173,8 +1216,13 @@ newParticles = []; // PosiVels de partículas creadas manualmente para cada elem
 
 	// Controles
 	document.addEventListener("keydown", function(event) {
-		const isTextInput = event.target.tagName === 'INPUT' && event.target.type === 'text';
-		if (isTextInput) return;
+		
+		const isTextInput = event.target.tagName === "INPUT" && event.target.type === "text";
+		
+		if (isTextInput || event.ctrlKey) { return; }
+
+		if (event.target.type === "range") { event.target.blur(); }
+
 		switch (event.code){
 			case "Space":
 				event.preventDefault();
@@ -1220,9 +1268,7 @@ newParticles = []; // PosiVels de partículas creadas manualmente para cada elem
 			cargarSetup(setup);
 			updateSimulationParameters(); // Prepara el setup para renderizarlo
 			if (paused) {
-				const encoder = device.createCommandEncoder();
-				render(encoder, 0);
-				device.queue.submit([encoder.finish()]);
+				stepear();
 			}
 		})
 		.catch((error) => {
@@ -1388,15 +1434,7 @@ newParticles = []; // PosiVels de partículas creadas manualmente para cada elem
 			titilarBorde(partiControls.selector)
 			return;
 		}
-		function allParticlesDeleted() {
-			borraParticleButton.hidden = true;
-			partiControls.placeButton.hidden = true;
 
-			placePartOnClic = false; // TODO: Corregir bug: en pausa poner particulas y borrar la familia a la que pertenecen
-			switchClass(partiControls.placeButton, true);
-			canvas.style.cursor = "default";
-
-		}
 		if (event.ctrlKey) {
 			elementaries = [];
 			partiControls.selector.innerHTML = "";
@@ -1508,21 +1546,172 @@ newParticles = []; // PosiVels de partículas creadas manualmente para cada elem
 	};
 //
 
-// Buffers y pipelines
+// WEBGPU
 
-	const renderPassDescriptor = {	//Parámetros para el render pass que se ejecutará cada frame
+	// texture y su view, para multisampling (MSAA)
+	const texture = device.createTexture({
+		size: [canvas.width, canvas.height],
+		sampleCount,
+		format: canvasFormat,
+		usage: GPUTextureUsage.RENDER_ATTACHMENT,
+	});
+	const textureView = texture.createView();
+
+	const renderPassDescriptor = {	// Parámetros para el render pass que se ejecutará cada frame
 		colorAttachments: [{		// es un array, de momento sólo hay uno, su @location en el fragment shader es entonces 0
-			view: context.getCurrentTexture().createView(),
+			view: textureView,
+			resolveTarget: context.getCurrentTexture().createView(), // para multisampling. Sin él, view sería esto.
 			loadOp: "clear",
-			clearValue: uiSettings.bgColor,
+			clearValue: styleSettings.bgColor,
 			storeOp: "store",
 		}]
 	};
-	
-	let simulationPipeline;
+
+	// Shaders
+
+	const particleShaderModule = device.createShaderModule({
+		label: "Particle shader",
+		code: renderShader(),
+	});
+	const simulationShaderModule = device.createShaderModule({
+		label: "Compute shader",
+		code: computeShader(WORKGROUP_SIZE),
+	})
+
+	let distancesShaderModule;
+	if (PRECALCULAR_DISTANCIAS) {
+		distancesShaderModule = device.createShaderModule({
+			label: "Distances compute shader",
+			code: computeDistancesShader(WORKGROUP_SIZE, Nd), // Falta actualizar la toma de Nd en shader
+		})
+	}
+
+	// Bind groups
+
+	let bindGroups = []; // updateSimulationParameters los actualiza.
+	const bindGroupLayoutPos = device.createBindGroupLayout({
+		label: "Positions Bind Group Layout",
+		entries: [{
+			binding: 0, // Entrada. Siempre voy a renderizar éste.
+			visibility: GPUShaderStage.VERTEX | GPUShaderStage.COMPUTE,
+			buffer: { type: "read-only-storage" }
+		}, {
+			binding: 1, // salida
+			visibility: GPUShaderStage.COMPUTE,
+			buffer: { type: "storage" }
+		}]
+	});
+
+	const bindGroupLayoutResto = device.createBindGroupLayout({
+		label: "Resto Bind Group Layout",
+		entries: [{
+			binding: 0, // Parámetros de longitud fija
+			visibility: GPUShaderStage.VERTEX | GPUShaderStage.COMPUTE | GPUShaderStage.FRAGMENT,
+			buffer: { type: "uniform"}
+		}, {
+			binding: 1, // velocidades
+			visibility: GPUShaderStage.COMPUTE,
+			buffer: { type: "storage" } // Initial state input buffer
+		}, {
+			binding: 2, // reglas
+			visibility: GPUShaderStage.COMPUTE,
+			buffer: { type: "read-only-storage"}
+		}, {
+			binding: 3, // distancias
+			visibility: GPUShaderStage.COMPUTE,
+			buffer: { type: "storage" }
+		}, {
+			binding: 4, // Datos elementaries (cantidades, radio, color)
+			visibility: GPUShaderStage.COMPUTE | GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+			buffer: { type: "read-only-storage" }
+		}, {
+			binding: 5,	// datos interacciones
+			visibility: GPUShaderStage.COMPUTE,
+			buffer: { type: "uniform" }
+		}, {
+			binding: 6, // random numbers
+			visibility: GPUShaderStage.COMPUTE,
+			buffer: { type: "uniform" }
+		}]
+	});
+
+	/*const bindGroupLayoutDist = device.createBindGroupLayout({
+		label: "distances comp bind groups layout",
+		entries: [{
+			binding: 0,
+			visibility: GPUShaderStage.COMPUTE,
+			buffer: {}
+		},]
+	})*/
+
+	// Pipelines
+
+	const pipelineLayout = device.createPipelineLayout({
+		label: "Pipeline Layout",
+		bindGroupLayouts: [ bindGroupLayoutPos, bindGroupLayoutResto],
+	}); // El orden de los bind group layouts tiene que coincider con los atributos @group en el shader
+
+	/*const pipelineLayout2 = device.createPipelineLayout({
+		label: "Pipeline Layout 2",
+		bindGroupLayouts: [ bindGroupLayoutPos, bindGroupLayoutResto, bindGroupLayoutDist ],
+	});*/
+
+	const renderPipelineDescriptor = {
+		label: "Particle render pipeline",
+		layout: pipelineLayout,
+		vertex: {
+			module: particleShaderModule,
+			entryPoint: "vertexMain",
+			buffers: [vertexBufferLayout]
+		},
+		fragment: {
+			module: particleShaderModule,
+			entryPoint: "fragmentMain",
+			targets: [{
+				format: canvasFormat
+			}]
+		},
+		multisample: {
+			count: sampleCount, // default 1
+		}
+	}
+
+	const simulationPipelineDescriptor = {
+		label: "Simulation pipeline",
+		layout: pipelineLayout,
+		compute: {
+			module: simulationShaderModule,
+			entryPoint: "computeMain",
+			constants: { // es una entrada opcional, acá puedo poner valores que usará el compute shader
+				//constante: 1, // Así paso el workgroup size al compute shader
+			},
+		},
+	}
+
+	let simulationPipeline2Descriptor;
+	if (PRECALCULAR_DISTANCIAS) {
+		simulationPipeline2Descriptor = {
+			label: "Distances pipeline",
+			layout: pipelineLayout,
+			compute: {
+				module: distancesShaderModule,
+				entryPoint: "computeMain",
+			},
+		}
+	}
+
+	// Crear render pipeline (para usar vertex y fragment shaders)
+	const particleRenderPipeline = device.createRenderPipeline(renderPipelineDescriptor);
+
+	// Crear compute pipelines
+	const simulationPipeline = device.createComputePipeline(simulationPipelineDescriptor);
+
 	let simulationPipeline2;
-	let particleRenderPipeline;
-	let bindGroups = [];
+	if (PRECALCULAR_DISTANCIAS) {
+		simulationPipeline2 = device.createComputePipeline(simulationPipeline2Descriptor);
+	}
+
+	// Buffers
 
 	let positionBuffers = [];	// tienen que estar afuera de editBuffers porque no siempre los necesita cambiar
 	let velocitiesBuffer;
@@ -1534,29 +1723,27 @@ newParticles = []; // PosiVels de partículas creadas manualmente para cada elem
 	})
 
 	// Parámetros de longitud fija (por lo tanto buffers de size fijo)
-	const paramsBufferSize = 8 + 4 + 4 + 4 + 4 + 4 + 8; // [canvasDims], N, Ne, Nr, Nd, Np, [frictionInv, bounceF] 
-
+	const paramsBufferSize = 8 + 4 + 4 + 4 + 4 + 4 + 8 + 8;
+	// [canvasDims], N, Ne, Nr, Nd, Np, [frictionInv, bounceF], [borderStart, spherical]
 	const paramsArrBuffer = new ArrayBuffer(paramsBufferSize);
 
-	const canvasDimsArr = new Float32Array(paramsArrBuffer, 0, 2); // offset en bytes, longitud en cant de elementos
+	const paramsArrays = {
+		canvasDims: new Float32Array(paramsArrBuffer, 0, 2), // offset en bytes, longitud en cant de elementos
+		N: new Uint32Array(paramsArrBuffer, 8, 1),		// N: Cantidad total de partículas
+		Nr: new Uint32Array(paramsArrBuffer, 16, 1),	// Nr: Cantidad de reglas activas (que involucran elementaries cargados)
+		Nd: new Uint32Array(paramsArrBuffer, 20, 1),	// Nd: Cantidad total de distancias a precalcular (si habilitado)
+		Ne: new Uint32Array(paramsArrBuffer, 12, 1),	// Ne: Cantidad de elementaries
+		Lp: new Uint32Array(paramsArrBuffer, 24, 1),	// Np o Lp: Cantidad de pares de interacción distintos 
+		ambient: new Float32Array(paramsArrBuffer, 28, 2),
+		pStyle: new Float32Array(paramsArrBuffer, 36, 2),
+	}
 
-	const NArr = new Uint32Array(paramsArrBuffer, 8, 1);	// N
-	const NeArr = new Uint32Array(paramsArrBuffer, 12, 1);	// Ne
-	const NrArr = new Uint32Array(paramsArrBuffer, 16, 1);	// Nr
-	const NdArr = new Uint32Array(paramsArrBuffer, 20, 1);	// Nd
-	const LpArr = new Uint32Array(paramsArrBuffer, 24, 1);	// Np
-
-	const ambientArr = new Float32Array(paramsArrBuffer, 28, 2)
-	
 	const paramsBuffer = device.createBuffer({
 		label: "Params buffer",
 		size: paramsBufferSize,
 		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
 	});
 	writeAmbientToBuffer();
-
-	let distanciasBuffer;
-	let datosInteraccionesBuffer;
 
 //
 
@@ -1591,8 +1778,7 @@ function editBuffers() {
 	})
 	device.queue.writeBuffer(datosElementariesBuffer, 0, datosElementariesArrBuffer, 0, datosElemsSize);
 
-	// Distancias
-
+	// Reglas parte A
 	const reglasActivas = [];
 	const m = new Uint8Array(Ne**2);
 	
@@ -1610,7 +1796,8 @@ function editBuffers() {
 	}
 	const Nr = reglasActivas.length;
 	
-	let Nd = 0;
+	// Distancias
+	Nd = 0;
 	let Np = 0;
 	let datosInteracciones = [];
 	if (PRECALCULAR_DISTANCIAS && Nr) {
@@ -1632,21 +1819,21 @@ function editBuffers() {
 		Np = datosInteracciones.length;
 	}
 
-	distanciasBuffer = device.createBuffer({
+	const distanciasBuffer = device.createBuffer({
 		label: "Distancias buffer",
 		size: Nd * 4 || 4,
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
 	});
 
 	const datosInteraccionesArray = new Uint32Array(datosInteracciones.flat());
-	datosInteraccionesBuffer = device.createBuffer({
+	const datosInteraccionesBuffer = device.createBuffer({
 		label: "datos interacciones buffer",
 		size: Nd * 4 * 4 || 4,
 		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
 	});
 	device.queue.writeBuffer(datosInteraccionesBuffer, 0, datosInteraccionesArray);
 	
-	// Reglas
+	// Reglas parte B
 
 	const rulesArray = new Float32Array(Nr * 8);
 
@@ -1782,33 +1969,27 @@ function editBuffers() {
 
 	// Parámetros de longitud fija
 
-	canvasDimsArr.set([canvas.width, canvas.height]);
-	NArr.set([N]);
-	NeArr.set([Ne]);
-	NrArr.set([Nr]);
-	NdArr.set([Nd]);
-	LpArr.set([Np]);
+	paramsArrays.canvasDims.set([canvas.width, canvas.height]);
+	paramsArrays.N.set([N]);
+	paramsArrays.Ne.set([Ne]);
+	paramsArrays.Nr.set([Nr]);
+	paramsArrays.Nd.set([Nd]);
+	paramsArrays.Lp.set([Np]);
 
 	device.queue.writeBuffer(paramsBuffer, 0, paramsArrBuffer, 0, 28); 
 	/* buffer, buferOffset (B), data, dataOffset (B*), size (B*) 
 	* = B porque data no es typedArray. De lo contrario sería en cant. de elementos. */
 
 	editingBuffers = false;
-	return [
-		{
-			positionBuffers,
-			velocitiesBuffer,
-			paramsBuffer,
-			datosElementariesBuffer,
-			distanciasBuffer,
-			reglasBuffer,
-			datosInteraccionesBuffer,
-		},
-		Nd,
-		Ne,
-		Np, // Np, cantidad de pares distintos de interacción
-		Nr || 1,
-	]
+	return {
+		positionBuffers,
+		velocitiesBuffer,
+		paramsBuffer,
+		datosElementariesBuffer,
+		distanciasBuffer,
+		reglasBuffer,
+		datosInteraccionesBuffer,
+	}
 }
 
 function updateSimulationParameters() {
@@ -1816,85 +1997,14 @@ function updateSimulationParameters() {
 	setRNG(seedInput.value);
 
 	// CREACIÓN DE BUFFERS
-	const [GPUBuffers, Nd, Ne, Np, Nr] = editBuffers(); // diccionario con todos los buffers y datos para shader
+	const GPUBuffers = editBuffers(); // diccionario con todos los buffers
 
 	if (N === 0) { updatingParameters = false; return;}
 
-	// CARGAR SHADERS
+	// Shaders stuff here
 
-	const particleShaderModule = device.createShaderModule({
-		label: "Particle shader",
-		code: renderShader(Ne),
-	});
-	
-	const simulationShaderModule = device.createShaderModule({
-		label: "Compute shader",
-		code: computeShader(WORKGROUP_SIZE, Np),
-	})
+	// Bind group stuff here
 
-	if (PRECALCULAR_DISTANCIAS) {
-		const distancesShaderModule = device.createShaderModule({
-			label: "Distances compute shader",
-			code: computeDistancesShader(WORKGROUP_SIZE, Nd),
-		})
-	}
-
-	// BIND GROUP SETUP
-	const bindGroupLayoutPos = device.createBindGroupLayout({
-		label: "Positions Bind Group Layout",
-		entries: [{
-			binding: 0, // Entrada. Siempre voy a renderizar éste.
-			visibility: GPUShaderStage.VERTEX | GPUShaderStage.COMPUTE,
-			buffer: { type: "read-only-storage" }
-		}, {
-			binding: 1, // salida
-			visibility: GPUShaderStage.COMPUTE,
-			buffer: { type: "storage" }
-		}]
-	});
-
-	const bindGroupLayoutResto = device.createBindGroupLayout({
-		label: "Resto Bind Group Layout",
-		entries: [{
-			binding: 0, // Parámetros de longitud fija
-			visibility: GPUShaderStage.VERTEX | GPUShaderStage.COMPUTE | GPUShaderStage.FRAGMENT,
-			buffer: { type: "uniform"}
-		}, {
-			binding: 1, // velocidades
-			visibility: GPUShaderStage.COMPUTE,
-			buffer: { type: "storage" } // Initial state input buffer
-		}, {
-			binding: 2, // reglas
-			visibility: GPUShaderStage.COMPUTE,
-			buffer: { type: "read-only-storage"}
-		}, {
-			binding: 3, // distancias
-			visibility: GPUShaderStage.COMPUTE,
-			buffer: { type: "storage" }
-		}, {
-			binding: 4, // Datos elementaries (cantidades, radio, color)
-			visibility: GPUShaderStage.COMPUTE | GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-			buffer: { type: "read-only-storage" }
-		}, {
-			binding: 5,	// datos interacciones
-			visibility: GPUShaderStage.COMPUTE,
-			buffer: { type: "uniform" }
-		}, {
-			binding: 6, // random numbers
-			visibility: GPUShaderStage.COMPUTE,
-			buffer: { type: "uniform" }
-		}]
-	});
-	
-	/*const bindGroupLayoutDist = device.createBindGroupLayout({
-		label: "distances comp bind groups layout",
-		entries: [{
-			binding: 0,
-			visibility: GPUShaderStage.COMPUTE,
-			buffer: {}
-		},]
-	})*/
-	
 	bindGroups = [
 		device.createBindGroup({ // posiciones A
 			label: "Particle positions bind group A",
@@ -1959,80 +2069,37 @@ function updateSimulationParameters() {
 		})*/
 	];
 
-	// PIPELINE SETUP
+	// Pipeline stuff here
 
-	const pipelineLayout = device.createPipelineLayout({
-		label: "Pipeline Layout",
-		bindGroupLayouts: [ bindGroupLayoutPos, bindGroupLayoutResto],
-	}); // El orden de los bind group layouts tiene que coincider con los atributos @group en el shader
-
-	/*const pipelineLayout2 = device.createPipelineLayout({
-		label: "Pipeline Layout 2",
-		bindGroupLayouts: [ bindGroupLayoutPos, bindGroupLayoutResto, bindGroupLayoutDist ],
-	});*/
-
-	// Crear render pipeline (para usar vertex y fragment shaders)
-	particleRenderPipeline = device.createRenderPipeline({
-		label: "Particle render pipeline",
-		layout: pipelineLayout,
-		vertex: {
-			module: particleShaderModule,
-			entryPoint: "vertexMain",
-			buffers: [vertexBufferLayout]
-		},
-		fragment: {
-			module: particleShaderModule,
-			entryPoint: "fragmentMain",
-			targets: [{
-				format: canvasFormat
-			}]
-		}
-	});
-
-	// Crear compute pipelines
-	simulationPipeline = device.createComputePipeline({
-		label: "Simulation pipeline",
-		layout: pipelineLayout,
-		compute: {
-			module: simulationShaderModule,
-			entryPoint: "computeMain",
-			constants: { // es una entrada opcional, acá puedo poner valores que usará el compute shader
-				//constante: 1, // Así paso el workgroup size al compute shader
-			},
-		},
-	});
-
-	if (PRECALCULAR_DISTANCIAS) {
-		simulationPipeline2 = device.createComputePipeline({
-			label: "Distances pipeline",
-			layout: pipelineLayout,
-			compute: {
-				module: distancesShaderModule,
-				entryPoint: "computeMain",
-			},
-		});
-	}
-
+	// Actualizar workgroup counts para compute passes
 	workgroupCount = Math.ceil(N / WORKGROUP_SIZE);
 	workgroupCount2 = Math.ceil(Nd / WORKGROUP_SIZE);
 	//console.log( `N / workgroup size: ${N} / ${WORKGROUP_SIZE} = ${N/WORKGROUP_SIZE}\nworkgroup count: ${workgroupCount}`);
+
 	updatingParameters = false;
 	console.log("Updated simulation parameters.");
 }
 
 function render(encoder, frame) {
-	renderPassDescriptor.colorAttachments[0].clearValue = uiSettings.bgColor; // Actualizar color de fondo.
-	renderPassDescriptor.colorAttachments[0].view = context.getCurrentTexture().createView();
+	renderPassDescriptor.colorAttachments[0].clearValue = styleSettings.bgColor; // Actualizar color de fondo.
+
+	if (sampleCount > 1) {
+		renderPassDescriptor.colorAttachments[0].view = textureView;
+		renderPassDescriptor.colorAttachments[0].resolveTarget = context.getCurrentTexture().createView();
+	} else {
+		renderPassDescriptor.colorAttachments[0].view = context.getCurrentTexture().createView();
+		renderPassDescriptor.colorAttachments[0].resolveTarget = undefined;
+	}
+	
 	const pass = encoder.beginRenderPass(renderPassDescriptor);
 	if (N) {
 		pass.setPipeline(particleRenderPipeline);
 		pass.setVertexBuffer(0, vertexBuffer);
-		pass.setBindGroup(0, bindGroups[((frame) % 2)]);
+		pass.setBindGroup(0, bindGroups[frame % 2]);
 		pass.setBindGroup(1, bindGroups[2]);
 		pass.draw(vertices.length /2, N);	// 6 vertices. renderizados N veces
 	}
 	pass.end(); // finaliza el render pass
-	ageInfo.innerText = frame + 1; // "Edad = frame drawn on screen + 1"
 }
 
 // ANIMATION LOOP
@@ -2051,6 +2118,11 @@ async function newFrame(){
 		writeAmbientToBuffer();
 		editingAmbient = false;
 		console.log("Updated ambient parameters.");
+	}
+
+	if (editingPStyle) {
+		writePStyleToBuffer();
+		editingPStyle = false;
 	}
 
 	const encoder = device.createCommandEncoder();
@@ -2103,6 +2175,7 @@ async function newFrame(){
 
 	device.queue.submit([encoder.finish()]);
 
+
 	if ( false && (frame % 60 === 30)) {
 
 		const values = new Float32Array(await readBuffer(device, velocitiesBuffer ));
@@ -2141,6 +2214,8 @@ async function newFrame(){
 	}
 
 	frame++; frameCounter++;
+	ageInfo.innerText = frame; // "Edad = frame drawn on screen + 1"
+
 	const timeNow = performance.now();
 	if (timeNow - refTime >= 1000) {
 		fps = frameCounter;
@@ -2156,6 +2231,6 @@ async function newFrame(){
 
 //TODO:
 /* Pasar los parámetros pertinentes mediante writebuffer en lugar de recrear nuevos buffers */
-/* Functiones para quitar o agregar partículas. permite mergers/eaters */
+/* Funciones para quitar o agregar partículas. permite mergers/eaters */
 /* Antialiasing / renderizar a mayor resolución */
 /* Fondo con efectos con shader */

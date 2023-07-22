@@ -1,0 +1,17 @@
+`\
+	${CURRENT_VERSION}
+
+	* Objetivo primario del proyecto completado, y por eso ya salimos de Beta! Contale a tus amigos!
+
+	* Si encontrás algún bug avisame porfa. No le cuentes a tus amigos!
+
+	* Más QoL en las opciones. Ahora se puede cambiar el fondo en pausa!
+
+	* Sistema para poner partículas manualmente ya está disponible! Sigue en Beta porque tiene cierto bug,\
+	pero no es grave.
+
+	* Unos pocos setups para importar y probar: https://github.com/Tomycj/Webpage/tree/main/data
+
+	* Esto debería aparecer cada vez que publico una nueva versión. Para ello estoy usando un par de bytes\
+	en tu equipo. Desde ya muchas gracias. No, no te los devuelvo.
+`

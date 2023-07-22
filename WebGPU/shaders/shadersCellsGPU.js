@@ -283,6 +283,8 @@ export function renderShader() { return /*wgsl*/`
         lp: u32,
         frictionInv: f32,
         bounceF: f32,
+        borderStart: f32,
+        spherical: f32,
     }
 
     struct DatosElementaries {
@@ -372,16 +374,16 @@ export function renderShader() { return /*wgsl*/`
         let idx = input.idx;
         let k = input.k;
 
-        let negro = step (r, 1);
-        let colnegro = vec4f(negro, negro, negro, 1);
+        let borderStart = f32(0.85); // borderStart
+        let spherical = f32(0);
         
-        return elems[k].color * colnegro * input.random * sqrt(1-r*r);
+        return elems[k].color * step(r, params.borderStart) * input.random * ( 1 + params.spherical * (sqrt(1 - r*r) - 1) );
 
     }
     `;
 }
 
-export function computeShaderConDistancias(sz, lp) { return /*wgsl*/`
+export function computeShaderConDistancias(sz) { return /*wgsl*/`
 
     struct Params { 
         ancho: f32,
