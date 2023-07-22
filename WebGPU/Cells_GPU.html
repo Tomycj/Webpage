@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="es">
 	<head>
-		<title id="title">Cells GPU - v1.1.9 🎉</title>
+		<title id="title">Cells GPU - v1.1.9.2</title>
 		<meta charset="utf-8">
 		<link rel="stylesheet" href="../styles/CellsGPU.css">
 		<link rel="icon" href="../images/logoBLR.png" type="image/icon type">
@@ -21,9 +21,6 @@
 		<h2 hidden style ="text-align: center; margin: 6px;" >
 			Cells GPU
 		</h2>
-		<script src="//cdnjs.cloudflare.com/ajax/libs/seedrandom/3.0.5/lib/alea.min.js"></script>
-
-		<script type="module" src="./scripts/cellsGPU.js"></script>
 
 		<audio id="clicksound" preload="auto" src="../sounds/79624_click.wav"></audio>
 		
@@ -37,7 +34,7 @@
 				<span id="arrowend" hidden class="circle arrowend"> › </span>
 				<span id="line" hidden class="circle line"></span>
 
-				<div id="temporarycircles">
+				<div id="temporarycircles"> <!-- Podría haber usado SVG circles y lines -->
 
 				</div>
 			</div>
@@ -81,6 +78,10 @@
 	
 							<label for="volume">Sonidos: </label>
 							<input type="range" id="volume" value="0.2" class="rangeinput" min ="0" max="1" step="0.001"><br>
+
+							<label for="pstyle">Estilo: </label>
+							<input type="range" id="pstyle" value="2" class="rangeinput discrete" min ="0" max="2" step="1"><br>
+
 						</div>
 
 						<span id ="ambientoptionstitle" class="categoryspan">Entorno</span>
@@ -288,23 +289,28 @@
 			<button onclick="location.href = '../index.html';" class="button" >Volver</button>
 		</div>
 
-		<dialog id="helpdialog" class="dialogo">
-			<p style="margin: 0;">Controles: <br>Space, W, S, R, M, I, H, D <br><br></p>
-			<button id="dialogok" class="button">Ok</button>
-			&nbsp&nbsp&nbsp
-			<button id="dialognvm" class="button">No volver a mostrar</button>
-		</dialog>
-
-		<dialog id="newsdialog" class="dialogo">
-			<div>
-				<p style="margin: 10px; font-weight: bold; font-size: large;">Novedades</p>
-				<p id="newstext" style="text-align: left; margin: 0; line-height: 1.5; padding-bottom: 6px;"></p>
-				
-				<button id="dialogok2" class="button">Ok</button>
+		<div id="dialogs">
+			<dialog id="helpdialog" class="dialogo">
+				<p style="margin: 0;">Controles: <br>Space, W, S, R, M, I, H, D <br><br></p>
+				<button id="dialogok" class="button">Ok</button>
 				&nbsp&nbsp&nbsp
-				<button id="dialognvm2" class="button">Hasta la próxima</button>
-			</div>
-		</dialog>
+				<button id="dialognvm" class="button">No volver a mostrar</button>
+			</dialog>
+	
+			<dialog id="newsdialog" class="dialogo">
+				<div>
+					<p style="margin: 10px; font-weight: bold; font-size: large;">Novedades</p>
+					<p id="newstext" style="text-align: left; margin: 0; line-height: 1.5; padding-bottom: 6px;"></p>
+					
+					<button id="dialogok2" class="button">Ok</button>
+					&nbsp&nbsp&nbsp
+					<button id="dialognvm2" class="button">Hasta la próxima</button>
+				</div>
+			</dialog>
+		</div>
+
+		<script src="//cdnjs.cloudflare.com/ajax/libs/seedrandom/3.0.5/lib/alea.min.js"></script>
+		<script type="module" src="./scripts/cellsGPU.js"></script>
 
 	</body>
 </html>
