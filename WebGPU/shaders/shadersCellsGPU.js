@@ -373,9 +373,6 @@ export function renderShader() { return /*wgsl*/`
 
         let idx = input.idx;
         let k = input.k;
-
-        let borderStart = f32(0.85); // borderStart
-        let spherical = f32(0);
         
         return elems[k].color * step(r, params.borderStart) * input.random * ( 1 + params.spherical * (sqrt(1 - r*r) - 1) );
 
