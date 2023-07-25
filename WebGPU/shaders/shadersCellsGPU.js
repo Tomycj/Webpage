@@ -74,11 +74,18 @@ export function computeShader(sz) { return /*wgsl*/`
         alto: f32,
         n: u32,
         ne: u32,
+
         nr: u32,
         nd: u32,
         lp: u32,
         frictionInv: f32,
+
         bounceF: f32,
+        borderStart: f32, // not used in compute shader
+        spherical: f32,
+        padding: f32,   // to get to 48 bytes.
+
+        seeds: vec4f, // requires to be aligned to 16 bytes
     }
 
     struct Rule { 
@@ -109,7 +116,6 @@ export function computeShader(sz) { return /*wgsl*/`
         @group(1) @binding(2) var<storage> rules: array<Rule>;
         @group(1) @binding(3) var<storage, read_write> distancias: array<f32>;
         @group(1) @binding(4) var<storage> elems: array<DatosElementaries>;
-        @group(1) @binding(6) var<uniform> params2: vec4f; // CPU random numbers y demás
     //
     //https://indico.cern.ch/event/93877/contributions/2118070/attachments/1104200/1575343/acat3_revised_final.pdf
     fn LFSR( z: u32, s1: u32, s2: u32, s3: u32, m:u32) -> u32 {
@@ -153,43 +159,45 @@ export function computeShader(sz) { return /*wgsl*/`
         }
         return (vec2f(rng2(), rng2()) * 2 - 1) * q;
     }
-    /*
-    fn elemIndex(i: u32) -> u32 { // elementary index using cantAcum (doesn't work for manually placed particles)
-        var k = u32();
-        while i >= elems[k].cantAcum {k++;}
-        return k;
-    }
     
-    fn applyrule( seedinput: vec2u, posi: vec2f, posj: vec2f , d:f32, g: f32, q: f32, rmin: f32, rmax: f32 ) -> vec2f {
-
-        // Vf = dT * M2*G*d(vector)/d^3 + V0   cuadrática
-        if d>rmax {
-            return vec2f();
+    /*
+        fn elemIndex(i: u32) -> u32 { // elementary index using cantAcum (doesn't work for manually placed particles)
+            var k = u32();
+            while i >= elems[k].cantAcum {k++;}
+            return k;
         }
-        if d>=rmin {
-            let f = -g/(d*d);
-            return vec2f(posi.x - posj.x, posi.y - posj.y) * f;
+        
+        fn applyrule( seedinput: vec2u, posi: vec2f, posj: vec2f , d:f32, g: f32, q: f32, rmin: f32, rmax: f32 ) -> vec2f {
+
+            // Vf = dT * M2*G*d(vector)/d^3 + V0   cuadrática
+            if d>rmax {
+                return vec2f();
+            }
+            if d>=rmin {
+                let f = -g/(d*d);
+                return vec2f(posi.x - posj.x, posi.y - posj.y) * f;
+            }
+            seed = seedinput + vec2u(posj);
+            return (vec2f(rng(seed.x), rng(seed.y)) * 2 - 1) * q;
         }
-        seed = seedinput + vec2u(posj);
-        return (vec2f(rng(seed.x), rng(seed.y)) * 2 - 1) * q;
-    }
 
-    fn applyrule_classic( seed: u32, posi: vec2f, posj: vec2f , d:f32, g: f32, q: f32, rmin: f32, rmax: f32 ) -> vec2f {
-        // hace los ifs en el orden de la versión original de cells.
-        if (d > rmin && d < rmax) {
-            let f = -g/(d*d);
-            return vec2f(f*(posi.x - posj.x), f*(posi.y - posj.y)); 
+        fn applyrule_classic( seed: u32, posi: vec2f, posj: vec2f , d:f32, g: f32, q: f32, rmin: f32, rmax: f32 ) -> vec2f {
+            // hace los ifs en el orden de la versión original de cells.
+            if (d > rmin && d < rmax) {
+                let f = -g/(d*d);
+                return vec2f(f*(posi.x - posj.x), f*(posi.y - posj.y)); 
+            }
+
+            if d < rmin {
+
+                let sx = u32(floor(posi.y + posj.x)) * (3 + 1099087573);
+                let sy = u32(ceil(posi.x + posj.y)) * (7 + 1099087573);
+
+                return ( vec2f(rng(seed), rng(seed)) - 0.5 )* 2 * q;
+            }
+            return vec2f(0.0, 0.0);
         }
-
-        if d < rmin {
-
-            let sx = u32(floor(posi.y + posj.x)) * (3 + 1099087573);
-            let sy = u32(ceil(posi.x + posj.y)) * (7 + 1099087573);
-
-            return ( vec2f(rng(seed), rng(seed)) - 0.5 )* 2 * q;
-        }
-        return vec2f(0.0, 0.0);
-    }*/
+    */
 
     @compute
     @workgroup_size(${sz}, 1, 1) // el tercer parámetro (z) es default 1.
@@ -202,7 +210,7 @@ export function computeShader(sz) { return /*wgsl*/`
             return;
         }
 
-        init_rng2(i, params2);
+        init_rng2(i, params.seeds);
         //seed = vec2u(i, i);
         //var iterations = u32(); // debug iterations counter
         
@@ -267,6 +275,7 @@ export function computeShader(sz) { return /*wgsl*/`
         
         velocities[i].x = vel.x;
         velocities[i].y = vel.y;
+        //velocities[0].w = // for debugging
     }
     `;
 }
@@ -285,6 +294,7 @@ export function renderShader() { return /*wgsl*/`
         bounceF: f32,
         borderStart: f32,
         spherical: f32,
+        
     }
 
     struct DatosElementaries {
@@ -342,8 +352,6 @@ export function renderShader() { return /*wgsl*/`
         let alto = params.alto;
         let ar = ancho/alto;
 
-        //var k = u32(0);
-        //while idx >= elems[k].cantAcum { k++; }
         let k = u32(updatedpositions[idx].w);
         
         let diameter = f32(elems[k].radio) * 2 / ancho; // diámetro en clip space  [-1 1]
@@ -358,7 +366,7 @@ export function renderShader() { return /*wgsl*/`
         output.idx = idx; // índice de cada instancia, pasado a float para el fragment shader
         output.quadpos = input.pos;
         output.k = k;
-        output.random = mix(0.8, 1.2,  rng(idx) );
+        output.random = mix(0.8, 1.2, rng(idx) );
 
         return output;
     }

@@ -25,6 +25,7 @@ body::-webkit-scrollbar-corner {
 .overlayed {
     position: relative;
 	overflow: visible;
+	width: 100%;
 }
 .circle {
 	position: absolute;
@@ -89,6 +90,7 @@ body::-webkit-scrollbar-corner {
 	width: 23.5ch;
 	left: 0;
 	border-bottom-right-radius: 10px;
+	user-select: none;
 }
 
 .categoryspan {
@@ -96,6 +98,11 @@ body::-webkit-scrollbar-corner {
 	text-align: center;
 	font-weight: bold;
 	cursor: pointer;
+}
+.marker {
+	position: absolute;
+	top: 0;
+	left: 0;
 }
 
 .dialogo {
@@ -217,7 +224,7 @@ body::-webkit-scrollbar-corner {
 /* TODO: Firefox */
 
 .button {
-	border: 2px solid black;
+	border: 2px solid;
 	border-color: rgba(255, 255, 255, 0.2);
 	background-color: rgba(0, 0, 0, 0);
 	color: white;
@@ -233,7 +240,17 @@ body::-webkit-scrollbar-corner {
 .switchedoff {
 	color: rgba(255, 255, 255, 0.3);
 }
-
+.disabled {
+	color: rgba(255, 255, 255, 0.3);
+	cursor: default;
+}
+.disabled:hover {
+	border-color: rgba(255, 255, 255, 0.2);
+}
+.disabled:active {
+	background-color: rgba(0, 0, 0, 0);
+	color: rgba(255, 255, 255, 0.3);
+}
 
 #pausebutton {
 	width: 9ch;

@@ -1,0 +1,15 @@
+`\
+	${CURRENT_VERSION}
+
+	* Un par de nuevas opciones de estilo.
+
+	* Implementado antialiasing MSAA (desgraciadamente no se nota la diferencia).
+
+	* El sistema para poner partículas manualmente sigue en Beta.
+
+	* Pequeñas optimizaciones (se re-crean menos variables y datos al actualizar la simulación).\
+	Mitiga cierto bug.
+
+	* Algunos setups para importar y probar: https://github.com/Tomycj/Webpage/tree/main/data
+
+`

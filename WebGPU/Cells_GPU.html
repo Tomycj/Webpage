@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="es">
 	<head>
-		<title id="title">Cells GPU - v1.1.9.2</title>
+		<title id="title">Cells GPU - v1.2.0</title>
 		<meta charset="utf-8">
 		<link rel="stylesheet" href="../styles/CellsGPU.css">
 		<link rel="icon" href="../images/logoBLR.png" type="image/icon type">
@@ -84,7 +84,11 @@
 
 						</div>
 
-						<span id ="ambientoptionstitle" class="categoryspan">Entorno</span>
+						<div style="position: relative;">
+							<span id ="ambientoptionstitle" class="categoryspan">Entorno</span>
+							<div id="marker1" hidden class="marker">∗</div>
+						</div>
+						
 						<div id="ambientoptions" hidden>
 
 							<div class="c.div hastooltip">
@@ -108,21 +112,25 @@
 								<label for="initialvel">Vel. inicial: </label>
 								<input type="number" id="initialvel" class="numberinput" min="0" step="any">
 								<span class="tooltiptext long">
-									Máxima velocidad inicial de las partículas<br>
+									Máxima rapidez inicial de las partículas<br>
 									(Distribución aleatoria uniforme)
 								</span>
 							</div>
 
 							<div class="c.div">
 								<button class="button hastooltip" id="ambientupdate">Aplicar
-									<!--<span class="tooltiptext long">
-										Aplica el entorno a la simulación en curso
-									</span> -->
+									<span class="tooltiptext short">
+										Aplica configuración de entorno
+									</span>
 								</button>
 							</div>
 						</div>
 
-						<span id="creadorparticulasTitle" class="categoryspan">Partículas</span>
+						<div style="position: relative;">
+							<span id="creadorparticulasTitle" class="categoryspan">Partículas</span>
+							<div id = "marker2" hidden class="marker"> ∗ </div>
+						</div>
+
 						<div class="creador", id="creadorparticulas">
 		
 							<div class="c.div hastooltip">
@@ -152,10 +160,18 @@
 							</div>
 		
 							<button id="c.elemsubmit" class="button" >Crear</button>
-							<button id="c.place" hidden class="button hastooltip switchedoff">Poner (Beta)
+
+							<button class="button hastooltip disabled" id="c.update">Aplicar
+								<span class="tooltiptext long">
+									Aplica la configuración de partículas creada
+								</span>
+							</button>
+
+							<button id="c.place" hidden class="button hastooltip switchedoff">Poner (*)
 								<span class="tooltiptext">
 									Colocar partículas al clickear.<br>
 									Arrastrar para darles velocidad.
+									*Funcionalidad en desarrollo.
 								</span>
 							</button>
 							
@@ -172,8 +188,12 @@
 							</div>
 		
 						</div>
-		
-						<span id="creadorreglasTitle" class="categoryspan">Reglas</span>
+
+						<div style="position: relative;">
+							<span id="creadorreglasTitle" class="categoryspan">Reglas</span>
+							<div id="marker3" hidden class="marker">∗</div>
+						</div>
+						
 						<div class="creador" id="creadorreglas" hidden>
 
 							<div class="c.div">
@@ -231,9 +251,10 @@
 									</span>
 								</button>
 
-								<button class="button hastooltip" id="r.update">Aplicar
-									<span class="tooltiptext short">
-										Aplica todas las reglas creadas
+								<button class="button hastooltip disabled" id="r.update">Aplicar
+									<span class="tooltiptext">
+										Aplica todas las reglas creadas.<br>
+										Las partículas deben estar aplicadas.
 									</span>
 								</button>
 							</div>
