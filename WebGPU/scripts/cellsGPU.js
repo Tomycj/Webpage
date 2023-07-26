@@ -6,6 +6,7 @@ import { renderShader, computeShader, computeDistancesShader } from "shaders";
 const 
 [device, canvas, canvasFormat, context, timer] = await inicializarCells(false),
 
+DATA_FOLDER = "../../data/",
 WORKGROUP_SIZE = 64,
 SAMPLE_SETUP = { //TODO: Creo que en lugar de esto debería crear una Clase y usarla
 	seed: "sampleSeed",
@@ -40,11 +41,12 @@ LAST_VISITED_VERSION = localStorage.getItem("STORED_VERSION_NUMBER"),
 CHANGELOG = `\
 	${CURRENT_VERSION}
 
-	* Pequeñas mejoras en la interfaz y la funcionalidad. Corregido algún que otro bug.
+	* El sistema para poner partículas manualmente está oficialmente completado.
 
-	* Enormes cambios en la organización del código, está más presentable y sostenible pero falta.
+	* Pequeñas mejoras en la interfaz y la funcionalidad. Ctrl + Click en Reiniciar para borrar todo rápidamente.\
+	Corregido algún que otro bug.
 
-	* El sistema para poner partículas manualmente sigue en Beta, pero anda bastante bien.
+	* Enormes cambios en la organización del código, está más presentable y mantenible pero falta.
 
 	* Algunos setups para importar y probar: https://github.com/Tomycj/Webpage/tree/main/data
 
@@ -91,7 +93,6 @@ fps = 0,
 frameCounter = 0,
 refTime,
 placePartOnClic = false,
-
 newParticles = [], // PosiVels de partículas creadas manualmente para cada elementary
 sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 
@@ -365,35 +366,34 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 		URL.revokeObjectURL(url);
 
 	}
-	function importarJson() {
+	function importarJson(path="") {
+
+		if (path) { return fetch(path); } // Load from server file.
+
 		const fileInput = document.createElement("input");
 		fileInput.type = "file";
-		fileInput.accept = ".json"
+		fileInput.accept = ".json";
 		return new Promise((resolve, reject) => {
-			fileInput.addEventListener('change', (event) => {
+			fileInput.addEventListener("change", (event) => {
+
 				const file = event.target.files[0];
 				const reader = new FileReader();
 
-				reader.onload = () => {
-				try {
-					const jsonData = JSON.parse(reader.result);
-					resolve(jsonData);
-				} catch (error) {
-					reject(error);
+				reader.onload =_=> {
+					try {
+						const jsonData = JSON.parse(reader.result);
+						resolve(jsonData);
+					} catch (error) {
+						reject(error);
+					}
 				}
-				};
-
-				reader.onerror = (error) => {
-					reject(error);
-				};
-
+				reader.onerror = (error) => { reject(error); }
 				reader.readAsText(file);
 			});
 			fileInput.click();
-		}
-		);
+		});
 	}
-	function cargarSetup(setup, debug = false) {  // reemplaza el setup actual. Rellena aleatoriamente posiciones y velocidades
+	function cargarSetup(setup, draw = false, debug = false) {  // reemplaza el setup actual. Rellena aleatoriamente posiciones y velocidades
 		if (!hasSameStructure(setup, SAMPLE_SETUP)) { throw new Error("Falló la verificación, no es un objeto tipo setup")}
 		vaciarSelectors();
 
@@ -434,7 +434,7 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 			actualizarRuleSelector(rule);
 		}
 
-		resetear(false);
+		resetear(draw);
 		setPlaceholdersParticles();
 		setPlaceholdersRules();
 		console.log("Setup cargado.");
@@ -551,8 +551,6 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 				crearRule("","V","V", -0.2, 0.01,  50,  200 ), 	// la comida se mueve un poco y estabiliza las células
 			];
 		}
-
-		//const friction =  m/1800 + 1/225;
 
 		const setup = {
 			seed,
@@ -736,20 +734,22 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 	}
 	function resetear(draw=true) {
 		frame = 0;
+		clearTempParticles();
 		applyAmbient();
 		applyParticles();
 		applyRules();
 		flags.updateCanvas = true;
 
 		//suggestReset("done");
-		resetButton.style.setProperty("border-color","rgba(255, 255, 255, 0.2)");
 		if (paused && draw) {
 			stepear();
 		}
 	}
-	function playSound(soundElement) { 
-		if (soundElement.currentTime > 0.05) { // evitar spam
+	function playSound(soundElement, avoidSpam=true) { 
+		if (avoidSpam && soundElement.currentTime > 0.05) { // evitar spam
 			soundElement.currentTime = 0; 
+		} else if (!avoidSpam) {
+			soundElement.currentTime = 0;
 		}
 		soundElement.play(); 
 	};
@@ -839,14 +839,12 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 		device.queue.writeBuffer(GPUBuffers.params, 36, paramsArrays.pStyle); 
 	}
 	function writeRNGSeedToBuffer() {
-
 		paramsArrays.seeds.set([
 			rng() * 100,
 			rng() * 100, // seed.xy
 			1 + rng(),
 			1 + rng(), // seed.zw
 		])
-	
 		device.queue.writeBuffer(GPUBuffers.params, 48, paramsArrays.seeds);
 	}
 	function checkAndGetNumberInput(input, failFlag, strict = true, P=true) {
@@ -880,8 +878,8 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 				ambientControls.inputs.friction.placeholder = friction;
 				mustUpdate = true;
 			}
-			
 		}
+
 		const [bounce, bounceInvalid] = checkAndGetNumberInput(ambientControls.inputs.bounce, false, false);
 		if (!bounceInvalid) {
 			ambientControls.inputs.bounce.value = "";
@@ -892,6 +890,7 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 				setAutomaticInputElementWidth(ambientControls.inputs.bounce, 3, 12, 0);
 			}
 		}
+
 		let [vel, velInvalid] = checkAndGetNumberInput(ambientControls.inputs.vel, false, false);
 		if (!velInvalid) {
 			ambientControls.inputs.vel.value = "";
@@ -971,7 +970,18 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 			switchClass(ruleControls.updateButton, "disabled", false);
 		}
 	}
-	function MAX_SAFE_Integer () {
+	function clearTempParticles() {
+		tempParticles.replaceChildren();
+		newParticles = [];
+		const placeButtonOff = !partiControls.placeButton.classList.contains("switchedoff");
+		switchClass(borraParticleButton, "disabled", placeButtonOff);
+	}
+	function getDeltas(ev) {
+		const [x1, y1] = [mDownX, mDownY];
+		const [x2, y2] = [ev.offsetX, ev.offsetY];
+		return [x2 - x1, y2 - y1];
+	}
+	function MAX_SAFE_Ingeter () {
 		let n = 0;
 		try{
 		while (n+1 > n-1) {
@@ -1109,7 +1119,7 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 
 	// Particles stye 
 	pStyleRange.oninput =_=> {
-		playSound(clickSound);
+		playSound(clickSound, false);
 		switch (parseInt(pStyleRange.value)) {
 			case 0:
 				styleSettings.particleStyle = [1, 0];
@@ -1136,15 +1146,8 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 	}
 
 	// Particle placing
-	function getCoords(ev) { // Viewport coordinates
-		const canvasPos = canvas.getBoundingClientRect();
-		return [ev.offsetX + canvasPos.x - 8, ev.offsetY];
-		
-	}
-	let mDownVpX = 0,
-	mDownVpY = 0,
-	mDownCanvasX = 0,
-	mDownCanvasY = 0,
+
+	let mDownX = 0, mDownY = 0,
 	mouseIsDown = false;
 	
 	canvas.onmousedown = (ev)=> {
@@ -1153,23 +1156,24 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 		canvas.style.cursor = "none";
 		panels.style.pointerEvents = "none";
 
-		[mDownVpX, mDownVpY] = getCoords(ev);
-		mDownCanvasX = ev.offsetX;
-		mDownCanvasY = ev.offsetY;
+		[mDownX, mDownY] = [ev.offsetX, ev.offsetY];
 
 		const elem =  elementaries[partiControls.selector.selectedIndex];
 		circle.style.width = elem.radio * 2 + "px";
 		circle.style.backgroundColor = "rgba(" + elem.color.subarray(0, 3).map(x => x * 255) + "," + 0.6 + ")";
 		
-		const strx = mDownVpX + "px";
-		const stry = mDownVpY + "px";
+		const strx = mDownX + "px";
+		const stry = mDownY + "px";
+
 		circle.style.left = strx;
 		circle.style.top =  stry;
 
 		line.style.left = strx;
 		line.style.top =  stry;
-
-		arrowEnd.style.setProperty("--origin", "0px 0px" /*strx + " " + stry*/)
+		
+		arrowEnd.style.top = strx;
+		arrowEnd.style.bottom = stry;
+		arrowEnd.style.setProperty("--origin", "0px 0px" /*strx + " " + stry*/);
 
 		circle.hidden = false;
 	}
@@ -1188,22 +1192,18 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 			canvas.style.cursor = "crosshair";
 			return;
 		}
+		
+		const [dx, dy] = getDeltas(ev);
 
-		const x1 = mDownVpX;
-		const y1 = mDownVpY;
-		const [x2, y2] = getCoords(ev);
-		const dx = x2 - x1;
-		const dy = y2 - y1;
 		const d = Math.sqrt(dx*dx + dy*dy);
-
 		const a = Math.atan2(dy,dx);
 
 		line.style.width = d + "px";
 		line.style.setProperty("--rot", a + "rad")
 
 		arrowEnd.style.setProperty("--rot", a + "rad")
-		arrowEnd.style.left = x2 + "px";
-		arrowEnd.style.top = y2 + "px";
+		arrowEnd.style.left = ev.offsetX + "px";
+		arrowEnd.style.top = ev.offsetY + "px";
 
 		arrowEnd.hidden = false;
 		line.hidden = false;
@@ -1219,31 +1219,31 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 		if (!newParticles.length) { newParticles = Array.from(Array(elementaries.length), () => []); }
 
 		mouseIsDown = false;
-		const x1 = mDownVpX;
-		const y1 = mDownVpY;
-		const [x2, y2] = getCoords(ev);
-		const dx = x2 - x1;
-		const dy = y2 - y1;
-
-		arrowEnd.style.left = x2 + "px";
-		arrowEnd.style.top = y2 + "px";
-
 		circle.hidden = true;
 		arrowEnd.hidden = true;
 		panels.style.pointerEvents = "auto";
+
+		const [dx, dy] = getDeltas(ev);
 
 		const i = partiControls.selector.selectedIndex
 		const elem = elementaries[i];
 
 		// Revisar si entra en el canvas
-		const pos = [mDownCanvasX - canvas.width/2, -(mDownCanvasY - canvas.height/2), 0, i];
-		const vel = [dx/50, -dy/50, 0, 1];
+		const pos = [mDownX - canvas.width/2, -(mDownY - canvas.height/2), 0, i];
 
 		if (Math.abs(pos[0]) + elem.radio > canvas.width/2 || Math.abs(pos[1] + elem.radio > canvas.height/2)) {
 			return;
 		}
 
 		// Agregar partícula a elementaries
+
+		// Escalar el módulo del vector velocidad linealmente y luego exponencialmente.
+		const fac = 1/30;
+		const exp = 1.4;
+		const [x, y] = [dx*fac, dy*fac];
+		const s = (x*x + y*y)**((exp-1)/2); 
+		const vel = [x*s, -y*s, 0, 1];
+
 		const n = ++elem.cantidad * 4;
 		const newPos = new Float32Array(n);
 		const newVel = new Float32Array(n);
@@ -1286,7 +1286,16 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 	// Botones de tiempo
 	pauseButton.onclick =_=> pausar();
 	stepButton.onclick =_=> stepear();
-	resetButton.onclick =_=> resetear();
+	resetButton.onclick =(ev)=> {
+		if (ev.ctrlKey) {
+			const path = DATA_FOLDER + "Cells GPU setup - Vacío.json"
+			importarJson(path)
+			.then(response => response.json())
+			.then(json => cargarSetup(json, true));
+			return;
+		}
+		resetear();
+	}
 
 	// Controles
 	document.addEventListener("keydown", function(event) {
@@ -1436,8 +1445,14 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 	partiControls.placeButton.onclick =_=> {
 		placePartOnClic = !placePartOnClic;
 		switchClass(partiControls.placeButton, "switchedoff");
-		if (placePartOnClic) { canvas.style.cursor = "crosshair"; }
-		else { canvas.style.cursor = "default"; }
+		if (placePartOnClic) {
+			canvas.style.cursor = "crosshair";
+			switchClass(borraParticleButton, "disabled", true);
+		}
+		else { 
+			canvas.style.cursor = "default"; 
+			switchClass(borraParticleButton, "disabled", newParticles.length);
+		}
 	}
 
 	// Creador de reglas de interacción
@@ -1521,7 +1536,7 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 			titilarBorde(ruleControls.selector)
 			return;
 		}
-
+		
 		if (event.ctrlKey) {
 			rules = [];
 			ruleControls.selector.innerHTML = "";
@@ -1533,14 +1548,13 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 				borraRuleButton.hidden = true;
 			}
 		}
-
 		updateUIAfterRulesChange();
-
 	}
 	ruleControls.selector.onchange =_=> setPlaceholdersRules();
 
 	// Particle manager
 	borraParticleButton.onclick =(event)=> {
+		if (borraParticleButton.classList.contains("disabled")) { return; }
 		const indexToDelete = partiControls.selector.selectedIndex;
 		if (indexToDelete === -1) {
 			console.warn("Esto no debería haber pasado...")
@@ -1625,7 +1639,6 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 
 	// Interfaz
 	if (SHOW_DEBUG) {switchVisibility(debugInfo); switchVisibility(infoPanel); }
-
 //
 
 // Vértices
@@ -1958,13 +1971,13 @@ function updateParticlesBuffers() {
 		device.queue.submit([copyEncoder.finish()]); // Submit encoder
 
 		console.log("Frame " +frame+ ": Añadidas partículas manuales a los GPUBuffers");
-		tempParticles.replaceChildren();
-		newParticles = [];
+		clearTempParticles();
+
 	}
 
 	// Resetear posivels o cargar posiciones precargadas
 	if (flags.preventResetParts || flags.resetParts || frame === 0) {
-
+		
 		let offset = 0, pos = [], vel = [];
 		const positionsArray = new Float32Array(N*4);
 		const velocitiesArray = new Float32Array(N*4);
@@ -1994,7 +2007,9 @@ function updateParticlesBuffers() {
 		else { console.log("Partículas asignadas a los GPUBuffers."); }
 		flags.resetParts = false;
 		flags.preventResetParts = false;
-		newParticles = [];
+
+		clearTempParticles();
+
 	}
 	flags.updateParticles = false;
 }
@@ -2064,7 +2079,6 @@ function updateDistancesBuffers(Nr, m) {
 	paramsArrays.Npi.set([Npi]);
 	device.queue.writeBuffer(GPUBuffers.params, 20, paramsArrays.Nd);
 	device.queue.writeBuffer(GPUBuffers.params, 24, paramsArrays.Npi);
-
 }
 function updateRulesBuffer(activeRules) {
 	const Nr = activeRules.length;
@@ -2092,7 +2106,7 @@ function updateRulesBuffer(activeRules) {
 
 	flags.updateRules = false;
 }
-function updateCanvasBuffer() {
+function updateCanvasInBuffer() {
 	paramsArrays.canvasDims.set([canvas.width, canvas.height]);
 	device.queue.writeBuffer(GPUBuffers.params, 0, paramsArrays.canvasDims);
 	flags.updateCanvas = false;
@@ -2116,7 +2130,7 @@ function editBuffers() {
 
 	// Canvas size
 	if (flags.updateCanvas) {
-		updateCanvasBuffer();
+		updateCanvasInBuffer();
 	}
 
 }

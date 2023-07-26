@@ -1,0 +1,12 @@
+`\
+	${CURRENT_VERSION}
+
+	* Pequeñas mejoras en la interfaz y la funcionalidad. Corregido algún que otro bug.
+
+	* Enormes cambios en la organización del código, está más presentable y sostenible pero falta.
+
+	* El sistema para poner partículas manualmente sigue en Beta, pero anda bastante bien.
+
+	* Algunos setups para importar y probar: https://github.com/Tomycj/Webpage/tree/main/data
+
+`

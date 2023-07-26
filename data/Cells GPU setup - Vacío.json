@@ -1,0 +1,22 @@
+{
+  "seed": "",
+  "friction": "0.005",
+  "bounce": "80",
+  "maxInitVel": "0",
+  "elementaries": [
+    {
+      "nombre": "B",
+      "color": [
+        0,
+        0.5686274766921997,
+        1,
+        1
+      ],
+      "cantidad": 0,
+      "radio": 10,
+      "posiciones": [],
+      "velocidades": []
+    }
+  ],
+  "rules": []
+}

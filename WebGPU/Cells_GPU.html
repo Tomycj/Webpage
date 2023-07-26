@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="es">
 	<head>
-		<title id="title">Cells GPU - v1.2.0</title>
+		<title id="title">Cells GPU - v1.2.6</title>
 		<meta charset="utf-8">
 		<link rel="stylesheet" href="../styles/CellsGPU.css">
 		<link rel="icon" href="../images/logoBLR.png" type="image/icon type">
@@ -9,7 +9,7 @@
 		<script type="importmap">
 			{
 				"imports": {
-					"inicializar-webgpu": "./scripts/misFunciones.js",
+					"inicializar-webgpu": "./modules/misFunciones.js",
 					"shaders": "./shaders/shadersCellsGPU.js",
 					"utilities": "./modules/utilities.js"
 				}
@@ -17,7 +17,7 @@
 		</script>
 	</head>
 
-	<body style="background-color: black; color: white; overflow-y: scroll;" >
+	<body>
 		<h2 hidden style ="text-align: center; margin: 6px;" >
 			Cells GPU
 		</h2>
@@ -26,10 +26,12 @@
 		
 		<p id="estatus" style="text-align: center;" >  Iniciando... </p>  <!-- mensaje de estatus -->
 		
-		<div id="canvascontainer" class="overlayed" style ="text-align: center;">
+		<div id="canvascontainer" class="overlayed">
 
-			<canvas id="canvas" hidden width="100" height="100" ></canvas>
-			<div>
+			<div id="canvaswrapper">
+
+				<canvas id="canvas" hidden width="100" height="100"></canvas>
+
 				<span id="circle" hidden class="circle"></span>
 				<span id="arrowend" hidden class="circle arrowend"> › </span>
 				<span id="line" hidden class="circle line"></span>
@@ -46,8 +48,9 @@
 						<button id="pausebutton" class="button">Iniciar</button>
 						<button id="stepbutton" class="button">Step</button>
 						<button id="resetbutton" class="button hastooltip" hidden>Reiniciar
-							<span class="tooltiptext">
-								Aplica todos los parámetros y reinicia
+							<span class="tooltiptext long">
+								Aplica todos los parámetros y reinicia.<br>
+								Ctrl + Click para BORRAR TODO.
 							</span>
 						</button>
 					</div>
@@ -91,7 +94,7 @@
 						
 						<div id="ambientoptions" hidden>
 
-							<div class="c.div hastooltip">
+							<div class="options_row hastooltip">
 								<label for="friction">Fricción: </label>
 								<input type="number" id="friction" class="numberinput" min="0" max="1" step="any">
 								<span class="tooltiptext short">
@@ -99,7 +102,7 @@
 								</span>
 							</div>
 
-							<div class="c.div hastooltip">
+							<div class="options_row hastooltip">
 								<label for="bounce">Rebote: &nbsp</label>
 								<input type="number" id="bounce" class="numberinput" 
 									style="width: 3ch; text-align: end;" min="0" max="100" step="1"> %
@@ -108,7 +111,7 @@
 								</span>
 							</div>
 
-							<div class="c.div hastooltip">
+							<div class="options_row hastooltip">
 								<label for="initialvel">Vel. inicial: </label>
 								<input type="number" id="initialvel" class="numberinput" min="0" step="any">
 								<span class="tooltiptext long">
@@ -117,7 +120,7 @@
 								</span>
 							</div>
 
-							<div class="c.div">
+							<div class="options_row">
 								<button class="button hastooltip" id="ambientupdate">Aplicar
 									<span class="tooltiptext short">
 										Aplica configuración de entorno
@@ -133,7 +136,7 @@
 
 						<div class="creador", id="creadorparticulas">
 		
-							<div class="c.div hastooltip">
+							<div class="options_row hastooltip">
 								<label for="c.nom">Nombre: </label>
 								<input type="text" id="c.nom" class="textinput">
 								<span class="tooltiptext" style="width: 38ch;">
@@ -141,17 +144,17 @@
 								</span>
 							</div>
 		
-							<div class="c.div">
+							<div class="options_row">
 								<label for="c.col">Color: </label>
 								<input type="color" id="c.col" class="colorinput" value="#101010">
 							</div>
 		
-							<div class="c.div">
+							<div class="options_row">
 								<label for="c.cant">Cantidad: </label>
 								<input type="number" id="c.cant" class="numberinput" min="0" max="100000" step="1">
 							</div>
 		
-							<div class="c.div hastooltip">
+							<div class="options_row hastooltip">
 								<label for="c.radius">Radio: </label>
 								<input type="number" id="c.radius" class="numberinput" min="0" max="500" step="any">
 								<span class="tooltiptext short">
@@ -159,23 +162,24 @@
 								</span>
 							</div>
 		
-							<button id="c.elemsubmit" class="button" >Crear</button>
+							<div class="options_row">
+								<button id="c.elemsubmit" class="button" >Crear</button>
 
-							<button class="button hastooltip disabled" id="c.update">Aplicar
-								<span class="tooltiptext long">
-									Aplica la configuración de partículas creada
-								</span>
-							</button>
+								<button class="button hastooltip disabled" id="c.update">Aplicar
+									<span class="tooltiptext long">
+										Aplica la configuración de partículas creada
+									</span>
+								</button>
+	
+								<button id="c.place" hidden class="button hastooltip switchedoff">Colocar
+									<span class="tooltiptext">
+										Colocar partículas manualmente.<br>
+										Arrastrar para darles velocidad.
+									</span>
+								</button>
+							</div>
 
-							<button id="c.place" hidden class="button hastooltip switchedoff">Poner (*)
-								<span class="tooltiptext">
-									Colocar partículas al clickear.<br>
-									Arrastrar para darles velocidad.
-									*Funcionalidad en desarrollo.
-								</span>
-							</button>
-							
-							<div class="creador" id="particlemanager">
+							<div class="options_row" id="particlemanager">
 								<label for="particleselect">Partículas: </label>
 								<select id="particleselect" class="selector selr" style="width: 7ch;">
 								
@@ -196,12 +200,12 @@
 						
 						<div class="creador" id="creadorreglas" hidden>
 
-							<div class="c.div">
+							<div class="options_row">
 								<label for="rulename">Nombre: </label>
 								<input type="text" id="rulename" class="textinput">
 							</div>
 
-							<div class="c.div hastooltip">
+							<div class="options_row hastooltip">
 								<label for="targetselect">Afecta a </label>
 								<select class="selector" id="targetselect">
 		
@@ -211,7 +215,7 @@
 								</span>
 							</div>
 		
-							<div class="c.div hastooltip">
+							<div class="options_row hastooltip">
 								<label for="sourceselect">Ejercida por </label>
 								<select class="selector" id="sourceselect">
 								
@@ -221,12 +225,12 @@
 								</span>
 							</div>
 		
-							<div class="c.div">
+							<div class="options_row">
 								<label for="r.intens">Intensidad: </label>
 								<input type="number" id="r.intens" class="numberinput" step="any">
 							</div>
 		
-							<div class="c.div hastooltip">
+							<div class="options_row hastooltip">
 								<label for="r.qm">Ruido cuántico: </label>
 								<input type="number" id="r.qm" class="numberinput" min="0" step="any">
 								<span class="tooltiptext short">
@@ -234,17 +238,17 @@
 								</span>
 							</div>
 		
-							<div class="c.div">
+							<div class="options_row">
 								<label for="r.dmin">Dist. mín: </label>
 								<input type="number" id="r.dmin" class="numberinput" min="0" step="any">
 							</div>
 		
-							<div class="c.div">
+							<div class="options_row">
 								<label for="r.dmax">Dist. máx: </label>
 								<input type="number" id="r.dmax" class="numberinput" min="0" step="any">
 							</div>
 		
-							<div class="c.div">
+							<div class="options_row">
 								<button class="button hastooltip" id="r.submit">Crear
 									<span class="tooltiptext short">
 										Ctrl + Click para sobreescribir regla homónima
@@ -259,7 +263,7 @@
 								</button>
 							</div>
 
-							<div class="creador" id="rulemanager">
+							<div class="options_row" id="rulemanager">
 								<label for="ruleselect">Reglas: </label>
 								<select class="selector selr" id="ruleselect">
 			
@@ -276,14 +280,17 @@
 
 						<hr style="border-color: rgba(255, 0255, 255, 0.3); margin: 3px;">
 
-						<button class="button hastooltip" id="export">Exportar
-							<span class="tooltiptext">
-								Descarga la configuración actual. <br>
-								Ctrl + Click para incluir posiciones.
-							</span>
-						</button>
-						<button class="button" id="import">Importar</button>
-						<button class="button" id="mostrarinfo">Info</button>
+						<div class="options_row">
+							<button class="button hastooltip" id="export">Exportar
+								<span class="tooltiptext">
+									Descarga la configuración actual. <br>
+									Ctrl + Click para incluir posiciones.
+								</span>
+							</button>
+							<button class="button" id="import">Importar</button>
+							<button class="button" id="mostrarinfo">Info</button>
+						</div>
+
 					</div>
 
 				</div>
@@ -306,7 +313,7 @@
 			</div>
 		</div>
 
-		<div id="backbutton" style="text-align: center; margin: 4px;">
+		<div id="backbutton" style="text-align: center; padding: 4px;">
 			<button onclick="location.href = '../index.html';" class="button" >Volver</button>
 		</div>
 
