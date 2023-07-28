@@ -88,7 +88,12 @@ export async function inicializarCells(showTitle=true){
 	return [device, canvas, canvasFormat, context, timer];
 	
 }
-
+/**
+ * Arrow functions can be documented just like normal functions.
+ * @param {number} numParam A number to add.
+ * @param {string} strParam Another number to add that happens to be a string.
+ * @return {number} The sum of the two parameters.
+ */
 export function autoCanvasDims(container, dims="widthheight") {
 
 	const pixelRatio = window.devicePixelRatio || 1;

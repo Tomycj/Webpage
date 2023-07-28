@@ -8,7 +8,7 @@ SHOW_TITLE = false,
 
 [device, canvas, canvasFormat, context, timer] = await inicializarCells(SHOW_TITLE),
 
-DATA_FOLDER = "../../data/",
+SETUPS_FOLDER = "../../data/",
 WORKGROUP_SIZE = 64,
 NEW_USER = localStorage.getItem("NEW_USER"),
 CURRENT_VERSION = document.getElementById("title").innerText,
@@ -75,12 +75,13 @@ frameCounter = 0,
 refTime,
 placePartOnClic = false,
 newParticles = [], // PosiVels de partículas creadas manualmente para cada elementary
-sampleCount = 4, // Parece que sólo puede ser 1 o 4.
+sampleCount = 1, // Parece que sólo puede ser 1 o 4.
 textureView;
 
 // TIMING & DEBUG 
-	const START_WITH_SETUP = 1
-	const SHOW_DEBUG = 0
+	const STARTING_SETUP_NUMBER = 1,
+	SETUP_FILENAME = "Cells GPU setup - ClassicX10",
+	SHOW_DEBUG = false;
 	//localStorage.setItem("NEW_USER", 1);
 	//localStorage.setItem("STORED_VERSION_NUMBER", -1);
 	let PRECALCULAR_DISTANCIAS = false;
@@ -441,12 +442,29 @@ textureView;
 		}
 	}
 	function importarJson(path="") {
+		const msg = "Error detectado antes de importar."
 
-		if (path) { return fetch(path); } // Load from server file.
+		if (path) { // Load from server file.
+
+			return new Promise ((resolve, reject) => {
+
+				fetch(path)
+				.then( (response) => { return response.json() })
+				.catch((error) => { reject(labelError(error, msg)); })
+				.then( (json) => { resolve(json); })
+			});
+			/* Async solution expanded
+				const promise = fetch(path);
+				const response = await fetch(path);
+				const json = await response.json();
+				return(json);
+			*/
+		} 
 
 		const fileInput = document.createElement("input");
 		fileInput.type = "file";
 		fileInput.accept = ".json";
+
 		return new Promise((resolve, reject) => {
 
 			fileInput.onchange =(event)=> {
@@ -457,16 +475,26 @@ textureView;
 					try {
 						const jsonData = JSON.parse(reader.result);
 						resolve(jsonData);
-					} catch (error) {
-						reject(error);
-					}
+					} catch (error) { reject(error); }
 				}
-				reader.onerror = (error) => { reject(error); }
+				reader.onerror = (error) => { reject(labelError(error, msg)); }
 				reader.readAsText(file);
 			};
 			
 			fileInput.click();
 		});
+
+	}
+	async function importSetup(path) {
+
+		const jsonPromise = importarJson(path)
+		.catch((error) => {
+			window.alert("Error al importar, archivo descartado.\n" + error);
+		});
+
+		const json = await jsonPromise;
+
+		return Setup.fromJsonObjectLit(json);
 	}
 	function cargarSetup(setup, draw = false) {
 				
@@ -510,7 +538,6 @@ textureView;
 		if (setup.seed) { seedInput.value = setup.seed.toString(); }
 		
 		// Load elementaries
-
 		vaciarSelectors();
 
 		elementaries = setup.elementaries;
@@ -566,11 +593,12 @@ textureView;
 		rules = setup.rules;
 		for (let rule of rules) { actualizarRuleSelector(rule); }
 
+		flags.justLoadedSetup = true;
 		resetear(draw);
 		setPlaceholdersParticles();
 		setPlaceholdersRules();
-		console.log("Setup " + setup.name + " cargado.")
-		flags.justLoadedSetup = true;
+		console.log("Setup " + setup.name + " cargado.");
+
 	}
 	function exportarSetup(setup, filename = "Cells GPU setup", savePosiVels = false) {
 		
@@ -999,10 +1027,10 @@ textureView;
 	function applyAmbient() {
 		let mustUpdate = false;
 		const [friction, frictionInvalid] = checkAndGetNumberInput(ambientControls.inputs.friction, false, false);
-		
+		// obtiene número de input (value o placeholder)
 		if (!frictionInvalid) {
 			ambientControls.inputs.friction.value = "";
-			if (ambient.friction != friction) {
+			if (ambient.friction !== friction) {
 				ambient.friction = friction;
 				ambientControls.inputs.friction.placeholder = friction;
 				mustUpdate = true;
@@ -1012,7 +1040,7 @@ textureView;
 		const [bounce, bounceInvalid] = checkAndGetNumberInput(ambientControls.inputs.bounce, false, false);
 		if (!bounceInvalid) {
 			ambientControls.inputs.bounce.value = "";
-			if ( ambient.bounce != Math.max(bounce, 0)) {
+			if ( ambient.bounce !== Math.max(bounce, 0)) {
 				ambient.bounce = Math.max(bounce, 0);
 				ambientControls.inputs.bounce.placeholder = ambient.bounce;
 				mustUpdate = true;
@@ -1024,7 +1052,7 @@ textureView;
 		if (!velInvalid) {
 			ambientControls.inputs.vel.value = "";
 			vel = Math.abs(vel);
-			if ( vel != ambient.maxInitVel || flags.justLoadedSetup) {
+			if ( vel !== ambient.maxInitVel || flags.justLoadedSetup) {
 				ambient.maxInitVel = vel;
 				ambientControls.inputs.vel.placeholder = vel;
 				mustUpdate = true
@@ -1120,6 +1148,11 @@ textureView;
 			usage: GPUTextureUsage.RENDER_ATTACHMENT,
 		});
 		return texture.createView();
+	}
+	function labelError(error, label="Default error label") {
+		const labeledError = new Error (label);
+		labeledError.cause = error;
+		return labeledError;
 	}
 	function MAX_SAFE_Ingeter () {
 		let n = 0;
@@ -1430,10 +1463,9 @@ textureView;
 	stepButton.onclick =_=> stepear();
 	resetButton.onclick =(ev)=> {
 		if (ev.ctrlKey) {
-			const path = DATA_FOLDER + "Cells GPU setup - Vacío.json"
-			importarJson(path)
-			.then(response => response.json())
-			.then(json => cargarSetup(Setup.fromJsonObjectLit(json), true));
+			const path = SETUPS_FOLDER + "Cells GPU setup - Vacío.json"
+			importSetup(path)
+			.then( (setup) => { cargarSetup(setup, true);} );
 			return;
 		}
 		resetear();
@@ -1503,14 +1535,8 @@ textureView;
 	);
 
 	importButton.onclick =_=> {
-		importarJson()
-		.then((json) => { // TODO: Estudiar bien como funciona esto, para poder hacer lo siguiente a cargar luego del catch
-			cargarSetup(Setup.fromJsonObjectLit(json), true);
-		})
-		.catch((error) => {
-			window.alert("Error al importar, archivo descartado.\n" + error);
-			console.error(error);
-		});
+		importSetup()
+		.then( (setup) => { cargarSetup(setup, true); } );
 	}
 
 	// Sonidos
@@ -1744,6 +1770,9 @@ textureView;
 
 // INICIALIZACIÓN
 
+	// Interfaz
+
+	if (SHOW_DEBUG) { switchVisibility(debugInfo); }
 	// Novedades
 	if (LAST_VISITED_VERSION !== CURRENT_VERSION) {
 
@@ -1782,53 +1811,54 @@ textureView;
 	ambientControls.inputs.vel.placeholder = ambient.maxInitVel;
 
 	// Inicializar seed o importar
-	switch (START_WITH_SETUP) {
+	switch (STARTING_SETUP_NUMBER) {
 		case 0:
 			setRNG(seedInput.value);
 			break;
 		case 1:
-			cargarSetup(generarSetupClásico(10, "")); //"0.6452130" x10
+			cargarSetup(generarSetupClásico(10, ""), false); //"0.6452130" x10
 			break;
-		case 2: 
+		case 2:
+			const path = SETUPS_FOLDER + SETUP_FILENAME + ".json";
+			importSetup(path)
+			.then( (setup) => { cargarSetup(setup, false);} );
+			break;
+		case 3: 
 			generarSetupDebug(10, "");
 			break;
 	}
-
-	// Interfaz
-	if (SHOW_DEBUG) {switchVisibility(debugInfo); switchVisibility(infoPanel); }
-//
-
-// Vértices
-
-	const v = 1; // ojo!: afecta el shader
-	const vertices = new Float32Array([ // Coordenadas en clip space
-		//   X,    Y,
-		-v, -v, // Triangle 1 (Blue)
-		v, -v,
-		v,  v,
-
-		-v, -v, // Triangle 2 (Red)
-		v,  v,
-		-v,  v,
-	]);
-	const vertexBuffer = device.createBuffer({
-		label: "Particle vertices",
-		size: vertices.byteLength, //12 * 32-bit floats (4 bits c/u) = 48 bytes
-		usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-	});
-	device.queue.writeBuffer(vertexBuffer, /*bufferOffset=*/ 0, vertices);
-
-	const vertexBufferLayout = {
-		arrayStride: 8, 			// cada vertex ocupa 8 bytes (2 *4-bytes)
-		attributes:[{ 				// array que es un atributo que almacena cada vertice (BLENDER!!!)
-			format: "float32x2", 	// elijo el formato adecuado de la lista de GPUVertexFormat
-			offset: 0, 				// a cuántos bytes del inicio del vertice empieza este atributo.
-			shaderLocation: 0, 		// Position, see vertex shader. es un identificador exclusivo de este atributo. de 0 a 15.
-		}]
-	};
 //
 
 // WEBGPU
+
+	// Vértices
+		const v = 1; // ojo!: afecta el shader
+		const vertices = new Float32Array([ // Coordenadas en clip space
+			//   X,    Y,
+			-v, -v, // Triangle 1 (Blue)
+			v, -v,
+			v,  v,
+
+			-v, -v, // Triangle 2 (Red)
+			v,  v,
+			-v,  v,
+		]);
+		const vertexBuffer = device.createBuffer({
+			label: "Particle vertices",
+			size: vertices.byteLength, //12 * 32-bit floats (4 bits c/u) = 48 bytes
+			usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+		});
+		device.queue.writeBuffer(vertexBuffer, /*bufferOffset=*/ 0, vertices);
+
+		const vertexBufferLayout = {
+			arrayStride: 8, 			// cada vertex ocupa 8 bytes (2 *4-bytes)
+			attributes:[{ 				// array que es un atributo que almacena cada vertice (BLENDER!!!)
+				format: "float32x2", 	// elijo el formato adecuado de la lista de GPUVertexFormat
+				offset: 0, 				// a cuántos bytes del inicio del vertice empieza este atributo.
+				shaderLocation: 0, 		// Position, see vertex shader. es un identificador exclusivo de este atributo. de 0 a 15.
+			}]
+		};
+	//
 
 	// texture y su view, para multisampling (MSAA)
 	if (!textureView) { textureView = getTextureView(ambient.canvasDims); }
@@ -2156,9 +2186,7 @@ function updateParticlesBuffers() {
 		else { console.log("Partículas asignadas a los GPUBuffers."); }
 		flags.resetParts = false;
 		flags.justLoadedSetup = false;
-
 		clearTempParticles();
-
 	}
 	flags.updateParticles = false;
 }
@@ -2521,6 +2549,7 @@ async function newFrame(){
 }
 
 //TODO:
+//BUG: HAY UN PROBLEMA CON LA SEED (capaz sólo si está manual) AL IMPORTAR SETUPS
 /*
 PERMITIR APLICAR PARTÍCULAS SIN RESETEAR POSIVELS. WE HAVE THE TECHNOLOGY!
 */

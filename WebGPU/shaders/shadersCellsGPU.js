@@ -381,9 +381,13 @@ export function renderShader() { return /*wgsl*/`
 
         //let idx = input.idx;
         let k = input.k;
+
+        let border = step(r, params.borderStart);
+        let gradient = ( 1 + params.spherical * (sqrt(1 - r*r) - 1) );
+        let color_xyz = elems[k].color.xyz * border * gradient * input.random;
         
-        return elems[k].color * step(r, params.borderStart) * input.random * ( 1 + params.spherical * (sqrt(1 - r*r) - 1) );
-    
+        return vec4f(color_xyz, 1);
+
     }
     `;
 }
