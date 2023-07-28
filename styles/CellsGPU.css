@@ -41,8 +41,8 @@ span {
 }
 
 .overlayed {
-    /*position: relative;
-	overflow: visible;
+    position: relative;
+	/*overflow: visible;
 	width: 100%;*/
 	text-align: center;
 }
@@ -52,7 +52,7 @@ span {
 	line-height: 2;
 	top: 0;
 	position: absolute;
-	padding: 8px;
+	padding-bottom: 6px;
 	background: var(--transparentBlack);
 	z-index: 1;
 }
@@ -61,13 +61,15 @@ span {
 }
 .right {
 	right: 0;
-	padding-right: 16px;
+	padding-left: 8px;
+	padding-right: 8px;
 	text-align: right;
 	border-bottom-left-radius: 10px;
 }
 .left {
 	left: 0;
-	padding-left: 16px;
+	padding-left: 8px;
+	padding-right: 8px;
 	width: 23.5ch;
 	border-bottom-right-radius: 10px;
 	user-select: none;
@@ -124,6 +126,9 @@ span {
 	position: absolute;
 	top: 0;
 	left: 0;
+}
+.options-row {
+	position:relative;
 }
 
 .numberinput {
@@ -209,8 +214,6 @@ span {
 	color: var(--transparentWhiteB);
 	cursor: default;
 }
-
-
 #pausebutton {
 	width: 9ch;
 }
@@ -233,11 +236,10 @@ option:hover{
 .selector:hover {
 	border-color: var(--borderHighlightColor);
 }
-.selr {
-	width: 9ch;
-}
 
 .colorinput {
+	position: relative;
+	top: 0.3ch;
 	width: 30%;
 	height: 2.5ch;
 	outline: none;

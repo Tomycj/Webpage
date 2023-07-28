@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="es">
 	<head>
-		<title id="title">Cells GPU - v1.2.6</title>
+		<title id="title">Cells GPU - v1.2.8</title>
 		<meta charset="utf-8">
 		<link rel="stylesheet" href="../styles/CellsGPU.css">
 		<link rel="icon" href="../images/logoBLR.png" type="image/icon type">
@@ -82,7 +82,7 @@
 							<label for="volume">Sonidos: </label>
 							<input type="range" id="volume" value="0.2" class="rangeinput" min ="0" max="1" step="0.001"><br>
 
-							<label for="pstyle">Estilo: </label>
+							<label for="pstyle">Shader: </label>
 							<input type="range" id="pstyle" value="2" class="rangeinput discrete" min ="0" max="2" step="1"><br>
 
 						</div>
@@ -94,7 +94,7 @@
 						
 						<div id="ambientoptions" hidden>
 
-							<div class="options_row hastooltip">
+							<div class="options-row hastooltip">
 								<label for="friction">Fricción: </label>
 								<input type="number" id="friction" class="numberinput" min="0" max="1" step="any">
 								<span class="tooltiptext short">
@@ -102,7 +102,7 @@
 								</span>
 							</div>
 
-							<div class="options_row hastooltip">
+							<div class="options-row hastooltip">
 								<label for="bounce">Rebote: &nbsp</label>
 								<input type="number" id="bounce" class="numberinput" 
 									style="width: 3ch; text-align: end;" min="0" max="100" step="1"> %
@@ -111,7 +111,7 @@
 								</span>
 							</div>
 
-							<div class="options_row hastooltip">
+							<div class="options-row hastooltip">
 								<label for="initialvel">Vel. inicial: </label>
 								<input type="number" id="initialvel" class="numberinput" min="0" step="any">
 								<span class="tooltiptext long">
@@ -120,9 +120,9 @@
 								</span>
 							</div>
 
-							<div class="options_row">
+							<div class="options-row">
 								<button class="button hastooltip" id="ambientupdate">Aplicar
-									<span class="tooltiptext short">
+									<span class="tooltiptext">
 										Aplica configuración de entorno
 									</span>
 								</button>
@@ -135,42 +135,19 @@
 						</div>
 
 						<div class="creador", id="creadorparticulas">
-		
-							<div class="options_row hastooltip">
-								<label for="c.nom">Nombre: </label>
-								<input type="text" id="c.nom" class="textinput">
-								<span class="tooltiptext" style="width: 38ch;">
-									Dejar el mismo nombre para sobreescribirlas
-								</span>
-							</div>
-		
-							<div class="options_row">
-								<label for="c.col">Color: </label>
-								<input type="color" id="c.col" class="colorinput" value="#101010">
-							</div>
-		
-							<div class="options_row">
-								<label for="c.cant">Cantidad: </label>
-								<input type="number" id="c.cant" class="numberinput" min="0" max="100000" step="1">
-							</div>
-		
-							<div class="options_row hastooltip">
-								<label for="c.radius">Radio: </label>
-								<input type="number" id="c.radius" class="numberinput" min="0" max="500" step="any">
-								<span class="tooltiptext short">
-									Tiene que entrar en el área
-								</span>
-							</div>
-		
-							<div class="options_row">
-								<button id="c.elemsubmit" class="button" >Crear</button>
 
-								<button class="button hastooltip disabled" id="c.update">Aplicar
-									<span class="tooltiptext long">
-										Aplica la configuración de partículas creada
+							<div class="options-row" id="particlemanager">
+								<!-- <label for="particleselect">Partículas: </label> -->
+								<select id="particleselect" class="selector" style="width: 8ch;">
+								
+								</select>
+
+								<button class="button hastooltip" id="borraparticula">Borrar
+									<span class="tooltiptext short">
+										Ctrl + Click para borrar todas
 									</span>
 								</button>
-	
+
 								<button id="c.place" hidden class="button hastooltip switchedoff">Colocar
 									<span class="tooltiptext">
 										Colocar partículas manualmente.<br>
@@ -178,19 +155,42 @@
 									</span>
 								</button>
 							</div>
+		
+							<div class="options-row hastooltip">
+								<label for="c.nom">Nombre: </label>
+								<input type="text" id="c.nom" class="textinput">
+								<span class="tooltiptext" style="width: 38ch;">
+									Dejar el mismo nombre para sobreescribirlas
+								</span>
+							</div>
+		
+							<div class="options-row">
+								<label for="c.col">Color: </label>
+								<input type="color" id="c.col" class="colorinput" value="#101010">
+							</div>
+		
+							<div class="options-row">
+								<label for="c.cant">Cantidad: </label>
+								<input type="number" id="c.cant" class="numberinput" min="0" max="100000" step="1">
+							</div>
+		
+							<div class="options-row hastooltip">
+								<label for="c.radius">Radio: </label>
+								<input type="number" id="c.radius" class="numberinput" min="0" max="500" step="any">
+								<span class="tooltiptext short">
+									Tiene que entrar en el área
+								</span>
+							</div>
+		
+							<div class="options-row">
+								<button id="c.elemsubmit" class="button" >Crear</button>
 
-							<div class="options_row" id="particlemanager">
-								<label for="particleselect">Partículas: </label>
-								<select id="particleselect" class="selector selr" style="width: 7ch;">
-								
-								</select>
-								<button class="button hastooltip" id="borraparticula">Borrar
-									<span class="tooltiptext short">
-										Ctrl + Click para borrar todas
+								<button class="button hastooltip disabled" id="c.update">Aplicar
+									<span class="tooltiptext long">
+										Aplica la configuración de partículas creada
 									</span>
 								</button>
 							</div>
-		
 						</div>
 
 						<div style="position: relative;">
@@ -200,13 +200,24 @@
 						
 						<div class="creador" id="creadorreglas" hidden>
 
-							<div class="options_row">
+							<div class="options-row" id="rulemanager">
+								<select id="ruleselect" class="selector" style="width: 9ch;">
+			
+								</select>
+								<button class="button hastooltip" id="borrarule">Borrar
+									<span class="tooltiptext short">
+										Ctrl + Click para borrar todas
+									</span>
+								</button>
+							</div>
+
+							<div class="options-row">
 								<label for="rulename">Nombre: </label>
 								<input type="text" id="rulename" class="textinput">
 							</div>
 
-							<div class="options_row hastooltip">
-								<label for="targetselect">Afecta a </label>
+							<div class="options-row hastooltip">
+								<label for="targetselect">Afecta a: </label>
 								<select class="selector" id="targetselect">
 		
 								</select>
@@ -215,8 +226,8 @@
 								</span>
 							</div>
 		
-							<div class="options_row hastooltip">
-								<label for="sourceselect">Ejercida por </label>
+							<div class="options-row hastooltip">
+								<label for="sourceselect">Ejercida por: </label>
 								<select class="selector" id="sourceselect">
 								
 								</select>
@@ -225,12 +236,12 @@
 								</span>
 							</div>
 		
-							<div class="options_row">
+							<div class="options-row">
 								<label for="r.intens">Intensidad: </label>
 								<input type="number" id="r.intens" class="numberinput" step="any">
 							</div>
 		
-							<div class="options_row hastooltip">
+							<div class="options-row hastooltip">
 								<label for="r.qm">Ruido cuántico: </label>
 								<input type="number" id="r.qm" class="numberinput" min="0" step="any">
 								<span class="tooltiptext short">
@@ -238,17 +249,17 @@
 								</span>
 							</div>
 		
-							<div class="options_row">
+							<div class="options-row">
 								<label for="r.dmin">Dist. mín: </label>
 								<input type="number" id="r.dmin" class="numberinput" min="0" step="any">
 							</div>
 		
-							<div class="options_row">
+							<div class="options-row">
 								<label for="r.dmax">Dist. máx: </label>
 								<input type="number" id="r.dmax" class="numberinput" min="0" step="any">
 							</div>
 		
-							<div class="options_row">
+							<div class="options-row">
 								<button class="button hastooltip" id="r.submit">Crear
 									<span class="tooltiptext short">
 										Ctrl + Click para sobreescribir regla homónima
@@ -262,25 +273,11 @@
 									</span>
 								</button>
 							</div>
-
-							<div class="options_row" id="rulemanager">
-								<label for="ruleselect">Reglas: </label>
-								<select class="selector selr" id="ruleselect">
-			
-								</select>
-								<button class="button hastooltip" id="borrarule">Borrar
-									<span class="tooltiptext short">
-										Ctrl + Click para borrar todas
-									</span>
-								</button>
-			
-							</div>
-		
 						</div>
 
 						<hr style="border-color: rgba(255, 0255, 255, 0.3); margin: 3px;">
 
-						<div class="options_row">
+						<div class="options-row">
 							<button class="button hastooltip" id="export">Exportar
 								<span class="tooltiptext">
 									Descarga la configuración actual. <br>

@@ -17,12 +17,10 @@
 		<link rel="stylesheet" href="./styles/Index.css">
 	</head>
 
-    <body style="background-color: #94e06e;">
-	
+    <body style="background-color: #ddb74d;">
+		
 		<h1 style ="text-align: center">
 			Hello World!<br>
-			<div id="imageContainer" ></div>
-			<script src="./scripts/cargarImagen.js"></script>
 		</h1>
 
 		<div>
@@ -30,10 +28,9 @@
 			<br>
 			Funciona bien en móvil pero para cierta feature es más cómodo desde una PC.
 			
-
 			<br><br>
-			<button onclick="location.href = './WebGPU/Cells_GPU.html';" style="font-weight: bold;">Ir a Cells GPU</button>
-			<p class="notaInline" >Beta superada! 🎉</p>  
+			<button onclick="location.href = './WebGPU/Cells_GPU.html';" class="bold">Ir a Cells GPU</button>
+			<p class="notaInline" >Simulador de partículas customizable</p>  
 			<br><br>
 			<button onclick="location.href = './WebGPU/N-Body_GPU.html';" >Ir a N-Body</button>
 			<p class="notaInline" >Controles: Space/W/S/R</p>
@@ -41,12 +38,14 @@
 			<button onclick="location.href = './WebGPU/GoL_Main.html';">Ir a GoL en GPU</button>
 
 			<button onclick="location.href = './WebGPU/Bouncers_GPU.html';">Ir a Bouncers</button>
-			<br><br>
 			
-			
-
 		</div>
 
+		<br>
+		<h2 style="text-align: center; margin: 0;">
+			<div id="imageContainer"></div>
+			<script src="./scripts/cargarImagen.js"></script>
+		</h2>
 		<br>
 		
 		<div style="width: 90%;">
@@ -63,9 +62,9 @@
 		
 		<script>
 
-			const beepsound = new Audio("./images/blop.mp3");
-			const beepsound2 = new Audio("./images/a.mp3");
-			const clownsound = new Audio("https://bigsoundbank.com/UPLOAD/mp3/1832.mp3");
+			const beepsound = new Audio("./sounds/blop.mp3");
+			const beepsound2 = new Audio("./sounds/a.mp3");
+			const clownsound = new Audio("./sounds/clown.mp3");
 			let swapped = false;
 			
 			beep=()=> {

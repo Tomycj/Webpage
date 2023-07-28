@@ -1,0 +1,13 @@
+`\
+	${CURRENT_VERSION}
+
+	* El sistema para poner partículas manualmente está oficialmente completado.
+
+	* Pequeñas mejoras en la interfaz y la funcionalidad. Ctrl + Click en Reiniciar para borrar todo rápidamente.\
+	Corregido algún que otro bug.
+
+	* Enormes cambios en la organización del código, está más presentable y mantenible pero falta.
+
+	* Algunos setups para importar y probar: https://github.com/Tomycj/Webpage/tree/main/data
+
+`

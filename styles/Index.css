@@ -1,10 +1,30 @@
+@font-face {
+  font-family: "Inter";
+  font-style:  normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../fonts/Inter.var.woff2") format("woff2");
+}
+
 body {
-	font-family: "Asap", Arial, sans-serif;
+	font-family: Inter, Asap, Arial, sans-serif;
+}
+button {
+	font-family: Inter;
+	background-color: #e28800;
+}
+button:hover {
+	background-color: #ffdd48;
+}
+.bold {
+	font-weight: bold;
 }
 
 #imageContainer {
 	position: relative;
 	display: inline-block;
+	box-shadow: 0 4px 10px 0 rgba(0, 0, 0, .3), 0 6px 20px 0 rgba(0, 0, 0, 1);
+	text-align: center;
 }
 #imageContainer img {
 	display: block;
@@ -18,6 +38,7 @@ body {
 	background-color: rgba(0, 0, 0, 0.2);
 	color: #fff;
 	padding: 4px 8px;
+	font-family: Arial;
 	font-size: 10px;
 }
 #btclogo {

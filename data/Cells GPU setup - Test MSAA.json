@@ -1,8 +1,15 @@
 {
+  "name": "Test MSAA",
   "seed": "",
-  "friction": "0.005",
-  "bounce": "80",
-  "maxInitVel": "0",
+  "ambient": {
+    "friction": 0.005,
+    "bounce": 80,
+    "maxInitVel": 0,
+    "canvasDims": [
+      "auto",
+      "auto"
+    ]
+  },
   "elementaries": [
     {
       "nombre": "A",

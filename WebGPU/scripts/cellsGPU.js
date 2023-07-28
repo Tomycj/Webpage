@@ -1,50 +1,26 @@
-import { inicializarCells } from "inicializar-webgpu";
+import { inicializarCells, autoCanvasDims } from "inicializar-webgpu";
 import { renderShader, computeShader, computeDistancesShader } from "shaders";
 
 // ref https://www.cg.tuwien.ac.at/research/publications/2023/PETER-2023-PSW/PETER-2023-PSW-.pdf
 
 const 
-[device, canvas, canvasFormat, context, timer] = await inicializarCells(false),
+SHOW_TITLE = false,
+
+[device, canvas, canvasFormat, context, timer] = await inicializarCells(SHOW_TITLE),
 
 DATA_FOLDER = "../../data/",
 WORKGROUP_SIZE = 64,
-SAMPLE_SETUP = { //TODO: Creo que en lugar de esto debería crear una Clase y usarla
-	seed: "sampleSeed",
-	friction: "0.0",
-	bounce: "10",
-	maxInitVel: "0.0",
-	elementaries: [
-		{
-			nombre: "sampleName",
-			color: [1.0, 2.0, 3.0, 4.0],
-			cantidad: 2,
-			radio: 2.0,
-			posiciones: [],
-			velocidades: [],
-		},
-	],
-	rules: [
-		{
-			ruleName: "sampleName",
-			targetName: "sampleName",
-			sourceName: "sampleName",
-			intensity: 2.0,
-			quantumForce: 2.0,
-			minDist: 2.0,
-			maxDist: 2.0,
-		},
-	]
-},
 NEW_USER = localStorage.getItem("NEW_USER"),
 CURRENT_VERSION = document.getElementById("title").innerText,
 LAST_VISITED_VERSION = localStorage.getItem("STORED_VERSION_NUMBER"),
 CHANGELOG = `\
 	${CURRENT_VERSION}
 
-	* El sistema para poner partículas manualmente está oficialmente completado.
+	* El sistema para poner partículas manualmente está oficialmente completado, aunque en el futuro podría\
+	pulirse o ampliarse su funcionalidad (ej: arrastrar para dibujar un trazo de muchas partículas).
 
-	* Pequeñas mejoras en la interfaz y la funcionalidad. Ctrl + Click en Reiniciar para borrar todo rápidamente.\
-	Corregido algún que otro bug.
+	* Mejoras en la interfaz y la funcionalidad. Ahora se puede cambiar, exportar e importar el tamaño del canvas.\
+	Corregido un bug relevante al borrar partículas y aplicar reglas.
 
 	* Enormes cambios en la organización del código, está más presentable y mantenible pero falta.
 
@@ -59,6 +35,7 @@ ambient = {
 	friction: 1 - 0.995, // 0.995 en el shader
 	bounce: 80, // 0.8 en el shader
 	maxInitVel: 0,
+	canvasDims: [canvas.width, canvas.height],
 },
 flags = {
 	updateSimParams: true,
@@ -71,18 +48,18 @@ flags = {
 	editAmbient: false,
 	editPStyle: true,
 
-	preventResetParts: false, // Al importar setups con partículas precargadas (posiciones y vels pre-definidas)
+	justLoadedSetup: false,
 };
 
 let 
 N = 0, 	// Cantidad total de partículas
 Nd = 0, // Cantidad total de distancias a precalcular (si habilitado)
-elementaries = [], // cada elemento es un objeto que almacena toda la info de una familia de parts.
-rules = [],   // cada elemento es una regla, formada por un objeto que la define.
-workgroupCount,		// workgroups para ejecutar reglas de interacción
+elementaries = [],	// Array de familias de partículas (clase Elementary)
+rules = [],			// Array de reglas de interacción (clase Rule)
+workgroupCount,		// workgroups para ejecutar las reglas de interacción (mover las partículas)
 workgroupCount2, 	// worgroups para calcular distancias entre partículas
 rng,
-frame = 0, // simulation steps
+frame = 0,
 animationId,
 paused = true,
 stepping = false,
@@ -94,16 +71,15 @@ frameCounter = 0,
 refTime,
 placePartOnClic = false,
 newParticles = [], // PosiVels de partículas creadas manualmente para cada elementary
-sampleCount = 4; // Parece que sólo puede ser 1 o 4.
+sampleCount = 4, // Parece que sólo puede ser 1 o 4.
+textureView;
 
 // TIMING & DEBUG 
 	const START_WITH_SETUP = 1
 	const SHOW_DEBUG = 0
 	//localStorage.setItem("NEW_USER", 1);
 	//localStorage.setItem("STORED_VERSION_NUMBER", -1);
-	const debugSetup = "Cells q tests.json";
 	let PRECALCULAR_DISTANCIAS = false;
-	let debug = false;
 	let capacity = 4; //Max number of timestamps 
 	let t = [];
 	let querySet, queryBuffer;
@@ -120,7 +96,7 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 	} 
 //
 
-// FUNCIONES VARIAS - TODO: Modularizar
+// FUNCIONES VARIAS Y CLASES - TODO: Modularizar
 
 	function setRNG(seed) {
 		//console.log(`setRNG(${seed}) called`)
@@ -142,43 +118,36 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 
 		return new Float32Array([red, green, blue, a]); // Store the RGB values in an array
 	}
-	function randomPosition(elementaryIndex, margin = 0, ) {
-		return new Float32Array([
-			(rng() - 0.5) * (canvas.width - margin), // TODO: así como está es eficiente pero el margen no es el esperado
-			(rng() - 0.5) * (canvas.height - margin),
+	function randomPosition(elementaryIndex, margin = 0) {
+		return ([
+			(rng() - 0.5) * (ambient.canvasDims[0] - margin), // TODO: así como está es eficiente pero el margen no es el esperado
+			(rng() - 0.5) * (ambient.canvasDims[1] - margin),
 			0,
 			elementaryIndex
 		]);
 	}
 	function randomVelocity() {
-		return new Float32Array([
+		return ([
 			(2 * rng() - 1) * ambient.maxInitVel,
 			(2 * rng() - 1) * ambient.maxInitVel,
 			0,
 			1,
 		]);
 	}
-	function crearPosiVel(n, index, margin = 0, debug = false) { // crea dos n-arrays con las posiciones y velocidades de n partículas
+	function crearPosiVel(n, index, margin = 0) { // crea dos n-arrays con las posiciones y velocidades de n partículas
 
 		const buffer = new ArrayBuffer(n * 8 * 4) // n partículas, cada una tiene 28B (4*4B para la pos y 3*4B para la vel)
 
 		const pos = new Float32Array(buffer, 0, n*4); // buffer al que hace referencia, byte offset, number of elements. [x1, y1, z1, w1, x2, y2, ...]
 		const vel = new Float32Array(buffer, n*4*4, n*4);
 
+		//const start = performance.now();
 		for (let i=0 ; i < n*4 ; i += 4) {
 			[ pos [i], pos[i+1], pos [i+2], pos[i+3] ] = randomPosition(index, margin); // randomPosition devuelve un array [x,y,z,w]
 			[ vel [i], vel[i+1], vel [i+2], vel[i+3] ] = randomVelocity();
 		}
-		if (debug) {
-			for (let i=0 ; i < n*4 ; i += 4) {
-				[ pos [i], pos[i+1], pos [i+2], pos[i+3] ] = [ (i/4) * canvas.width / (n-1) - canvas.width/2, ((i/4)*20 - canvas.height/2)*0, 0, 1];
-			}
-		}
-		/*
-		for (let i=0 ; i < n*3 ; i += 3) {
-			[ vel [i], vel[i+1], vel [i+2] ] = randomVelocity() // randomVelocity devuelve un array [x,y,z]
-		}
-		*/
+		//console.log((performance.now()-start).toFixed(3))
+
 		return [pos, vel]
 	}
 	function validarNumberInput(input, estricto=true) {
@@ -259,29 +228,96 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 
 		return [m, D];
 	}
-	function crearElementary(nombre, color, cantidad, radio, posiciones, velocidades) {
-		if ( 
-			typeof nombre === "string" && 
-			color.constructor === Float32Array && color.length === 4 &&
-			Number.isInteger(cantidad) && cantidad >= 0 &&
-			typeof radio === "number" && radio >= 0  &&
-			(posiciones.constructor === Float32Array || (Array.isArray(posiciones) && posiciones.length === 0) ) && 
-			(velocidades.constructor === Float32Array || (Array.isArray(velocidades) && velocidades.length === 0) )
-		) {
-			return {
-				nombre,			// string
-				color,  		// vec4f    (orig. string like "#000000")
-				cantidad,		// integer (originalmente string)
-				radio,			// float   (originalmente string)
-				posiciones,		// [x,y,z,w]
-				velocidades,	// [x,y,z,w]
-			};
+	class Elementary {
+		constructor(nombre, color, cantidad, radio, posiciones, velocidades) {
+			// Check input parameter types and sizes
+			if (typeof nombre !== "string") {
+				throw new Error("Nombre no es string.");
+			}
+			if (color.constructor !== Float32Array || color.length !== 4) {
+				throw new Error("Color no es Float32Array de 4 elementos.");
+			}
+			if (!Number.isInteger(cantidad) || cantidad < 0) {
+				throw new Error("Cantidad no es un entero >= 0.");
+			}
+			if (typeof radio !== "number" || radio <= 0) {
+				throw new Error("Radio no es un número positivo.");
+			}
+			this.#validateArray(posiciones, "posiciones");
+			this.#validateArray(velocidades, "velocidades");
+
+			this.nombre = nombre;
+			this.color = color;
+			this.cantidad = cantidad;
+			this.radio = radio;
+			this.posiciones = posiciones;
+			this.velocidades = velocidades;
+
+		}
+		static fromJsonObjectLit(obj) {
+			return new Elementary(
+				obj.nombre,
+				new Float32Array(obj.color),
+				obj.cantidad,
+				obj.radio,
+				new Float32Array(obj.posiciones),
+				new Float32Array(obj.velocidades)
+			);
+		}
+		isFilled(prop) {
+			switch (prop) {
+				case "posiciones":
+					return this.posiciones.length === this.cantidad * 4;
+				case "velocidades":
+					return this.velocidades.length === this.cantidad * 4;
+				default:
+					console.log("a")
+					throw new Error('isFilled() sólo acepta "posiciones" o "velocidades".');
+			}
 		}
 
-		throw new Error("Detectado parámetro inválido");
+		get filledPosiVels() {
+			let str = "";
+			if (this.isFilled("posiciones")) { str += "posi"; }
+			if (this.isFilled("velocidades")) { str += "vels"; }
+			return str;
+		}
 
+		get colorAsHex() {
+			const [r, g, b] = this.color;
+			const hexR = Math.floor(r * 255).toString(16).padStart(2, "0");
+			const hexG = Math.floor(g * 255).toString(16).padStart(2, "0");
+			const hexB = Math.floor(b * 255).toString(16).padStart(2, "0");
+			return `#${hexR}${hexG}${hexB}`;
+		}
+
+		get asJsonObjectLit() {
+			return {
+				nombre: this.nombre,
+				color: Array.from(this.color),
+				cantidad: this.cantidad,
+				radio: this.radio,
+				posiciones: [],
+				velocidades: []
+			}
+		}
+
+		get asJsonObjectLitFull() {
+			const output = this.asJsonObjectLit;
+			output.posiciones = Array.from(this.posiciones);
+			output.velocidades =  Array.from(this.velocidades);
+			console.log("output")
+			return output;
+		}
+
+		#validateArray(array, inputName) {
+			if (array.constructor !== Float32Array && !(Array.isArray(array) && array.length === 0)) {
+				throw new Error (`Entrada ${inputName} inválida`);
+			}
+		}
 	}
 	function cargarElementary(newElementary) {
+		if (!(newElementary instanceof Elementary)) { throw new Error("No es una instancia de Elementary"); }
 		let i = elementaries.length;
 		if ( elementaries.some(dict => dict.nombre == newElementary.nombre) ){
 			console.log("Reemplazando partículas homónimas...")
@@ -293,18 +329,6 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 			if (newParticles.length) { newParticles.push([]); } // Si estoy colocando partículas manualmente, agregar el slot.
 		}
 		partiControls.selector.selectedIndex = i;
-	}
-	function cargarRule(newRule) {
-		let i = rules.length;
-		if ( rules.some(dict => dict.ruleName === newRule.ruleName) ){
-			console.log("Reemplazando regla homónima...")
-			i = rules.findIndex(dict => dict.ruleName === newRule.ruleName);
-			rules[i] = newRule;
-		} else {
-			rules.push( newRule );
-			actualizarRuleSelector(newRule); // actualizar lista de nombres en el creador de reglas de interacción
-		}
-		ruleControls.selector.selectedIndex = i;
 	}
 	function exportarElementary(elementary) {
 
@@ -325,46 +349,92 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 		document.body.removeChild(a);
 		URL.revokeObjectURL(url);
 	}
-	function exportarSetup(elementariesI, rules, seed, filename = "Cells GPU setup", guardarPosiVel = false) {
-
-		let elementaries = elementariesI;
-		if (guardarPosiVel) {
-			console.log("Exportando con posiciones y velocidades")
-			for (let elem of elementaries) {
-				elem.posiciones = Array.from(elem.posiciones); //console.log(elementaries[1].posiciones);
-				elem.velocidades = Array.from(elem.velocidades);
-				elem.color = Array.from(elem.color);
-			}
+	class Rule {
+		constructor(ruleName, targetName, sourceName, intensity, quantumForce, minDist, maxDist) {
+			this.ruleName = ruleName || `${targetName} ← ${sourceName}`;
+			this.targetName = targetName;
+			this.sourceName = sourceName;
+			this.intensity = intensity;
+			this.quantumForce = quantumForce;
+			this.minDist = minDist;
+			this.maxDist = maxDist;
+		}
+		static fromJsonObjectLit(obj) {
+			return new Rule(
+				obj.ruleName, obj.targetName, obj.sourceName, obj.intensity, 
+				obj.quantumForce, obj.minDist, obj.maxDist
+			);
+		}
+	}
+	function cargarRule(newRule) {
+		if (!(newRule instanceof Rule)) { throw new Error("No es una instancia de Rule"); }
+		let i = rules.length;
+		if ( rules.some(dict => dict.ruleName === newRule.ruleName) ){
+			console.log("Reemplazando regla homónima...")
+			i = rules.findIndex(dict => dict.ruleName === newRule.ruleName);
+			rules[i] = newRule;
 		} else {
-			for (let elem of elementaries) {
-				elem.posiciones = [];
-				elem.velocidades = [];
-				elem.color = Array.from(elem.color);
+			rules.push(newRule);
+			actualizarRuleSelector(newRule); // actualizar lista de nombres en el creador de reglas de interacción
+		}
+		ruleControls.selector.selectedIndex = i;
+	}
+	class Setup {
+		constructor(name, seed, ambient, elementaries, rules) {
+
+			this.#validateCanvasDims(ambient.canvasDims);
+			this.#validateObjectArray(elementaries, Elementary);
+			this.#validateObjectArray(rules, Rule);
+
+			this.name = name;
+			this.seed = seed;
+			this.ambient = ambient;
+			this.elementaries = elementaries;
+			this.rules = rules;
+		}
+		static fromJsonObjectLit(obj) {
+			return new Setup(
+				obj.name,
+				obj.seed,
+				obj.ambient,
+				obj.elementaries.map(elem => Elementary.fromJsonObjectLit(elem)),
+				obj.rules.map(rule => Rule.fromJsonObjectLit(rule)),
+			);
+		}
+		
+		#validateCanvasDims(dims) {
+			if (!Number.isInteger(dims[0]) && dims[0] !== "auto" && dims[0] !== "previous") {
+				throw new Error("Invalid canvas width.");
+			}
+			if (!Number.isInteger(dims[1]) && dims[1] !== "auto" && dims[1] !== "previous") {
+				throw new Error("Invalid canvas height.");
+			}
+		}
+		#validateObjectArray(array, _class) {
+			for (let obj of array) {
+				if (!(obj instanceof _class)) throw new Error(`${obj} is not instance of ${_class.name}.`);
+			}
+		}
+		#validateRules(rules) {
+			for (let rule of rules) {
+				if (!(rule instanceof Rule)) { throw new Error(`${rule?.ruleName} is not instance of Elementary.`); }
 			}
 		}
 		
-		const setup = {
-			seed,
-			friction: ambientControls.inputs.friction.placeholder,
-			bounce: ambientControls.inputs.bounce.placeholder,
-			maxInitVel: ambientControls.inputs.vel.placeholder,
-			elementaries,
-			rules,
-		};
-		const jsonString = JSON.stringify(setup, null, 2);
-
-		const blob = new Blob([jsonString], { type: "application/json" });
-		const url = URL.createObjectURL(blob);
-		
-		const a = document.createElement("a");
-		a.href = url;
-		a.download = filename;
-		document.body.appendChild(a);
-		a.click();
-
-		document.body.removeChild(a);
-		URL.revokeObjectURL(url);
-
+		get asJsonObjectLit() {
+			return {
+				name: this.name,
+				seed: this.seed,
+				ambient: this.ambient,
+				elementaries: this.elementaries.map(elem => elem.asJsonObjectLit),
+				rules: this.rules
+			}
+		}
+		get asJsonObjectLitFull() {
+			const output = this.asJsonObjectLit;
+			output.elementaries = this.elementaries.map(elem => elem.asJsonObjectLitFull);
+			return output;
+		}
 	}
 	function importarJson(path="") {
 
@@ -374,8 +444,8 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 		fileInput.type = "file";
 		fileInput.accept = ".json";
 		return new Promise((resolve, reject) => {
-			fileInput.addEventListener("change", (event) => {
 
+			fileInput.onchange =(event)=> {
 				const file = event.target.files[0];
 				const reader = new FileReader();
 
@@ -389,57 +459,142 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 				}
 				reader.onerror = (error) => { reject(error); }
 				reader.readAsText(file);
-			});
+			};
+			
 			fileInput.click();
 		});
 	}
-	function cargarSetup(setup, draw = false, debug = false) {  // reemplaza el setup actual. Rellena aleatoriamente posiciones y velocidades
-		if (!hasSameStructure(setup, SAMPLE_SETUP)) { throw new Error("Falló la verificación, no es un objeto tipo setup")}
+	function cargarSetup(setup, draw = false) {
+				
+		if (!(setup instanceof Setup)) { throw new Error("Falló la verificación, no es un objeto de clase Setup.")}
+		
+		// Load ambient // resetear() lo termina de cargar
+		ambientControls.inputs.friction.value = setup.ambient.friction.toString();
+		ambientControls.inputs.bounce.value = setup.ambient.bounce.toString();
+		ambientControls.inputs.vel.value = setup.ambient.maxInitVel.toString();
+		ambient.maxInitVel = setup.ambient.maxInitVel;
+
+		// Load canvas size to ambient
+		let str = "";
+		switch (setup.ambient.canvasDims[0]) {
+			case "auto":
+				str += "width";
+				break;
+			case "previous":
+				break;
+			default:
+				ambient.canvasDims[0] = setup.ambient.canvasDims[0];
+		}
+		switch (setup.ambient.canvasDims[1]) {
+			case "auto":
+				str += "height";
+				break;
+			case "previous":
+				break;
+			default:
+				ambient.canvasDims[1] = setup.ambient.canvasDims[1];
+		}
+
+		if (str) {
+			[ambient.canvasDims[0] = ambient.canvasDims[0], 
+			 ambient.canvasDims[1] = ambient.canvasDims[1]] = 
+			autoCanvasDims(canvasContainer, str);
+		}
+
+		// Load seed
+		setRNG(setup.seed);
+		if (setup.seed) { seedInput.value = setup.seed.toString(); }
+		
+		// Load elementaries
+
 		vaciarSelectors();
 
-		setRNG(setup.seed);
-		if (setup.seed) {
-			seedInput.value = setup.seed;
-		}
-
-		ambientControls.inputs.friction.value = setup.friction;
-		ambientControls.inputs.bounce.value = setup.bounce;
-		ambientControls.inputs.vel.value = setup.maxInitVel;
-
 		elementaries = setup.elementaries;
-		rules = setup.rules;
-		let i = 0;
-		for (let elem of elementaries) {
-			const L = elem.cantidad*4;
-			const posiVelsIncompleto = (elem.posiciones.length !== L || elem.velocidades.length !== L);
 
-			if (posiVelsIncompleto) { // si faltan posiVels, crearlas. 
-				console.log("Import: Creando partículas para "+ elem.nombre +".");
-				const [pos, vel] = crearPosiVel(elem.cantidad, i, elem.radio * 2, debug);
-				elem.posiciones = pos;
-				elem.velocidades = vel;
-			} else {
-				console.log("Import: Cargando partículas para " + elem.nombre +".");
-				elem.posiciones = new Float32Array(setup.elementaries[i].posiciones);
-				elem.velocidades = new Float32Array(setup.elementaries[i].velocidades);
-				flags.preventResetParts = true;
+		let msgCp = "Import: Creadas posiciones para ", msgCv = "Import: Creadas velocidades para ";
+		let msgLp = "Import: Cargadas posiciones para ", msgLv = "Import: Cargadas velocidades para ";
+
+		for (let index = 0; index < elementaries.length; index++) {
+
+			const elem = elementaries[index];
+
+			const nom = elem.nombre + ", ";
+			switch (elem.filledPosiVels) {
+
+				case "":
+					[elem.posiciones, elem.velocidades] =  crearPosiVel(elem.cantidad, index, elem.radio * 2);
+					msgCp += nom;
+					msgCv += nom;
+					break;
+				
+				case "posi":
+					[ , elem.velocidades] =  crearPosiVel(elem.cantidad, index, elem.radio * 2);
+					msgLp += nom;
+					msgCv += nom;
+					break;
+
+				case "vels":
+					[elem.posiciones, ] =  crearPosiVel(elem.cantidad, index, elem.radio * 2);
+					msgCp += nom;
+					msgLv += nom;
+					break;
+
+				case "posivels":
+					msgLp += nom;
+					msgLv += nom;
+					break;
+				
+				default:
+					console.warn("Error cargando setup.");
 			}
-			elem.color = new Float32Array(elem.color);
+
 			actualizarElemSelectors(elem);
-			i++;
 		}
+
+		if (msgCp.length !== 32) { console.log(msgCp.slice(0,-2) + "."); }
+		if (msgCv.length !== 33) { console.log(msgCv.slice(0,-2) + "."); }
+		if (msgLp.length !== 33) { console.log(msgLp.slice(0,-2) + "."); }
+		if (msgLv.length !== 34) { console.log(msgLv.slice(0,-2) + "."); }
+
 		if (elementaries.length) {partiControls.placeButton.hidden = false;}
 
-		for (let rule of rules) {
-			actualizarRuleSelector(rule);
-		}
+		// Load rules
+		rules = setup.rules;
+		for (let rule of rules) { actualizarRuleSelector(rule); }
 
 		resetear(draw);
 		setPlaceholdersParticles();
 		setPlaceholdersRules();
-		console.log("Setup cargado.");
+		console.log("Setup " + setup.name + " cargado.")
+		flags.justLoadedSetup = true;
 	}
-	function hasSameStructure(obj1, obj2) { // no revisa la estructura de los arrays de elementaries y rules TODO: se puede mejorar
+	function exportarSetup(setup, filename = "Cells GPU setup", savePosiVels = false) {
+		
+		let exportSetup;
+
+		if (savePosiVels) {
+			exportSetup = setup.asJsonObjectLitFull;
+			console.log("Exportando con posiciones y velocidades.");
+		} else {
+			exportSetup = setup.asJsonObjectLit;
+		}
+
+		const jsonString = JSON.stringify(exportSetup, null, 2);
+
+		const blob = new Blob([jsonString], { type: "application/json" });
+		const url = URL.createObjectURL(blob);
+		
+		const a = document.createElement("a");
+		a.href = url;
+		a.download = filename;
+		document.body.appendChild(a);
+		a.click();
+
+		document.body.removeChild(a);
+		URL.revokeObjectURL(url);
+	}
+	function hasSameStructure(obj1, obj2) { 
+		// no revisa la estructura de los arrays de elementaries y rules
 		const keys1 = Object.keys(obj1).sort();
 		const keys2 = Object.keys(obj2).sort();
 
@@ -463,6 +618,64 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 			}
 		}
 		return true;
+	}
+	function generarSetupClásico(m, seed) {
+		const e = [];
+		const elementaries = [
+			new Elementary("A", new Float32Array([1,1,0,1]), 300*m, 3, e, e), //300
+			new Elementary("R", new Float32Array([1,0,0,1]), 80*m, 4, e, e),	//80
+			new Elementary("P", new Float32Array([147/255,112/255,219/255,1]), 30*m, 5, e, e),	//30
+			new Elementary("V", new Float32Array([0,128/255,0,1]), 5, 7, e, e),				//5 r7
+		];
+
+		/*q = 0.25 * g_clásico * q_clásico. q_clásico = [0.2, 0, 1, 0, 1, 0, 1, 0, 0.2] */
+		const rules = [ //  nom/tar/src /I    /q    /dmin/dmax
+			new Rule("","R","R",  0.5, 0.025, 15,	100 ), 	// los núcleos se tratan de juntar si están cerca
+			new Rule("","A","R",  0.5, 0.0,   60,	600 ), 	// los electrones siguen a los núcleos, pero son caóticos
+			new Rule("","A","A", -0.1, 0.025, 20,	600 ),
+			new Rule("","P","R",  0.4, 0.0,   0.1, 150 ), 	// los virus persiguen a los núcleos
+			new Rule("","P","A", -0.2, 0.05,  0.1, 100 ),	// los virus son repelidos por los electrones
+			new Rule("","A","P",  0.2, 0.0,   0.1, 100 ), 	// los electrones persiguen a los virus
+			new Rule("","R","P",  1.0, 0.25,  0.1, 10  ), 	// los virus desorganizan los núcleos
+			new Rule("","R","V",  0.3, 0.0,   50,  1000), 	// los núcleos buscan comida
+			new Rule("","V","V", -0.2, 0.01,  50,  200 ), 	// la comida se mueve un poco y estabiliza las células
+		];
+
+		return new Setup(
+			"Clásico (X" + m + ")",
+			seed,
+			{
+				friction: 0.005,
+				bounce: 80,
+				maxInitVel: 0,
+				canvasDims: ["auto", "auto"],
+			},
+			elementaries,
+			rules,
+		)
+	}
+	function generarSetupDebug(m, seed) {
+		const e = [];
+		const elementaries = [
+			new Elementary("A", new Float32Array([1,1,0,1]), 300*m, 3, e, e),
+		];
+
+		const rules = [ //  nom/tar/src /I    /q    /dmin/dmax
+			new Rule("","R","R",  0.5, 0.025, 15,	100 ),
+		];
+
+		return new Setup(
+			"Debug",
+			seed,
+			{
+				friction: 0.005,
+				bounce: 80,
+				maxInitVel: 0,
+				canvasDims: ["auto", "auto"],
+			},
+			elementaries,
+			rules,
+		)
 	}
 	function removeOptions(htmlElement) { 
 		htmlElement.options.length = 0; //<- only for select elements
@@ -504,101 +717,6 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 		option.text = rule.ruleName;
 		ruleControls.selector.appendChild(option);
 	}
-	function crearRule(ruleName, targetName, sourceName, intensity, quantumForce, minDist, maxDist) {
-
-		if (!ruleName) { ruleName = `${targetName} ← ${sourceName}`; }
-
-		return {
-			ruleName,
-			targetName,
-			sourceName,
-			intensity,
-			quantumForce,
-			minDist,
-			maxDist,
-		} 
-	}
-	function generarSetupClásico(m, seed, conReglas=true, debug = false) {
-		const e = new Float32Array([]);
-		let elementaries = [];
-		elementaries = [
-			crearElementary("A", new Float32Array([1,1,0,1]), 300*m, 3, e, e), //300
-			crearElementary("R", new Float32Array([1,0,0,1]), 80*m, 4, e, e),	//80
-			crearElementary("P", new Float32Array([147/255,112/255,219/255,1]), 30*m, 5, e, e),	//30
-			crearElementary("V", new Float32Array([0,128/255,0,1]), 5, 7, e, e),				//5 r7
-		];
-
-		if (debug) {
-			elementaries = [
-				crearElementary("yellow", new Float32Array([1,1,0,1]), 5, 8, e, e), //300 r3
-				//crearElementary("red", new Float32Array([1,0,0,1]), 4, 4, e, e),	//80
-				//crearElementary("purple", new Float32Array([147/255,112/255,219/255,1]), 3, 5, e, e),	//30
-				//crearElementary("green", new Float32Array([0,128/255,0,1]), 2, 7, e, e),				//5 r7
-			];
-		}
-		/*q = 0.25 * g_clásico * q_clásico. q_clásico = [0.2, 0, 1, 0, 1, 0, 1, 0, 0.2] */
-		let rules = [];
-		if (conReglas) {
-			rules = [ //  nom/tar/src /I    /q    /dmin/dmax
-				crearRule("","R","R",  0.5, 0.025, 15,	100 ), 	// los núcleos se tratan de juntar si están cerca
-				crearRule("","A","R",  0.5, 0.0,   60,	600 ), 	// los electrones siguen a los núcleos, pero son caóticos
-				crearRule("","A","A", -0.1, 0.025, 20,	600 ),
-				crearRule("","P","R",  0.4, 0.0,   0.1, 150 ), 	// los virus persiguen a los núcleos
-				crearRule("","P","A", -0.2, 0.05,  0.1, 100 ),	// los virus son repelidos por los electrones
-				crearRule("","A","P",  0.2, 0.0,   0.1, 100 ), 	// los electrones persiguen a los virus
-				crearRule("","R","P",  1.0, 0.25,  0.1, 10  ), 	// los virus desorganizan los núcleos
-				crearRule("","R","V",  0.3, 0.0,   50,  1000), 	// los núcleos buscan comida
-				crearRule("","V","V", -0.2, 0.01,  50,  200 ), 	// la comida se mueve un poco y estabiliza las células
-			];
-		}
-
-		const setup = {
-			seed,
-			friction: "0.005",
-			bounce: "80",
-			maxInitVel: "0",
-			elementaries,
-			rules
-		};
-		cargarSetup(setup, debug)
-		console.log("Setup clásico (X"+m+") cargado!")
-	}
-	function generarSetupDebug(conReglas=false) {
-		const e = new Float32Array([]);
-		let elementaries = [];
-		elementaries = [
-			crearElementary("A", new Float32Array([1,1,0,1]), 0, 3, e, e), //300
-			crearElementary("R", new Float32Array([1,0,0,1]), 0, 4, e, e),	//80
-			crearElementary("P", new Float32Array([147/255,112/255,219/255,1]), 0, 5, e, e),	//30
-			crearElementary("V", new Float32Array([0,128/255,0,1]), 0, 7, e, e),				//5 r7
-		];
-
-		let rules = [];
-		if (conReglas) {
-			rules = [ //  nom/tar/src /I    /q    /dmin/dmax
-				crearRule("","R","R",  0.5, 0.025, 15,	100 ), 	// los núcleos se tratan de juntar si están cerca
-				crearRule("","A","R",  0.5, 0.0,   60,	600 ), 	// los electrones siguen a los núcleos, pero son caóticos
-				crearRule("","A","A", -0.1, 0.025, 20,	600 ),
-				crearRule("","P","R",  0.4, 0.0,   0.1, 150 ), 	// los virus persiguen a los núcleos
-				crearRule("","P","A", -0.2, 0.05,  0.1, 100 ),	// los virus son repelidos por los electrones
-				crearRule("","A","P",  0.2, 0.0,   0.1, 100 ), 	// los electrones persiguen a los virus
-				crearRule("","R","P",  1.0, 0.25,  0.1, 10  ), 	// los virus desorganizan los núcleos
-				crearRule("","R","V",  0.3, 0.0,   50,  1000), 	// los núcleos buscan comida
-				crearRule("","V","V", -0.2, 0.01,  50,  200 ), 	// la comida se mueve un poco y estabiliza las células
-			];
-		}
-
-		const setup = {
-			seed:"",
-			friction: "0.005",
-			bounce: "80",
-			maxInitVel: "0",
-			elementaries,
-			rules
-		};
-		cargarSetup(setup)
-		console.log("Setup debug cargado")
-	}
 	function mostrarParamsArray (paramsArray, Ne) {
 		const debugHelp = ["N", "Ne", "ancho", "alto",];
 		let offset = 4;
@@ -639,7 +757,7 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 		const i = partiControls.selector.selectedIndex;
 		if (i === -1) {return;}
 		partiControls.nameInput.placeholder = elementaries[i].nombre ?? "";
-		partiControls.colorInput.value = rgba_to_hexString(elementaries[i].color);
+		partiControls.colorInput.value = elementaries[i].colorAsHex;//rgba_to_hexString(elementaries[i].color);
 		partiControls.cantInput.placeholder = elementaries[i].cantidad;
 		partiControls.radiusInput.placeholder = elementaries[i].radio;
 	}
@@ -735,24 +853,22 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 	function resetear(draw=true) {
 		frame = 0;
 		clearTempParticles();
+		applyCanvas();
 		applyAmbient();
 		applyParticles();
 		applyRules();
-		flags.updateCanvas = true;
-
+		
 		//suggestReset("done");
 		if (paused && draw) {
 			stepear();
 		}
 	}
 	function playSound(soundElement, avoidSpam=true) { 
-		if (avoidSpam && soundElement.currentTime > 0.05) { // evitar spam
+		if ((avoidSpam && soundElement.currentTime > 0.05) || !avoidSpam) {
 			soundElement.currentTime = 0; 
-		} else if (!avoidSpam) {
-			soundElement.currentTime = 0;
 		}
 		soundElement.play(); 
-	};
+	}
 	function timestamp(i, encoder) {
 
 		if (i >= capacity) {
@@ -832,11 +948,13 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 	}
 	function writeAmbientToBuffer() {
 		paramsArrays.ambient.set([1 - ambient.friction, ambient.bounce / 100]);
-		device.queue.writeBuffer(GPUBuffers.params, 28, paramsArrays.ambient); 
+		device.queue.writeBuffer(GPUBuffers.params, 28, paramsArrays.ambient);
+		flags.editAmbient = false;
 	}
 	function writePStyleToBuffer() {
 		paramsArrays.pStyle.set(styleSettings.particleStyle);
-		device.queue.writeBuffer(GPUBuffers.params, 36, paramsArrays.pStyle); 
+		device.queue.writeBuffer(GPUBuffers.params, 36, paramsArrays.pStyle);
+		flags.editPStyle = false;
 	}
 	function writeRNGSeedToBuffer() {
 		paramsArrays.seeds.set([
@@ -867,6 +985,13 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 			return [undefined, true];							// fail, set flag.
 		}
 	}
+	function applyCanvas() {
+		[canvas.width, canvas.height] = ambient.canvasDims;
+		canvasInfo.innerText = `${canvas.width} x ${canvas.height} (${(canvas.width/canvas.height).toFixed(6)})`;
+		textureView = getTextureView(ambient.canvasDims);
+		flags.updateCanvas = true;
+		flags.updateSimParams = true;
+	}
 	function applyAmbient() {
 		let mustUpdate = false;
 		const [friction, frictionInvalid] = checkAndGetNumberInput(ambientControls.inputs.friction, false, false);
@@ -895,23 +1020,26 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 		if (!velInvalid) {
 			ambientControls.inputs.vel.value = "";
 			vel = Math.abs(vel);
-			if ( vel != ambient.maxInitVel) {
+			if ( vel != ambient.maxInitVel || flags.justLoadedSetup) {
 				ambient.maxInitVel = vel;
 				ambientControls.inputs.vel.placeholder = vel;
 				mustUpdate = true
 			}
 		}
 
-		if (mustUpdate) {flags.editAmbient = true;}
+		if (mustUpdate) {
+			flags.editAmbient = true;
+			flags.updateSimParams = true;
+		}
 		switchClass(ambientControls.updateButton, "disabled", true);
 		markers[1].hidden = true;
 	}
 	function applyRules() {
+		switchClass(ruleControls.updateButton, "disabled", true)
+		markers[3].hidden = true;
 		flags.rulesModified = false;
 		flags.updateRules = true;
 		flags.updateSimParams = true;
-		switchClass(ruleControls.updateButton, "disabled", true)
-		markers[3].hidden = true;
 	}
 	function applyParticles() {
 		flags.resetParts = true;
@@ -947,7 +1075,7 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 		borraParticleButton.hidden = true;
 		partiControls.placeButton.hidden = true;
 
-		placePartOnClic = false; // TODO: Corregir bug: en pausa poner particulas y borrar la familia a la que pertenecen
+		placePartOnClic = false;
 		switchClass(partiControls.placeButton, "switchedoff", true);
 		canvas.style.cursor = "default";
 	}
@@ -964,7 +1092,6 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 	}
 	function updateUIAfterRulesChange() {
 		setPlaceholdersRules();
-		flags.rulesModified = true;
 		markers[3].hidden = false;
 		if (partiControls.updateButton.classList.contains("disabled")) {
 			switchClass(ruleControls.updateButton, "disabled", false);
@@ -981,6 +1108,15 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 		const [x2, y2] = [ev.offsetX, ev.offsetY];
 		return [x2 - x1, y2 - y1];
 	}
+	function getTextureView(dims) {
+		const texture = device.createTexture({
+			size: dims,
+			sampleCount,
+			format: canvasFormat,
+			usage: GPUTextureUsage.RENDER_ATTACHMENT,
+		});
+		return texture.createView();
+	}
 	function MAX_SAFE_Ingeter () {
 		let n = 0;
 		try{
@@ -996,6 +1132,7 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 // ELEMENTOS HTML
 
 	const
+	canvasContainer = document.getElementById("canvascontainer"),
 	// ambos paneles
 	panels = document.getElementById("panels"),
 	// panel de info
@@ -1142,6 +1279,7 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 			device.queue.submit([encoder.finish()]);
 		} else {
 			flags.editPStyle = true;
+			flags.updateSimParams = true;
 		}
 	}
 
@@ -1291,7 +1429,7 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 			const path = DATA_FOLDER + "Cells GPU setup - Vacío.json"
 			importarJson(path)
 			.then(response => response.json())
-			.then(json => cargarSetup(json, true));
+			.then(json => cargarSetup(Setup.fromJsonObjectLit(json), true));
 			return;
 		}
 		resetear();
@@ -1343,16 +1481,27 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 	infoButton.onclick =_=> switchVisibility(infoPanel);
 
 	// Botón de export e import
-	exportButton.onclick =(event)=> exportarSetup(elementaries, rules, seedInput.value, "Cells GPU setup", !!event.ctrlKey);
+	exportButton.onclick =(event)=> exportarSetup(
+		new Setup(
+			"Manualmente exportado",
+			seedInput.value,
+			{
+				friction: parseFloat(ambientControls.inputs.friction.placeholder),
+				bounce: parseInt(ambientControls.inputs.bounce.placeholder),
+				maxInitVel: parseFloat(ambientControls.inputs.vel.placeholder),
+				canvasDims: [canvas.width, canvas.height],
+			},
+			elementaries,
+			rules
+		),
+		"Cells GPU setup",
+		!!event.ctrlKey
+	);
 
 	importButton.onclick =_=> {
 		importarJson()
-		.then((setup) => { // TODO: Estudiar bien como funciona esto, para poder hacer lo siguiente a cargar luego del catch
-			cargarSetup(setup);
-			updateSimulationParameters(); // Prepara el setup para renderizarlo
-			if (paused) {
-				stepear();
-			}
+		.then((json) => { // TODO: Estudiar bien como funciona esto, para poder hacer lo siguiente a cargar luego del catch
+			cargarSetup(Setup.fromJsonObjectLit(json), true);
 		})
 		.catch((error) => {
 			window.alert("Error al importar, archivo descartado.\n" + error);
@@ -1415,9 +1564,9 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 
 		const elemIndex = partiControls.selector.selectedIndex;
 
-		const [pos, vel] = crearPosiVel(cant, elemIndex, radius * 2, false);
+		const [pos, vel] = crearPosiVel(cant, elemIndex, radius * 2);
 
-		cargarElementary( crearElementary(
+		cargarElementary( new Elementary(
 			name,
 			hexString_to_rgba(partiControls.colorInput.value, 1),
 			cant,
@@ -1440,7 +1589,7 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 
 		playSound(clickSound);
 		applyParticles();
-
+		applyRules();
 	}
 	partiControls.placeButton.onclick =_=> {
 		placePartOnClic = !placePartOnClic;
@@ -1502,7 +1651,7 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 			}
 		}
 
-		const newRule = crearRule(
+		const newRule = new Rule(
 			newRuleName,
 			ruleControls.targetSelector.value,
 			ruleControls.sourceSelector.value,
@@ -1516,6 +1665,7 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 		
 		updateUIAfterRulesChange();
 		removeRuleControlsValues();
+		flags.rulesModified = true;
 		borraRuleButton.hidden = false;
 
 	}
@@ -1532,7 +1682,7 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 	borraRuleButton.onclick =(event)=> {
 		const indexToDelete = ruleControls.selector.selectedIndex;
 		if (indexToDelete === -1) {
-			console.log("Esto no debería haber pasado...")
+			console.warn("Botón borraRuleButton debería estar desactivado.")
 			titilarBorde(ruleControls.selector)
 			return;
 		}
@@ -1549,12 +1699,14 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 			}
 		}
 		updateUIAfterRulesChange();
+		flags.rulesModified = true;
 	}
 	ruleControls.selector.onchange =_=> setPlaceholdersRules();
 
 	// Particle manager
 	borraParticleButton.onclick =(event)=> {
 		if (borraParticleButton.classList.contains("disabled")) { return; }
+
 		const indexToDelete = partiControls.selector.selectedIndex;
 		if (indexToDelete === -1) {
 			console.warn("Esto no debería haber pasado...")
@@ -1577,6 +1729,7 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 				allParticlesDeleted();
 			}
 		}
+
 		setPlaceholdersParticles();
 		switchClass(partiControls.updateButton,"disabled", false);
 		markers[2].hidden = true;
@@ -1630,10 +1783,10 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 			setRNG(seedInput.value);
 			break;
 		case 1:
-			generarSetupClásico(10, "", true, debug); //"0.6452130" x10
+			cargarSetup(generarSetupClásico(10, "")); //"0.6452130" x10
 			break;
 		case 2: 
-			generarSetupDebug(true);
+			generarSetupDebug(10, "");
 			break;
 	}
 
@@ -1674,13 +1827,7 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 // WEBGPU
 
 	// texture y su view, para multisampling (MSAA)
-	const texture = device.createTexture({
-		size: [canvas.width, canvas.height],
-		sampleCount,
-		format: canvasFormat,
-		usage: GPUTextureUsage.RENDER_ATTACHMENT,
-	});
-	const textureView = texture.createView();
+	if (!textureView) { textureView = getTextureView(ambient.canvasDims); }
 
 	const renderPassDescriptor = {	// Parámetros para el render pass que se ejecutará cada frame
 		colorAttachments: [{		// es un array, de momento sólo hay uno, su @location en el fragment shader es entonces 0
@@ -1861,8 +2008,6 @@ sampleCount = 4; // Parece que sólo puede ser 1 o 4.
 		}),
 	};
 
-	//writeAmbientToBuffer();
-
 //
 
 // Funciones para editar buffers
@@ -1870,8 +2015,8 @@ function updateDatosElementariesBuffer(Ne) {
 
 	const datosElemsSize = (3 * 4 + 4 + 16) * Ne; // 3 cants, radio, color
 	const datosElementariesArrBuffer = new ArrayBuffer(datosElemsSize);
-
 	N = 0;
+
 	for (let i = 0; i < Ne; i++) {  //N, radios, colores, cantidades
 
 		const nLocal = elementaries[i].cantidad;
@@ -1904,7 +2049,7 @@ function updateParticlesBuffers() {
 	
 	updateDatosElementariesBuffer(Ne);
 	
-	if (flags.preventResetParts) { flags.resetParts = false; }
+	if (flags.justLoadedSetup) { flags.resetParts = false; }
 
 	for (let elem of elementaries) {
 		const L = elem.cantidad * 4;
@@ -1970,13 +2115,13 @@ function updateParticlesBuffers() {
 
 		device.queue.submit([copyEncoder.finish()]); // Submit encoder
 
-		console.log("Frame " +frame+ ": Añadidas partículas manuales a los GPUBuffers");
+		console.log("Frame " +frame+ ": Añadidas partículas manuales a los GPUBuffers.");
 		clearTempParticles();
 
 	}
 
 	// Resetear posivels o cargar posiciones precargadas
-	if (flags.preventResetParts || flags.resetParts || frame === 0) {
+	if (flags.justLoadedSetup || flags.resetParts || frame === 0) {
 		
 		let offset = 0, pos = [], vel = [];
 		const positionsArray = new Float32Array(N*4);
@@ -2006,7 +2151,7 @@ function updateParticlesBuffers() {
 		if (flags.resetParts) { console.log("Partículas reseteadas y asignadas a los GPUBuffers."); }
 		else { console.log("Partículas asignadas a los GPUBuffers."); }
 		flags.resetParts = false;
-		flags.preventResetParts = false;
+		flags.justLoadedSetup = false;
 
 		clearTempParticles();
 
@@ -2035,7 +2180,6 @@ function updateActiveRules() {
 
 	paramsArrays.Nr.set([Nr]);
 	device.queue.writeBuffer(GPUBuffers.params, 16, paramsArrays.Nr);
-	
 	return [activeRules, Nr, m];
 }
 function updateDistancesBuffers(Nr, m) {
@@ -2085,9 +2229,13 @@ function updateRulesBuffer(activeRules) {
 	const rulesArray = new Float32Array(Nr * 8);
 
 	for (let i = 0; i < Nr; i++) { // llenar el array de reglas
+
+		const targetIndex = elementaries.findIndex(elementary => {return elementary.nombre == activeRules[i].targetName});
+		const sourceIndex = elementaries.findIndex(elementary => {return elementary.nombre == activeRules[i].sourceName});
+
 		rulesArray.set([
-			activeRules[i].targetIndex = elementaries.findIndex(elementary => {return elementary.nombre == activeRules[i].targetName}),
-			activeRules[i].sourceIndex = elementaries.findIndex(elementary => {return elementary.nombre == activeRules[i].sourceName}),
+			targetIndex,
+			sourceIndex,
 			activeRules[i].intensity,
 			activeRules[i].quantumForce,
 			activeRules[i].minDist,
@@ -2106,8 +2254,8 @@ function updateRulesBuffer(activeRules) {
 
 	flags.updateRules = false;
 }
-function updateCanvasInBuffer() {
-	paramsArrays.canvasDims.set([canvas.width, canvas.height]);
+function writeCanvasToBuffer() {
+	paramsArrays.canvasDims.set(ambient.canvasDims);
 	device.queue.writeBuffer(GPUBuffers.params, 0, paramsArrays.canvasDims);
 	flags.updateCanvas = false;
 }
@@ -2116,9 +2264,24 @@ function updateCanvasInBuffer() {
 
 function editBuffers() {
 
+	let msg = "";
+
+	// Canvas size
+	if (flags.updateCanvas) {
+		writeCanvasToBuffer();
+		msg += "canvas/";
+	}
+
+	// Entorno
+	if (flags.editAmbient) {
+		writeAmbientToBuffer();
+		msg += "ambient/";
+	}
+
 	// Datos elementaries, posiciones y velocidades
 	if (flags.updateParticles) {
 		updateParticlesBuffers();
+		msg += "posivels/";
 	}
 
 	// Reglas
@@ -2126,13 +2289,17 @@ function editBuffers() {
 		const [activeRules, Nr, m] = updateActiveRules(); // Reglas parte A
 		updateDistancesBuffers(Nr, m); // Distancias
 		updateRulesBuffer(activeRules); // Reglas parte B
+		msg += "rules/";
 	}
 
-	// Canvas size
-	if (flags.updateCanvas) {
-		updateCanvasInBuffer();
+	// Estilo
+	if (flags.editPStyle) {
+		writePStyleToBuffer();
+		msg += "pstyle/";
 	}
 
+	if (!msg) { console.warn("No se editó ningún buffer."); }
+	return msg.slice(0,-1);
 }
 
 function updateSimulationParameters() {
@@ -2140,7 +2307,7 @@ function updateSimulationParameters() {
 	setRNG(seedInput.value);
 
 	// CREACIÓN DE BUFFERS
-	editBuffers();
+	const msg = editBuffers();
 
 	if (N === 0) { flags.updateSimParams = false; return;}
 
@@ -2213,8 +2380,8 @@ function updateSimulationParameters() {
 	workgroupCount2 = Math.ceil(Nd / WORKGROUP_SIZE);
 	//console.log( `N / workgroup size: ${N} / ${WORKGROUP_SIZE} = ${N/WORKGROUP_SIZE}\nworkgroup count: ${workgroupCount}`);
 
+	console.log("Updated sim params: " + msg + ".");
 	flags.updateSimParams = false;
-	console.log("Updated simulation parameters.");
 }
 
 // Funciones para el loop principal
@@ -2279,17 +2446,6 @@ async function newFrame(){
 
 	if ( flags.updateSimParams ){	// Rearmar buffers y pipeline
 		updateSimulationParameters();
-	}
-
-	if (flags.editAmbient) {
-		writeAmbientToBuffer();
-		flags.editAmbient = false;
-		console.log("Updated ambient parameters.");
-	}
-
-	if (flags.editPStyle) {
-		writePStyleToBuffer();
-		flags.editPStyle = false;
 	}
 
 	const encoder = device.createCommandEncoder();
@@ -2361,6 +2517,10 @@ async function newFrame(){
 }
 
 //TODO:
+/*
+PERMITIR APLICAR PARTÍCULAS SIN RESETEAR POSIVELS. WE HAVE THE TECHNOLOGY!
+*/
+/* Ctrl + Arrastrar para colocar un trazo de partículas*/
 /* Pasar los parámetros pertinentes mediante writebuffer en lugar de recrear nuevos buffers */
 /* Funciones para quitar o agregar partículas. permite mergers/eaters */
 /* Antialiasing / renderizar a mayor resolución */

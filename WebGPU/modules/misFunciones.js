@@ -24,7 +24,7 @@ export async function inicializar(){
 
 }
 
-export async function inicializarCells(conTitulos=true){
+export async function inicializarCells(showTitle=true){
 	const estatus = document.getElementById("estatus");
 
 	//Revisar si existe el objeto que sirve como punto de partida para acceder a la GPU. Es para revisar si el dispositivo es compatible con WebGPU
@@ -43,14 +43,13 @@ export async function inicializarCells(conTitulos=true){
 	
 	const canvas = document.querySelector("canvas");
 	const container = document.getElementById("canvascontainer");
-	const devicePixelRatio = window.devicePixelRatio || 1;
-	if (devicePixelRatio !== 1) { console.log("Pixel ratio: " + devicePixelRatio); }
-	if (!conTitulos) { 
-		estatus.hidden = true; 
-		const bodyMargin = parseInt(window.getComputedStyle(document.body).margin);
-		canvas.height = window.innerHeight - bodyMargin * 2 * devicePixelRatio;
+
+	if (!showTitle) {
+		estatus.hidden = true;
+		[canvas.width, canvas.height] = autoCanvasDims(container);
+	} else {
+		[canvas.width] = autoCanvasDims(container, "width");
 	}
-	canvas.width = container.clientWidth * devicePixelRatio;
 	canvas.hidden = false;
 
 	estatus.innerText= "La GPU de tu equipo está calculando y renderizando esto!"
@@ -89,3 +88,47 @@ export async function inicializarCells(conTitulos=true){
 	return [device, canvas, canvasFormat, context, timer];
 	
 }
+
+export function autoCanvasDims(container, dims="widthheight") {
+
+	const pixelRatio = window.devicePixelRatio || 1;
+	if (pixelRatio !== 1) { console.log("Pixel ratio: " + pixelRatio); }
+
+	const bodyMargin = parseInt(window.getComputedStyle(document.body).margin);
+	switch (dims) {
+		case "heightwidth":
+		case "widthheight":
+			return [container.clientWidth, window.innerHeight - bodyMargin * 2 * pixelRatio]
+		case "width":
+			return [container.clientWidth,,]
+		case "height":
+			return [,window.innerHeight - bodyMargin * 2 * pixelRatio];
+		default:
+			throw new Error("dims must be 'width', 'height', or their concatenation");
+	}
+}
+
+/*
+function autoCanvasDimsold(canvas, container, dims="widthheight") {
+
+	const devicePixelRatio = window.devicePixelRatio || 1;
+	if (devicePixelRatio !== 1) { console.log("Pixel ratio: " + devicePixelRatio); }
+
+	const bodyMargin = parseInt(window.getComputedStyle(document.body).margin);
+	switch (dims) {
+		case "heightwidth":
+		case "widthheight":
+			canvas.height = window.innerHeight - bodyMargin * 2 * devicePixelRatio;
+			canvas.width = container.clientWidth;
+			break;
+		case "width":
+			canvas.width = container.clientWidth;
+			break;
+		case "height":
+			canvas.height = window.innerHeight - bodyMargin * 2 * devicePixelRatio;
+			break;
+		default:
+			throw new Error("dims must be 'width', 'height', or their concatenation");
+	}
+}
+*/

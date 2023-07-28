@@ -379,11 +379,11 @@ export function renderShader() { return /*wgsl*/`
         let r = length(input.quadpos);
         if r > 1 { discard; }
 
-        let idx = input.idx;
+        //let idx = input.idx;
         let k = input.k;
         
         return elems[k].color * step(r, params.borderStart) * input.random * ( 1 + params.spherical * (sqrt(1 - r*r) - 1) );
-
+    
     }
     `;
 }

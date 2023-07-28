@@ -1,8 +1,15 @@
 {
+  "name": "Test par de interacción",
   "seed": "",
-  "friction": "0",
-  "bounce": "100",
-  "maxInitVel": "0",
+  "ambient": {
+    "friction": 0,
+    "bounce": 100,
+    "maxInitVel": 0,
+    "canvasDims": [
+      "auto",
+      "auto"
+    ]
+  },
   "elementaries": [
     {
       "nombre": "A",
