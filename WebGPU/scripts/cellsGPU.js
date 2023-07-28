@@ -19,10 +19,14 @@ CHANGELOG = `\
 	* El sistema para poner partículas manualmente está oficialmente completado, aunque en el futuro podría\
 	pulirse o ampliarse su funcionalidad (ej: arrastrar para dibujar un trazo de muchas partículas).
 
-	* Mejoras en la interfaz y la funcionalidad. Ahora se puede cambiar, exportar e importar el tamaño del canvas.\
-	Corregido un bug relevante al borrar partículas y aplicar reglas.
+	* Mejoras en la interfaz y la funcionalidad. Algunas son:\
+	\n   + Ahora se puede cambiar, exportar e importar el tamaño del canvas.\
+	\n   + El color del canvas ahora se puede cambiar "en tiempo real".
+	
+	* Corregido un bug relevante al borrar partículas y aplicar reglas.
 
-	* Enormes cambios en la organización del código, está más presentable y mantenible pero falta.
+	* Enormes cambios en la organización del código, está más presentable y mantenible pero falta.\
+	Uso de Clases para algunos elementos. 
 
 	* Algunos setups para importar y probar: https://github.com/Tomycj/Webpage/tree/main/data
 
@@ -1245,7 +1249,7 @@ textureView;
 	//preloadPosButton.onclick =_=> { preloadPositions = !preloadPositions; switchClass(preloadPosButton); }
 
 	// Canvas color
-	bgColorPicker.onchange =_=> {
+	bgColorPicker.oninput =_=> {
 		styleSettings.bgColor = hexString_to_rgba(bgColorPicker.value, 1);
 		if (paused) {
 			const encoder = device.createCommandEncoder();
