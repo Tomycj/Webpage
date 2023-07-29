@@ -88,12 +88,7 @@ export async function inicializarCells(showTitle=true){
 	return [device, canvas, canvasFormat, context, timer];
 	
 }
-/**
- * Arrow functions can be documented just like normal functions.
- * @param {number} numParam A number to add.
- * @param {string} strParam Another number to add that happens to be a string.
- * @return {number} The sum of the two parameters.
- */
+
 export function autoCanvasDims(container, dims="widthheight") {
 
 	const pixelRatio = window.devicePixelRatio || 1;
@@ -112,28 +107,3 @@ export function autoCanvasDims(container, dims="widthheight") {
 			throw new Error("dims must be 'width', 'height', or their concatenation");
 	}
 }
-
-/*
-function autoCanvasDimsold(canvas, container, dims="widthheight") {
-
-	const devicePixelRatio = window.devicePixelRatio || 1;
-	if (devicePixelRatio !== 1) { console.log("Pixel ratio: " + devicePixelRatio); }
-
-	const bodyMargin = parseInt(window.getComputedStyle(document.body).margin);
-	switch (dims) {
-		case "heightwidth":
-		case "widthheight":
-			canvas.height = window.innerHeight - bodyMargin * 2 * devicePixelRatio;
-			canvas.width = container.clientWidth;
-			break;
-		case "width":
-			canvas.width = container.clientWidth;
-			break;
-		case "height":
-			canvas.height = window.innerHeight - bodyMargin * 2 * devicePixelRatio;
-			break;
-		default:
-			throw new Error("dims must be 'width', 'height', or their concatenation");
-	}
-}
-*/

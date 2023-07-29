@@ -8,6 +8,11 @@
 	--borderHighlightColor: white;
 }
 
+body {
+	background-color: black;
+	color: white;
+	overflow-y: scroll;
+}
 body::-webkit-scrollbar {
 	width: 0.6em;
 	height: 0.6em;
@@ -18,11 +23,7 @@ body::-webkit-scrollbar-thumb {
 body::-webkit-scrollbar-corner {
 	background-color: black;
 }
-body {
-	background-color: black;
-	color: white;
-	overflow-y: scroll;
-}
+
 label {
 	pointer-events:none;
 }

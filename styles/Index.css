@@ -5,16 +5,41 @@
   font-display: swap;
   src: url("../fonts/Inter.var.woff2") format("woff2");
 }
+:root {
+	--bg-color: #ddb74d;
+	--bg-color-dark: #e28800;
+	--bg-color-darker: #d06000;
+}
 
 body {
+	background-color: var(--bg-color);
 	font-family: Inter, Asap, Arial, sans-serif;
+	overflow-y: scroll;
 }
+body::-webkit-scrollbar {
+	width: 0.8em;
+	height: 0.8em;
+}
+body::-webkit-scrollbar-thumb {
+	background-color: var(--bg-color-dark);
+}
+body::-webkit-scrollbar-thumb:hover {
+	background-color: var(--bg-color-darker);;
+}
+body::-webkit-scrollbar-corner {
+	background-color: var(--bg-color);
+}
+body::-webkit-scrollbar-track {
+	-webkit-box-shadow: inset 0 0 6px rgba(0,0,0,0.3);
+}
+
 button {
 	font-family: Inter;
-	background-color: #e28800;
+	background-color: var(--bg-color-dark);
 }
 button:hover {
 	background-color: #ffdd48;
+	cursor: pointer;
 }
 .bold {
 	font-weight: bold;
