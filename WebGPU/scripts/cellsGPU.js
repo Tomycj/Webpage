@@ -219,11 +219,11 @@ textureView;
 
 		return new Promise((resolve, reject) => {
 
-			fileInput.onchange =(event)=> {
+			fileInput.onchange = (event)=> {
 				const file = event.target.files[0];
 				const reader = new FileReader();
 
-				reader.onload =_=> {
+				reader.onload = _=> {
 					try {
 						const jsonData = JSON.parse(reader.result);
 						resolve(jsonData);
@@ -757,6 +757,7 @@ textureView;
 		// Load seed
 		setRNG(setup.seed);
 		if (setup.seed) { seedInput.value = setup.seed.toString(); }
+		else { seedInput.value = ""; }
 		
 		// Load elementaries
 		vaciarSelectors();
@@ -872,7 +873,7 @@ textureView;
 			"Clásico (X" + m + ")",
 			seed,
 			{
-				friction: 0.005,
+				friction: (m-1) * (0.008-0.005) / (10-1) + 0.005, //0.005 default
 				bounce: 80,
 				maxInitVel: 0,
 				canvasDims: ["auto", "auto"],
@@ -1556,26 +1557,274 @@ textureView;
 
 // EVENT HANDLING
 
+	// Botones de tiempo
+	pauseButton.onclick = _=> pausar();
+	stepButton.onclick = _=> stepear();
+	resetButton.onclick = (event)=> {
+		if (event.ctrlKey) {
+			const path = SETUPS_FOLDER + "Cells GPU setup - Vacío.json"
+			importSetup(path)
+			.then( (setup) => { cargarSetup(setup, true);} );
+			return;
+		}
+		resetear();
+	}
+
+	// Controles
+	document.addEventListener("keydown", function(event) {
+		
+		const isTextInput = event.target.tagName === "INPUT" && event.target.type === "text";
+		
+		if (isTextInput || event.ctrlKey) { return; }
+
+		if (event.target.type === "range") { event.target.blur(); }
+
+		switch (event.code){
+			case "Space":
+				event.preventDefault();
+				pausar(); playSound(clickSound);
+				break;
+			case "KeyR":
+				resetear(); playSound(clickSound);
+				break;
+			case "KeyS":
+				stepear(); playSound(clickSound);
+				break;
+			case "KeyW":
+				hideCPOptions(); //playSound(clickSound);
+				break;
+			case "KeyM":
+				muted = !muted;
+				clickSound.volume = `${volumeRange.value * !muted}`;
+				let alpha = 1;
+				if (muted) { alpha = 0.3;}
+				volumeRange.style.setProperty("--thumbg", `rgba(255, 255, 255, ${alpha})`);
+				break;
+			case "KeyI":
+				switchVisibilityAttribute(infoPanel);
+				break;
+			case "KeyH":
+				switchVisibilityAttribute(panels);
+				break;
+			case "KeyD":
+				switchVisibilityAttribute(debugInfo);
+				break;
+		}
+	});
+
+	// Creador de elementaries / partículas
+	partiControls.submitButton.onclick = _=> {
+
+		let returnFlag = false,
+		name = partiControls.nameInput,
+		radius, cant;
+
+		// Usar placeholders si vacíos. Si no lo están: validar.
+		if (name.value) { name = name.value; } 
+		else if (name.placeholder) { name = name.placeholder; }
+		else { titilarBorde(name); returnFlag = true; }
+
+		[cant, returnFlag] = checkAndGetNumberInput(partiControls.cantInput, returnFlag);
+		partiControls.radiusInput.max = Math.min(canvas.height, canvas.width)/2;
+		//console.log(partiControls.radiusInput.max);
+		[radius, returnFlag] = checkAndGetNumberInput(partiControls.radiusInput, returnFlag);
+		
+		if (returnFlag) { return; }
+
+		const elemIndex = partiControls.selector.selectedIndex;
+
+		const [pos, vel] = crearPosiVel(cant, elemIndex, radius * 2);
+
+		cargarElementary( new Elementary(
+			name,
+			hexString_to_rgba(partiControls.colorInput.value, 1),
+			cant,
+			radius,
+			pos,
+			vel,
+		));
+		setPlaceholdersParticles();
+		removePartiControlsValues();
+		borraParticleButton.hidden = false;
+		partiControls.placeButton.hidden = false;
+		switchClass(partiControls.updateButton, "disabled", false)
+		switchClass(ruleControls.updateButton, "disabled", true);
+		markers[2].hidden = false;
+		markers[3].hidden = true;
+		
+	}
+	partiControls.updateButton.onclick = _=> {
+		if (partiControls.updateButton.classList.contains("disabled")) { return; }
+
+		playSound(clickSound);
+		applyParticles();
+		applyRules();
+	}
+	partiControls.placeButton.onclick = _=> {
+		placePartOnClic = !placePartOnClic;
+		switchClass(partiControls.placeButton, "switchedoff");
+		if (placePartOnClic) {
+			canvas.style.cursor = "crosshair";
+			switchClass(borraParticleButton, "disabled", true);
+		}
+		else { 
+			canvas.style.cursor = "default"; 
+			switchClass(borraParticleButton, "disabled", newParticles.length);
+		}
+	}
+
+	// Creador de reglas de interacción
+	ruleControls.submitButton.onclick = (event)=> {
+
+		let returnFlag = false,
+		newRuleName = ruleControls.nameInput,
+		intens, qm, dmin, dmax;
+
+		if (!ruleControls.targetSelector.options.length) {
+			titilarBorde(ruleControls.targetSelector);
+			returnFlag = true;
+		}
+
+		if (!ruleControls.sourceSelector.options.length) {
+			titilarBorde(ruleControls.sourceSelector);
+			returnFlag = true;
+		}
+
+		[intens, returnFlag] = checkAndGetNumberInput(ruleControls.intens, returnFlag);
+		[qm, returnFlag] = checkAndGetNumberInput(ruleControls.qm, returnFlag);
+		[dmin, returnFlag] = checkAndGetNumberInput(ruleControls.dmin, returnFlag);
+		[dmax, returnFlag] = checkAndGetNumberInput(ruleControls.dmax, returnFlag);
+
+		if (returnFlag) { return; }
+
+		const targetIndex = ruleControls.targetSelector.selectedIndex;
+		const sourceIndex = ruleControls.sourceSelector.selectedIndex;
+
+		if (newRuleName.value) { newRuleName = newRuleName.value; } 
+		else if (newRuleName.placeholder) { newRuleName = newRuleName.placeholder; }
+		else { // Si no hay nombres para poner, usa el nombre estándar
+			newRuleName = `${ruleControls.targetSelector.options[targetIndex].value} ← ${ruleControls.sourceSelector.options[sourceIndex].value}`;
+		}
+		
+		if (!event.ctrlKey) { // Si es un click normal, veo si debo añadir (n) al nombre
+			while (rules.some(rule => rule.ruleName == newRuleName)) { // Mientras sea nombre repetido, añade (n)
+
+				if (/\(\d+\)$/.test(newRuleName)) {
+					newRuleName = newRuleName.replace(/\((\d+)\)$/, (_, number) => {
+						return "(" + (parseInt(number) + 1) + ")";
+					});
+		
+				} else {
+					newRuleName += " (1)";
+				}
+			}
+		}
+
+		const newRule = new Rule(
+			newRuleName,
+			ruleControls.targetSelector.value,
+			ruleControls.sourceSelector.value,
+			intens,
+			qm,
+			dmin,
+			dmax,
+		);
+
+		cargarRule(newRule)
+		
+		updateUIAfterRulesChange();
+		removeRuleControlsValues();
+		flags.rulesModified = true;
+		borraRuleButton.hidden = false;
+
+	}
+	ruleControls.updateButton.onclick = _=> {
+		if (ruleControls.updateButton.classList.contains("disabled")) { return; }
+		
+		playSound(clickSound);
+		applyRules();
+	}
+	ruleControls.targetSelector.onchange = _=> setPlaceholderRuleName();
+	ruleControls.sourceSelector.onchange = _=> setPlaceholderRuleName();
+
+	// Rule manager
+	borraRuleButton.onclick = (event)=> {
+		const indexToDelete = ruleControls.selector.selectedIndex;
+		if (indexToDelete === -1) {
+			console.warn("Botón borraRuleButton debería estar desactivado.")
+			titilarBorde(ruleControls.selector)
+			return;
+		}
+		
+		if (event.ctrlKey) {
+			rules = [];
+			ruleControls.selector.innerHTML = "";
+			borraRuleButton.hidden = true;
+		} else {
+			rules.splice(indexToDelete,1);
+			ruleControls.selector.options[indexToDelete].remove();
+			if (!ruleControls.selector.length) {
+				borraRuleButton.hidden = true;
+			}
+		}
+		updateUIAfterRulesChange();
+		flags.rulesModified = true;
+	}
+	ruleControls.selector.onchange = _=> setPlaceholdersRules();
+
+	// Particle manager
+	borraParticleButton.onclick = (event)=> {
+		if (borraParticleButton.classList.contains("disabled")) { return; }
+
+		const indexToDelete = partiControls.selector.selectedIndex;
+		if (indexToDelete === -1) {
+			console.warn("Esto no debería haber pasado...")
+			titilarBorde(partiControls.selector)
+			return;
+		}
+
+		if (event.ctrlKey) {
+			elementaries = [];
+			partiControls.selector.innerHTML = "";
+			ruleControls.targetSelector.innerHTML = "";
+			ruleControls.sourceSelector.innerHTML = "";
+			allParticlesDeleted();
+		} else {
+			elementaries.splice(indexToDelete, 1);
+			partiControls.selector.options[indexToDelete].remove();
+			ruleControls.targetSelector.options[indexToDelete].remove();
+			ruleControls.sourceSelector.options[indexToDelete].remove();
+			if (!partiControls.selector.options.length) {
+				allParticlesDeleted();
+			}
+		}
+
+		setPlaceholdersParticles();
+		switchClass(partiControls.updateButton,"disabled", false);
+		markers[2].hidden = true;
+	}
+	partiControls.selector.onchange = _=> setPlaceholdersParticles();
+
 	// Parar animaciones
 	CPOptions.addEventListener("animationend", function(event) { event.target.classList.remove("titilante"); });
 
 	// Ocultar interfaces
-	panelTitle.onclick =_=> hideCPOptions();
-	ambientOptionsTitle.onclick =_=> switchVisibilityAttribute(ambientOptionsPanel);
-	creadorPartTitle.onclick =_=> switchVisibilityAttribute(creadorPartPanel);
-	creadorReglasTitle.onclick =_=> switchVisibilityAttribute(creadorReglasPanel);
+	panelTitle.onclick = _=> hideCPOptions();
+	ambientOptionsTitle.onclick = _=> switchVisibilityAttribute(ambientOptionsPanel);
+	creadorPartTitle.onclick = _=> switchVisibilityAttribute(creadorPartPanel);
+	creadorReglasTitle.onclick = _=> switchVisibilityAttribute(creadorReglasPanel);
 
 	// Seed input
-	seedInput.onchange =_=> setRNG(seedInput.value);
-	seedInput.onclick =(event)=> {
+	seedInput.onchange = _=> setRNG(seedInput.value);
+	seedInput.onclick = (event)=> {
 		if (event.ctrlKey) {
 			seedInput.value = seedInput.placeholder;
 		}
 	}
-	//preloadPosButton.onclick =_=> { preloadPositions = !preloadPositions; switchClass(preloadPosButton); }
+	//preloadPosButton.onclick = _=> { preloadPositions = !preloadPositions; switchClass(preloadPosButton); }
 
 	// Canvas color
-	bgColorPicker.oninput =_=> {
+	bgColorPicker.oninput = _=> {
 		styleSettings.bgColor = hexString_to_rgba(bgColorPicker.value, 1);
 		if (paused) {
 			const encoder = device.createCommandEncoder();
@@ -1585,7 +1834,7 @@ textureView;
 	}
 
 	// Particles stye 
-	pStyleRange.oninput =_=> { 
+	pStyleRange.oninput = _=> { 
 		playSound(clickSound, false);
 		applyParticlesStyle();
 	}
@@ -1618,7 +1867,7 @@ textureView;
 
 		circle.hidden = false;
 	}
-	canvas.onmousemove = (ev) => {
+	canvas.onmousemove = (ev)=> {
 
 		if (!placePartOnClic || !mouseIsDown) { 
 			return;
@@ -1724,66 +1973,11 @@ textureView;
 		//flags.resetParts = false;
 	}
 
-	// Botones de tiempo
-	pauseButton.onclick =_=> pausar();
-	stepButton.onclick =_=> stepear();
-	resetButton.onclick =(ev)=> {
-		if (ev.ctrlKey) {
-			const path = SETUPS_FOLDER + "Cells GPU setup - Vacío.json"
-			importSetup(path)
-			.then( (setup) => { cargarSetup(setup, true);} );
-			return;
-		}
-		resetear();
-	}
-
-	// Controles
-	document.addEventListener("keydown", function(event) {
-		
-		const isTextInput = event.target.tagName === "INPUT" && event.target.type === "text";
-		
-		if (isTextInput || event.ctrlKey) { return; }
-
-		if (event.target.type === "range") { event.target.blur(); }
-
-		switch (event.code){
-			case "Space":
-				event.preventDefault();
-				pausar(); playSound(clickSound);
-				break;
-			case "KeyR":
-				resetear(); playSound(clickSound);
-				break;
-			case "KeyS":
-				stepear(); playSound(clickSound);
-				break;
-			case "KeyW":
-				hideCPOptions(); //playSound(clickSound);
-				break;
-			case "KeyM":
-				muted = !muted;
-				clickSound.volume = `${volumeRange.value * !muted}`;
-				let alpha = 1;
-				if (muted) { alpha = 0.3;}
-				volumeRange.style.setProperty("--thumbg", `rgba(255, 255, 255, ${alpha})`);
-				break;
-			case "KeyI":
-				switchVisibilityAttribute(infoPanel);
-				break;
-			case "KeyH":
-				switchVisibilityAttribute(panels);
-				break;
-			case "KeyD":
-				switchVisibilityAttribute(debugInfo);
-				break;
-		}
-	});
-
 	// Botón de info debug
-	infoButton.onclick =_=> switchVisibilityAttribute(infoPanel);
+	infoButton.onclick = _=> switchVisibilityAttribute(infoPanel);
 
 	// Botón de export e import
-	exportButton.onclick =(event)=> exportarSetup(
+	exportButton.onclick = (event)=> exportarSetup(
 		new Setup(
 			"Manualmente exportado",
 			seedInput.value,
@@ -1799,17 +1993,17 @@ textureView;
 		"Cells GPU setup",
 		!!event.ctrlKey
 	);
-	importButton.onclick =_=> {
+	importButton.onclick = _=> {
 		importSetup()
 		.then( (setup) => { cargarSetup(setup, true); } );
 	}
 
 	// Sonidos
-	volumeRange.onchange =_=> {
+	volumeRange.onchange = _=> {
 		clickSound.volume = `${volumeRange.value * !muted}`;
 		playSound(clickSound);
 	}
-	panels.onclick =(event)=> {
+	panels.onclick = (event)=> {
 		if (event.target.tagName === "BUTTON" && !event.target.classList.contains("disabled")) {
 			playSound(clickSound);
 		}
@@ -1828,207 +2022,16 @@ textureView;
 		markers[1].hidden = allFieldsEmpty;
 	}
 	for (const input in ambientControls.inputs) {
-		ambientControls.inputs[input].onchange =_=> enableIfChanged(ambientControls.inputs);
+		ambientControls.inputs[input].onchange = _=> enableIfChanged(ambientControls.inputs);
 	}
-	ambientControls.inputs.bounce.oninput =_=> setAutomaticInputElementWidth(ambientControls.inputs.bounce, 3, 12, 0);
-	ambientControls.updateButton.onclick =_=> {
+	ambientControls.inputs.bounce.oninput = _=> setAutomaticInputElementWidth(ambientControls.inputs.bounce, 3, 12, 0);
+	ambientControls.updateButton.onclick = _=> {
 		if (ambientControls.updateButton.classList.contains("disabled")) { return; }
 		playSound(clickSound);
 		applyAmbient();
 	}
 
-	// Creador de elementaries / partículas
-	partiControls.submitButton.onclick =()=> {
 
-		let returnFlag = false,
-		name = partiControls.nameInput,
-		radius, cant;
-
-		// Usar placeholders si vacíos. Si no lo están: validar.
-		if (name.value) { name = name.value; } 
-		else if (name.placeholder) { name = name.placeholder; }
-		else { titilarBorde(name); returnFlag = true; }
-
-		[cant, returnFlag] = checkAndGetNumberInput(partiControls.cantInput, returnFlag);
-		partiControls.radiusInput.max = Math.min(canvas.height, canvas.width)/2;
-		//console.log(partiControls.radiusInput.max);
-		[radius, returnFlag] = checkAndGetNumberInput(partiControls.radiusInput, returnFlag);
-		
-		if (returnFlag) { return; }
-
-		const elemIndex = partiControls.selector.selectedIndex;
-
-		const [pos, vel] = crearPosiVel(cant, elemIndex, radius * 2);
-
-		cargarElementary( new Elementary(
-			name,
-			hexString_to_rgba(partiControls.colorInput.value, 1),
-			cant,
-			radius,
-			pos,
-			vel,
-		));
-		setPlaceholdersParticles();
-		removePartiControlsValues();
-		borraParticleButton.hidden = false;
-		partiControls.placeButton.hidden = false;
-		switchClass(partiControls.updateButton, "disabled", false)
-		switchClass(ruleControls.updateButton, "disabled", true);
-		markers[2].hidden = false;
-		markers[3].hidden = true;
-		
-	}
-	partiControls.updateButton.onclick =_=> {
-		if (partiControls.updateButton.classList.contains("disabled")) { return; }
-
-		playSound(clickSound);
-		applyParticles();
-		applyRules();
-	}
-	partiControls.placeButton.onclick =_=> {
-		placePartOnClic = !placePartOnClic;
-		switchClass(partiControls.placeButton, "switchedoff");
-		if (placePartOnClic) {
-			canvas.style.cursor = "crosshair";
-			switchClass(borraParticleButton, "disabled", true);
-		}
-		else { 
-			canvas.style.cursor = "default"; 
-			switchClass(borraParticleButton, "disabled", newParticles.length);
-		}
-	}
-
-	// Creador de reglas de interacción
-	ruleControls.submitButton.onclick =(event)=> {
-
-		let returnFlag = false,
-		newRuleName = ruleControls.nameInput,
-		intens, qm, dmin, dmax;
-
-		if (!ruleControls.targetSelector.options.length) {
-			titilarBorde(ruleControls.targetSelector);
-			returnFlag = true;
-		}
-
-		if (!ruleControls.sourceSelector.options.length) {
-			titilarBorde(ruleControls.sourceSelector);
-			returnFlag = true;
-		}
-
-		[intens, returnFlag] = checkAndGetNumberInput(ruleControls.intens, returnFlag);
-		[qm, returnFlag] = checkAndGetNumberInput(ruleControls.qm, returnFlag);
-		[dmin, returnFlag] = checkAndGetNumberInput(ruleControls.dmin, returnFlag);
-		[dmax, returnFlag] = checkAndGetNumberInput(ruleControls.dmax, returnFlag);
-
-		if (returnFlag) { return; }
-
-		const targetIndex = ruleControls.targetSelector.selectedIndex;
-		const sourceIndex = ruleControls.sourceSelector.selectedIndex;
-
-		if (newRuleName.value) { newRuleName = newRuleName.value; } 
-		else if (newRuleName.placeholder) { newRuleName = newRuleName.placeholder; }
-		else { // Si no hay nombres para poner, usa el nombre estándar
-			newRuleName = `${ruleControls.targetSelector.options[targetIndex].value} ← ${ruleControls.sourceSelector.options[sourceIndex].value}`;
-		}
-		
-		if (!event.ctrlKey) { // Si es un click normal, veo si debo añadir (n) al nombre
-			while (rules.some(rule => rule.ruleName == newRuleName)) { // Mientras sea nombre repetido, añade (n)
-
-				if (/\(\d+\)$/.test(newRuleName)) {
-					newRuleName = newRuleName.replace(/\((\d+)\)$/, (_, number) => {
-						return "(" + (parseInt(number) + 1) + ")";
-					});
-		
-				} else {
-					newRuleName += " (1)";
-				}
-			}
-		}
-
-		const newRule = new Rule(
-			newRuleName,
-			ruleControls.targetSelector.value,
-			ruleControls.sourceSelector.value,
-			intens,
-			qm,
-			dmin,
-			dmax,
-		);
-
-		cargarRule(newRule)
-		
-		updateUIAfterRulesChange();
-		removeRuleControlsValues();
-		flags.rulesModified = true;
-		borraRuleButton.hidden = false;
-
-	}
-	ruleControls.updateButton.onclick =_=> {
-		if (ruleControls.updateButton.classList.contains("disabled")) { return; }
-		
-		playSound(clickSound);
-		applyRules();
-	}
-	ruleControls.targetSelector.onchange =_=> setPlaceholderRuleName();
-	ruleControls.sourceSelector.onchange =_=> setPlaceholderRuleName();
-
-	// Rule manager
-	borraRuleButton.onclick =(event)=> {
-		const indexToDelete = ruleControls.selector.selectedIndex;
-		if (indexToDelete === -1) {
-			console.warn("Botón borraRuleButton debería estar desactivado.")
-			titilarBorde(ruleControls.selector)
-			return;
-		}
-		
-		if (event.ctrlKey) {
-			rules = [];
-			ruleControls.selector.innerHTML = "";
-			borraRuleButton.hidden = true;
-		} else {
-			rules.splice(indexToDelete,1);
-			ruleControls.selector.options[indexToDelete].remove();
-			if (!ruleControls.selector.length) {
-				borraRuleButton.hidden = true;
-			}
-		}
-		updateUIAfterRulesChange();
-		flags.rulesModified = true;
-	}
-	ruleControls.selector.onchange =_=> setPlaceholdersRules();
-
-	// Particle manager
-	borraParticleButton.onclick =(event)=> {
-		if (borraParticleButton.classList.contains("disabled")) { return; }
-
-		const indexToDelete = partiControls.selector.selectedIndex;
-		if (indexToDelete === -1) {
-			console.warn("Esto no debería haber pasado...")
-			titilarBorde(partiControls.selector)
-			return;
-		}
-
-		if (event.ctrlKey) {
-			elementaries = [];
-			partiControls.selector.innerHTML = "";
-			ruleControls.targetSelector.innerHTML = "";
-			ruleControls.sourceSelector.innerHTML = "";
-			allParticlesDeleted();
-		} else {
-			elementaries.splice(indexToDelete, 1);
-			partiControls.selector.options[indexToDelete].remove();
-			ruleControls.targetSelector.options[indexToDelete].remove();
-			ruleControls.sourceSelector.options[indexToDelete].remove();
-			if (!partiControls.selector.options.length) {
-				allParticlesDeleted();
-			}
-		}
-
-		setPlaceholdersParticles();
-		switchClass(partiControls.updateButton,"disabled", false);
-		markers[2].hidden = true;
-	}
-	partiControls.selector.onchange =_=> setPlaceholdersParticles();
 
 //
 
@@ -2043,11 +2046,11 @@ textureView;
 		newsText.innerText = CHANGELOG;
 		newsDialog.open = true;
 
-		dialogOk2Button.onclick =_=> {
+		dialogOk2Button.onclick = _=> {
 			localStorage.setItem("STORED_VERSION_NUMBER", "_" + CURRENT_VERSION);
 			newsDialog.open = false;
 		}
-		dialogNVM2Button.onclick =_=> {
+		dialogNVM2Button.onclick = _=> {
 			localStorage.setItem("STORED_VERSION_NUMBER", CURRENT_VERSION); //CURRENT_VERSION
 			newsDialog.open = false;
 		}
@@ -2057,11 +2060,11 @@ textureView;
 	
 		helpDialog.open = true;
 		
-		dialogOkButton.onclick =_=> {
+		dialogOkButton.onclick = _=> {
 			localStorage.setItem("NEW_USER", 1);
 			helpDialog.open = false;
 		}
-		dialogNVMButton.onclick =_=> {
+		dialogNVMButton.onclick = _=> {
 			localStorage.setItem("NEW_USER", 0);
 			helpDialog.open = false;
 		}
@@ -2488,7 +2491,7 @@ function computeNextFrame(encoder, frame) {
 
 // ANIMATION LOOP
 
-async function newFrame(){
+async function newFrame() {
 
 	if (paused && !stepping) { return; }
 
@@ -2559,13 +2562,10 @@ async function newFrame(){
 		fpsInfo.innerText = fps;
 	}
 
-	if ( !stepping ){	// Iniciar nuevo frame
-		animationId = requestAnimationFrame(newFrame);
-	}
+	if ( !stepping ) { animationId = requestAnimationFrame(newFrame); }
 }
 
 //TODO:
-//BUG: HAY UN PROBLEMA CON LA SEED (capaz sólo si está manual) AL IMPORTAR SETUPS
 /*
 PERMITIR APLICAR PARTÍCULAS SIN RESETEAR POSIVELS. WE HAVE THE TECHNOLOGY!
 */
