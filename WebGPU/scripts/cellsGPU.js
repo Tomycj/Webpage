@@ -31,9 +31,22 @@ CHANGELOG = `\
 	* Algunos setups para importar y probar: https://github.com/Tomycj/Webpage/tree/main/data
 
 `,
+particleStyles = [
+	{
+		borderWidth: 1,
+		spherical: 0
+	}, {
+		borderWidth: 0.85,
+		spherical: 0
+	}, {
+		borderWidth: 1,
+		spherical: 1
+	}
+],
 styleSettings = {
 	bgColor: [0, 0, 0, 1],
-	particleStyle: [1, 1],
+	//particleStyle: [1, 1], //[borderStart in UV scale (0-1), is spherical?]
+	particleStyle: particleStyles[2],
 },
 ambient = {
 	friction: 1 - 0.995, // 0.995 en el shader
@@ -74,6 +87,8 @@ fps = 0,
 frameCounter = 0,
 refTime,
 placePartOnClic = false,
+mouseIsDown = false,
+mDownX = 0, mDownY = 0,
 newParticles = [], // PosiVels de partículas creadas manualmente para cada elementary
 sampleCount = 1, // Parece que sólo puede ser 1 o 4.
 textureView;
@@ -103,14 +118,7 @@ textureView;
 
 // FUNCIONES VARIAS Y CLASES - TODO: Modularizar
 
-	function setRNG(seed) {
-		//console.log(`setRNG(${seed}) called`)
-		if (seed == "") {
-			seed = Math.random().toFixed(7).toString();
-		}
-		rng = new alea(seed);
-		seedInput.placeholder = seed;
-	}
+	// General utility
 	function hexString_to_rgba(hexString, a) {
 		
 		hexString = hexString.replace("#",""); // remove possible initial #
@@ -184,6 +192,51 @@ textureView;
 		titilarBorde(input, "red");
 		return false;
 	}
+	function importarJson(path="") {
+		const msg = "Error detectado antes de importar."
+
+		if (path) { // Load from server file.
+
+			return new Promise ((resolve, reject) => {
+
+				fetch(path)
+				.then( (response) => { return response.json() })
+				.catch((error) => { reject(labelError(error, msg)); })
+				.then( (json) => { resolve(json); })
+			});
+			/* Async solution expanded
+				const promise = fetch(path);
+				const response = await fetch(path);
+				const json = await response.json();
+				return(json);
+			*/
+		} 
+
+		// Load from user prompt
+		const fileInput = document.createElement("input");
+		fileInput.type = "file";
+		fileInput.accept = ".json";
+
+		return new Promise((resolve, reject) => {
+
+			fileInput.onchange =(event)=> {
+				const file = event.target.files[0];
+				const reader = new FileReader();
+
+				reader.onload =_=> {
+					try {
+						const jsonData = JSON.parse(reader.result);
+						resolve(jsonData);
+					} catch (error) { reject(error); }
+				}
+				reader.onerror = (error) => { reject(labelError(error, msg)); }
+				reader.readAsText(file);
+			};
+			
+			fileInput.click();
+		});
+
+	}
 	function includesIn2nd(array, num) { // busca num entre el 2do elemento de los subarrays dentro de array
 		return array.some(subarray => subarray[1] == num);
 	}
@@ -233,6 +286,218 @@ textureView;
 
 		return [m, D];
 	}
+	function hasSameStructure(obj1, obj2) { 
+		// no revisa la estructura de los arrays de elementaries y rules
+		const keys1 = Object.keys(obj1).sort();
+		const keys2 = Object.keys(obj2).sort();
+
+		if (keys1.length !== keys2.length) {
+			return false;
+		}
+
+		for (let i = 0; i < keys1.length; i++) {
+			const key1 = keys1[i];
+			const key2 = keys2[i];
+
+			if (key1 !== key2 || typeof obj1[key1] !== typeof obj2[key2]) {
+				return false;
+			}
+
+			if (typeof obj1[key1] === "object" && !Array.isArray(obj1[key1])) {
+
+				if (!hasSameStructure(obj1[key1], obj2[key2])) {
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+	function mapAndPadNtoXNUint(array, x) { // [1,2,3] -> UintArray [1, 0...0, 2, 0...0, 3, 0...0]
+		const typedArray = new Uint32Array(array.length * x);
+		for (let i = 0; i < typedArray.length; i += x) {
+			typedArray[i] = array[i/x];
+		}
+		return typedArray;
+	}
+	function rgba_to_hexString(rgbaArray) {
+		const [r, g, b] = rgbaArray;
+		const hexR = Math.floor(r * 255).toString(16).padStart(2, '0');
+		const hexG = Math.floor(g * 255).toString(16).padStart(2, '0');
+		const hexB = Math.floor(b * 255).toString(16).padStart(2, '0');
+		return `#${hexR}${hexG}${hexB}`;
+	}
+	function sqMatVal(m, f, c) {
+		const numCols = Math.sqrt(m.length);
+		return m[f * numCols + c]
+	}
+	function labelError(error, label="Default error label") {
+		const labeledError = new Error (label);
+		labeledError.cause = error;
+		return labeledError;
+	}
+	function generateHistogram2(data, lim=1, nBins=10) {
+		const histogram = [];
+
+		// Initialize histogram bins
+		for (let i = 0; i < nBins; i++) {
+			histogram[i] = 0;
+		}
+
+		// Calculate bin size
+		const min = -lim//Math.min(...data);
+		const max = lim//Math.max(...data);
+		const binSize = (max - min) / nBins;
+
+		// Increment bin counts
+		data.forEach((value) => {
+			const binIndex = Math.floor((value - min) / binSize);
+			histogram[binIndex]++;
+		});
+
+		let logLines = "";
+		// Display histogram
+		for (let i = 0; i < nBins; i++) {
+			const binStart = min + i * binSize;
+			const binEnd = binStart + binSize;
+			const binCount = histogram[i];
+			logLines += `[${binStart.toFixed(2)} :: ${binEnd.toFixed(2)}]: ${binCount}\n`
+		}
+		console.log(logLines);
+
+		const sumNeg = histogram.slice(0, 4+1).reduce((a,b)=>a+b,0);
+		const sumPos = histogram.slice(5, 9+1).reduce((a,b)=>a+b,0);
+		let bal = ""
+		if (sumPos>sumNeg) {
+			bal = "+++";
+		} else if (sumPos<sumNeg) {
+			bal = "---"
+		}
+
+		console.log(`          balance: ${sumNeg} // ${sumPos}   (${bal})`)
+	}
+	function mostrarParamsArray (paramsArray, Ne) {
+		const debugHelp = ["N", "Ne", "ancho", "alto",];
+		let offset = 4;
+		for (let i = offset; i < offset+Ne; i++) {
+			debugHelp.push(`Acum (${i-offset})`);
+		} offset += Ne;
+		for (let i = offset; i < offset+Ne; i++) {
+			debugHelp.push(`Radio (${i-offset})`);
+		} offset += Ne;
+		for (let i = offset; i < offset+4*Ne; i+=4) {
+			debugHelp.push(`R (${Math.floor((i-offset)/4)})`);
+			debugHelp.push(`G (${Math.floor((i-offset)/4)})`);
+			debugHelp.push(`B (${Math.floor((i-offset)/4)})`);
+			debugHelp.push(`A (${Math.floor((i-offset)/4)})`);
+		}
+
+		const tabla = [];
+		for (let i = 0; i < paramsArray.length; i++) {
+			tabla.push([paramsArray[i], debugHelp[i]]);
+		}
+		console.table(tabla);
+	}
+	function MAX_SAFE_Ingeter () {
+		let n = 0;
+		try{
+		while (n+1 > n-1) {
+			++n;
+		}} catch(error) {
+			return n-2; // security margin
+		}
+		return n
+	}
+
+	// Utilities for some HTML elements
+	function playSound(soundElement, avoidSpam=true) { 
+		if ((avoidSpam && soundElement.currentTime > 0.05) || !avoidSpam) {
+			soundElement.currentTime = 0; 
+		}
+		soundElement.play(); 
+	}
+	function titilarBorde(element, color="red") {
+		element.classList.add("titilante");
+		element.style.setProperty("--titil-color", color);
+	}
+	function removeOptions(htmlElement) { 
+		htmlElement.options.length = 0; //<- only for select elements
+		//htmlElement.innerHTML = "";
+		//while (htmlElement.firstChild) {
+		//	htmlElement.removeChild(htmlElement.firstChild);
+			//htmlElement.remove(0) <- only for select elements
+		//}
+		//$(htmlElement).children().remove();
+	}
+	function switchClass(element, className, state) {
+		// por defecto la alterna. Si tiene una input, lo pone acorde a ella. Devuelve el estado.
+
+		const list = element.classList;
+
+		if (state === undefined) {
+			if (list.contains(className)) {
+				list.remove(className);
+				return false;
+			}
+			else {
+				list.add(className);
+				return true;
+			}
+		}
+
+		if (state) {
+			list.add(className);
+			return true;
+		} else {
+			list.remove(className)
+			return false;
+		}
+
+	}
+	function switchVisibilityAttribute(element) {
+		element.hidden ^= true;
+	}
+	function setAutomaticInputElementWidth (inputElement, min, max, padding) {
+		// falla para xxxxe porque allí value = "" -> length = 0
+
+		if (inputElement.validity.badInput) {return;}
+
+		const ancho = Math.max(inputElement.value.length, inputElement.placeholder.length);
+		inputElement.style.width = `${ Math.min(Math.max(ancho, min) + padding, max) }ch`;
+	}
+	function checkAndGetNumberInput(input, failFlag, strict = true, P=true) {
+		// For chained checks before value usage. Supports exponential notation.
+		if (!validarNumberInput(input, strict)) { 			// Is it a bad input (aka not a number)?
+			return [undefined, true];							// fail, set flag.
+		}
+		else if (P && !input.value && input.placeholder) { 	// Is it empty and has a placeholder (asumed valid)?
+			return [Number(input.placeholder), failFlag];		// return placeholder number, pass flag.
+		}
+		else if (input.value) {								// Is it not empty?
+			if (input.step === "1") {							// Is it supposed to be an integer?
+				return [Math.trunc(input.value), failFlag];		// return int, pass flag.
+			} else {
+				return [parseFloat(input.value), failFlag];		// return float, pass flag.
+			}
+		}
+		else {												// No placeholder or valid value.
+			titilarBorde(input,"red");
+			return [undefined, true];							// fail, set flag.
+		}
+	}
+	function suggestReset(element, flag, done="default value") {
+
+		if (done === "done") {
+			element.style.setProperty("border-color","rgba(255, 255, 255, 0.2)");
+			flag = false;
+		} else if (done !== "default value") {
+			console.warn("Wrong input");
+		} else {
+			element.style.setProperty("border-color","rgba(255, 165, 0, 1)");
+			flag = true;
+		}
+	}
+
+	// Classes and their handling
 	class Elementary {
 		constructor(nombre, color, cantidad, radio, posiciones, velocidades) {
 			// Check input parameter types and sizes
@@ -441,50 +706,6 @@ textureView;
 			return output;
 		}
 	}
-	function importarJson(path="") {
-		const msg = "Error detectado antes de importar."
-
-		if (path) { // Load from server file.
-
-			return new Promise ((resolve, reject) => {
-
-				fetch(path)
-				.then( (response) => { return response.json() })
-				.catch((error) => { reject(labelError(error, msg)); })
-				.then( (json) => { resolve(json); })
-			});
-			/* Async solution expanded
-				const promise = fetch(path);
-				const response = await fetch(path);
-				const json = await response.json();
-				return(json);
-			*/
-		} 
-
-		const fileInput = document.createElement("input");
-		fileInput.type = "file";
-		fileInput.accept = ".json";
-
-		return new Promise((resolve, reject) => {
-
-			fileInput.onchange =(event)=> {
-				const file = event.target.files[0];
-				const reader = new FileReader();
-
-				reader.onload =_=> {
-					try {
-						const jsonData = JSON.parse(reader.result);
-						resolve(jsonData);
-					} catch (error) { reject(error); }
-				}
-				reader.onerror = (error) => { reject(labelError(error, msg)); }
-				reader.readAsText(file);
-			};
-			
-			fileInput.click();
-		});
-
-	}
 	async function importSetup(path) {
 
 		const jsonPromise = importarJson(path)
@@ -625,38 +846,12 @@ textureView;
 		document.body.removeChild(a);
 		URL.revokeObjectURL(url);
 	}
-	function hasSameStructure(obj1, obj2) { 
-		// no revisa la estructura de los arrays de elementaries y rules
-		const keys1 = Object.keys(obj1).sort();
-		const keys2 = Object.keys(obj2).sort();
-
-		if (keys1.length !== keys2.length) {
-			return false;
-		}
-
-		for (let i = 0; i < keys1.length; i++) {
-			const key1 = keys1[i];
-			const key2 = keys2[i];
-
-			if (key1 !== key2 || typeof obj1[key1] !== typeof obj2[key2]) {
-				return false;
-			}
-
-			if (typeof obj1[key1] === "object" && !Array.isArray(obj1[key1])) {
-
-				if (!hasSameStructure(obj1[key1], obj2[key2])) {
-					return false;
-				}
-			}
-		}
-		return true;
-	}
 	function generarSetupClásico(m, seed) {
 		const e = [];
 		const elementaries = [
 			new Elementary("A", new Float32Array([1,1,0,1]), 300*m, 3, e, e), //300
 			new Elementary("R", new Float32Array([1,0,0,1]), 80*m, 4, e, e),	//80
-			new Elementary("P", new Float32Array([147/255,112/255,219/255,1]), 30*m, 5, e, e),	//30
+			new Elementary("P", new Float32Array([128/255,0,128/255,1]), 30*m, 5, e, e),	//30
 			new Elementary("V", new Float32Array([0,128/255,0,1]), 5, 7, e, e),				//5 r7
 		];
 
@@ -709,14 +904,15 @@ textureView;
 			rules,
 		)
 	}
-	function removeOptions(htmlElement) { 
-		htmlElement.options.length = 0; //<- only for select elements
-		//htmlElement.innerHTML = "";
-		//while (htmlElement.firstChild) {
-		//	htmlElement.removeChild(htmlElement.firstChild);
-			//htmlElement.remove(0) <- only for select elements
-		//}
-		//$(htmlElement).children().remove();
+
+	// UI/CPU data handling
+	function setRNG(seed) {
+		//console.log(`setRNG(${seed}) called`)
+		if (seed == "") {
+			seed = Math.random().toFixed(7).toString();
+		}
+		rng = new alea(seed);
+		seedInput.placeholder = seed;
 	}
 	function vaciarSelectors(){ // orig: 1ms // innerhtml ="": 0.76ms // length = 0: 0.73ms + no html recomp.
 		removeOptions(partiControls.selector);
@@ -748,42 +944,6 @@ textureView;
 		const option = document.createElement("option");
 		option.text = rule.ruleName;
 		ruleControls.selector.appendChild(option);
-	}
-	function mostrarParamsArray (paramsArray, Ne) {
-		const debugHelp = ["N", "Ne", "ancho", "alto",];
-		let offset = 4;
-		for (let i = offset; i < offset+Ne; i++) {
-			debugHelp.push(`Acum (${i-offset})`);
-		} offset += Ne;
-		for (let i = offset; i < offset+Ne; i++) {
-			debugHelp.push(`Radio (${i-offset})`);
-		} offset += Ne;
-		for (let i = offset; i < offset+4*Ne; i+=4) {
-			debugHelp.push(`R (${Math.floor((i-offset)/4)})`);
-			debugHelp.push(`G (${Math.floor((i-offset)/4)})`);
-			debugHelp.push(`B (${Math.floor((i-offset)/4)})`);
-			debugHelp.push(`A (${Math.floor((i-offset)/4)})`);
-		}
-
-		const tabla = [];
-		for (let i = 0; i < paramsArray.length; i++) {
-			tabla.push([paramsArray[i], debugHelp[i]]);
-		}
-		console.table(tabla);
-	}
-	function mapAndPadNtoXNUint(array, x) { // [1,2,3] -> UintArray [1, 0...0, 2, 0...0, 3, 0...0]
-		const typedArray = new Uint32Array(array.length * x);
-		for (let i = 0; i < typedArray.length; i += x) {
-			typedArray[i] = array[i/x];
-		}
-		return typedArray;
-	}
-	function rgba_to_hexString(rgbaArray) {
-		const [r, g, b] = rgbaArray;
-		const hexR = Math.floor(r * 255).toString(16).padStart(2, '0');
-		const hexG = Math.floor(g * 255).toString(16).padStart(2, '0');
-		const hexB = Math.floor(b * 255).toString(16).padStart(2, '0');
-		return `#${hexR}${hexG}${hexB}`;
 	}
 	function setPlaceholdersParticles() {
 		const i = partiControls.selector.selectedIndex;
@@ -821,46 +981,38 @@ textureView;
 		ruleControls.dmin.value = "";
 		ruleControls.dmax.value = "";
 	}
-	function titilarBorde(element, color="red") {
-		element.classList.add("titilante");
-		element.style.setProperty("--titil-color", color);
-	}
-	function sqMatVal(m, f, c) {
-		const numCols = Math.sqrt(m.length);
-		return m[f * numCols + c]
-	}
-	function switchClass(element, className, state) {
-		// por defecto la alterna. Si tiene una input, lo pone acorde a ella. Devuelve el estado.
-
-		const list = element.classList;
-
-		if (state === undefined) {
-			if (list.contains(className)) {
-				list.remove(className);
-				return false;
-			}
-			else {
-				list.add(className);
-				return true;
-			}
-		}
-
-		if (state) {
-			list.add(className);
-			return true;
-		} else {
-			list.remove(className)
-			return false;
-		}
-
-	}
-	function switchVisibility(element) {
-		element.hidden ^= true;
-	}
 	function hideCPOptions() { 
 		CPOptions.hidden ^= true;
 		if (CPOptions.hidden){ panelTitle.style = "height: 3ch;"; } else { panelTitle.style = ""; }
 	}
+	function allParticlesDeleted() {
+		borraParticleButton.hidden = true;
+		partiControls.placeButton.hidden = true;
+
+		placePartOnClic = false;
+		switchClass(partiControls.placeButton, "switchedoff", true);
+		canvas.style.cursor = "default";
+	}
+	function updateUIAfterRulesChange() {
+		setPlaceholdersRules();
+		markers[3].hidden = false;
+		if (partiControls.updateButton.classList.contains("disabled")) {
+			switchClass(ruleControls.updateButton, "disabled", false);
+		}
+	}
+	function clearTempParticles() {
+		tempParticles.replaceChildren();
+		newParticles = [];
+		const placeButtonOff = !partiControls.placeButton.classList.contains("switchedoff");
+		switchClass(borraParticleButton, "disabled", placeButtonOff);
+	}
+	function getDeltas(event) {
+		const [x1, y1] = [mDownX, mDownY];
+		const [x2, y2] = [event.offsetX, event.offsetY];
+		return [x2 - x1, y2 - y1];
+	}
+
+	// Simulation flow
 	function pausar() {
 		if (!paused) {
 			pauseButton.innerText = "Resumir";
@@ -890,19 +1042,24 @@ textureView;
 		applyParticles();
 		applyRules();
 		
-		//suggestReset("done");
+		//suggestReset(resetButton, awaitingResetCall, "done");
 		if (paused && draw) {
 			stepear();
 		}
 	}
-	function playSound(soundElement, avoidSpam=true) { 
-		if ((avoidSpam && soundElement.currentTime > 0.05) || !avoidSpam) {
-			soundElement.currentTime = 0; 
-		}
-		soundElement.play(); 
-	}
-	function timestamp(i, encoder) {
 
+	// WebGPU utilities
+	async function readBuffer(device, buffer) {
+		const size = buffer.size;
+		const gpuReadBuffer = device.createBuffer({size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+		const copyEncoder = device.createCommandEncoder();
+		copyEncoder.copyBufferToBuffer(buffer, 0, gpuReadBuffer, 0, size);
+		device.queue.submit([copyEncoder.finish()]);
+		await gpuReadBuffer.mapAsync(GPUMapMode.READ);
+		return gpuReadBuffer.getMappedRange();
+	}
+	function timestamp(timestampIndex, encoder) {
+		const i = timestampIndex;
 		if (i >= capacity) {
 			console.warn(`Discarded timestamp index ${i} >= ${capacity}`);
 			return;
@@ -921,102 +1078,36 @@ textureView;
 			}
 		} else { t[i] = window.performance.now(); }
 	}
-	function generateHistogram2(data, lim=1, nBins=10) {
-		const histogram = [];
-
-		// Initialize histogram bins
-		for (let i = 0; i < nBins; i++) {
-			histogram[i] = 0;
-		}
-
-		// Calculate bin size
-		const min = -lim//Math.min(...data);
-		const max = lim//Math.max(...data);
-		const binSize = (max - min) / nBins;
-
-		// Increment bin counts
-		data.forEach((value) => {
-			const binIndex = Math.floor((value - min) / binSize);
-			histogram[binIndex]++;
+	function createPosiVelsGPUBuffers (sizeP, sizeV) {
+		GPUBuffers.positionBuffers = [
+			device.createBuffer({
+				label: "Positions buffer IN",
+				size: sizeP,
+				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+			}),
+			device.createBuffer({
+				label: "Positions buffer OUT",
+				size: sizeP,
+				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+			})
+		];
+		GPUBuffers.velocities = device.createBuffer({
+			label: "Velocities buffer",
+			size: sizeV,
+			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
 		});
+	}
+	function getTextureView(dims) {
+		const texture = device.createTexture({
+			size: dims,
+			sampleCount,
+			format: canvasFormat,
+			usage: GPUTextureUsage.RENDER_ATTACHMENT,
+		});
+		return texture.createView();
+	}
 
-		let logLines = "";
-		// Display histogram
-		for (let i = 0; i < nBins; i++) {
-			const binStart = min + i * binSize;
-			const binEnd = binStart + binSize;
-			const binCount = histogram[i];
-			logLines += `[${binStart.toFixed(2)} :: ${binEnd.toFixed(2)}]: ${binCount}\n`
-		}
-		console.log(logLines);
-
-		const sumNeg = histogram.slice(0, 4+1).reduce((a,b)=>a+b,0);
-		const sumPos = histogram.slice(5, 9+1).reduce((a,b)=>a+b,0);
-		let bal = ""
-		if (sumPos>sumNeg) {
-			bal = "+++";
-		} else if (sumPos<sumNeg) {
-			bal = "---"
-		}
-
-		console.log(`          balance: ${sumNeg} // ${sumPos}   (${bal})`)
-	}
-	async function readBuffer(device, buffer) {
-		const size = buffer.size;
-		const gpuReadBuffer = device.createBuffer({size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
-		const copyEncoder = device.createCommandEncoder();
-		copyEncoder.copyBufferToBuffer(buffer, 0, gpuReadBuffer, 0, size);
-		device.queue.submit([copyEncoder.finish()]);
-		await gpuReadBuffer.mapAsync(GPUMapMode.READ);
-		return gpuReadBuffer.getMappedRange();
-	}
-	function setAutomaticInputElementWidth (inputElement, min, max, padding) {
-		// falla para xxxxe porque allí value = "" -> length = 0
-
-		if (inputElement.validity.badInput) {return;}
-
-		const ancho = Math.max(inputElement.value.length, inputElement.placeholder.length);
-		inputElement.style.width = `${ Math.min(Math.max(ancho, min) + padding, max) }ch`;
-	}
-	function writeAmbientToBuffer() {
-		paramsArrays.ambient.set([1 - ambient.friction, ambient.bounce / 100]);
-		device.queue.writeBuffer(GPUBuffers.params, 28, paramsArrays.ambient);
-		flags.editAmbient = false;
-	}
-	function writePStyleToBuffer() {
-		paramsArrays.pStyle.set(styleSettings.particleStyle);
-		device.queue.writeBuffer(GPUBuffers.params, 36, paramsArrays.pStyle);
-		flags.editPStyle = false;
-	}
-	function writeRNGSeedToBuffer() {
-		paramsArrays.seeds.set([
-			rng() * 100,
-			rng() * 100, // seed.xy
-			1 + rng(),
-			1 + rng(), // seed.zw
-		])
-		device.queue.writeBuffer(GPUBuffers.params, 48, paramsArrays.seeds);
-	}
-	function checkAndGetNumberInput(input, failFlag, strict = true, P=true) {
-		// For chained checks before value usage. Supports exponential notation.
-		if (!validarNumberInput(input, strict)) { 			// Is it a bad input (aka not a number)?
-			return [undefined, true];							// fail, set flag.
-		}
-		else if (P && !input.value && input.placeholder) { 	// Is it empty and has a placeholder (asumed valid)?
-			return [Number(input.placeholder), failFlag];		// return placeholder number, pass flag.
-		}
-		else if (input.value) {								// Is it not empty?
-			if (input.step === "1") {							// Is it supposed to be an integer?
-				return [Math.trunc(input.value), failFlag];		// return int, pass flag.
-			} else {
-				return [parseFloat(input.value), failFlag];		// return float, pass flag.
-			}
-		}
-		else {												// No placeholder or valid value.
-			titilarBorde(input,"red");
-			return [undefined, true];							// fail, set flag.
-		}
-	}
+	// Prepare to edit buffers (or do so if immediately possible)
 	function applyCanvas() {
 		[canvas.width, canvas.height] = ambient.canvasDims;
 		canvasInfo.innerText = `${canvas.width} x ${canvas.height} (${(canvas.width/canvas.height).toFixed(6)})`;
@@ -1084,85 +1175,287 @@ textureView;
 			markers[3].hidden = false;
 		}
 	}
-	function createPosiVelsGPUBuffers (sizeP, sizeV) {
-		GPUBuffers.positionBuffers = [
-			device.createBuffer({
-				label: "Positions buffer IN",
-				size: sizeP,
-				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-			}),
-			device.createBuffer({
-				label: "Positions buffer OUT",
-				size: sizeP,
-				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-			})
-		];
-		GPUBuffers.velocities = device.createBuffer({
-			label: "Velocities buffer",
-			size: sizeV,
-			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-		});
-	}
-	function allParticlesDeleted() {
-		borraParticleButton.hidden = true;
-		partiControls.placeButton.hidden = true;
+	function applyParticlesStyle() {
+		const i = parseInt(pStyleRange.value);
+		styleSettings.particleStyle = particleStyles[i];
 
-		placePartOnClic = false;
-		switchClass(partiControls.placeButton, "switchedoff", true);
-		canvas.style.cursor = "default";
-	}
-	function suggestReset(done="default value") {
-		if (done === "done") {
-			resetButton.style.setProperty("border-color","rgba(255, 255, 255, 0.2)");
-			awaitingResetCall = false;
-		} else if (done !== "default value") {
-			console.warn("Wrong input");
+		if (paused) {
+			writePStyleToBuffer()
+			const encoder = device.createCommandEncoder();
+			render(encoder, Math.max(frame - 1, 0));
+			device.queue.submit([encoder.finish()]);
 		} else {
-			resetButton.style.setProperty("border-color","rgba(255, 165, 0, 1)");
-			awaitingResetCall = true;
+			flags.editPStyle = true;
+			flags.updateSimParams = true;
 		}
 	}
-	function updateUIAfterRulesChange() {
-		setPlaceholdersRules();
-		markers[3].hidden = false;
-		if (partiControls.updateButton.classList.contains("disabled")) {
-			switchClass(ruleControls.updateButton, "disabled", false);
+
+	// Functions to edit buffers (usually used by editBuffers())
+	function writeCanvasToBuffer() {
+		paramsArrays.canvasDims.set(ambient.canvasDims);
+		device.queue.writeBuffer(GPUBuffers.params, 0, paramsArrays.canvasDims);
+		flags.updateCanvas = false;
+	}
+	function writeAmbientToBuffer() {
+		paramsArrays.ambient.set([1 - ambient.friction, ambient.bounce / 100]);
+		device.queue.writeBuffer(GPUBuffers.params, 28, paramsArrays.ambient);
+		flags.editAmbient = false;
+	}
+	function updateDatosElementariesBuffer(Ne) {
+
+		const datosElemsSize = (3 * 4 + 4 + 16) * Ne; // 3 cants, radio, color
+		const datosElementariesArrBuffer = new ArrayBuffer(datosElemsSize);
+		N = 0;
+	
+		for (let i = 0; i < Ne; i++) {  //N, radios, colores, cantidades
+	
+			const nLocal = elementaries[i].cantidad;
+			N += nLocal; // N también hace de acumulador para este for.
+	
+			const cants = new Uint32Array(datosElementariesArrBuffer, i * 8*4, 3);
+			const radioColor = new Float32Array(datosElementariesArrBuffer, (i * 8*4) + 3*4, 5);
+	
+			cants.set([nLocal, N, N-nLocal]);	// [cants, cantsacum, cantsAcum2]
+			radioColor.set([elementaries[i].radio]);
+			radioColor.set(elementaries[i].color,1);
 		}
+	
+		paramsArrays.N.set([N]);
+		device.queue.writeBuffer(GPUBuffers.params, 8, paramsArrays.N);
+	
+		GPUBuffers.datosElementaries = device.createBuffer({
+			label: "Buffer: datos elementaries",
+			size: datosElemsSize,
+			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+		})
+		device.queue.writeBuffer(GPUBuffers.datosElementaries, 0, datosElementariesArrBuffer, 0, datosElemsSize);
 	}
-	function clearTempParticles() {
-		tempParticles.replaceChildren();
-		newParticles = [];
-		const placeButtonOff = !partiControls.placeButton.classList.contains("switchedoff");
-		switchClass(borraParticleButton, "disabled", placeButtonOff);
+	function updateParticlesBuffers() {
+
+		const Ne = elementaries.length;
+	
+		paramsArrays.Ne.set([Ne]);
+		device.queue.writeBuffer(GPUBuffers.params, 12, paramsArrays.Ne);
+		
+		updateDatosElementariesBuffer(Ne);
+		
+		if (flags.justLoadedSetup) { flags.resetParts = false; }
+	
+		for (let elem of elementaries) {
+			const L = elem.cantidad * 4;
+			const posiVelsIncompleto = (elem.posiciones.length !== L || elem.velocidades.length !== L);
+			if (posiVelsIncompleto) {
+				flags.resetParts = true;
+				console.warn("Detectadas partículas faltantes, reseteando posiciones y velocidades...");
+				break;
+			}
+		}
+	
+		// Agregar partículas manuales a las pre-existentes
+		if (newParticles.length && !flags.resetParts) {
+	
+			const newParticlesF = newParticles.flat();
+			const oldSize = GPUBuffers.velocities?.size ?? 0;
+			const newSize = oldSize + newParticlesF.length * 4 * 4;
+	
+			//console.log("oldSize: " + oldSize + ", newSize: " + newSize);
+	
+			const newPositions = new Float32Array(newParticlesF.length * 4);
+			const newVelocities = new Float32Array(newParticlesF.length * 4);
+			let offset = 0;
+	
+			for (let i = 0; i<Ne; i++) {
+				for (let p = 0; p < newParticles[i].length; p++ ) {
+					newPositions.set(newParticles[i][p][0], offset);
+					newVelocities.set(newParticles[i][p][1], offset);
+					offset += 4;
+				}
+			}
+	
+			// New temporary buffers of size newSize > oldSize
+			const tempPosBuffer = device.createBuffer({
+				label: "Temp positions buffer",
+				size: newSize,
+				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+			});
+			const tempVelBuffer = device.createBuffer({
+				label: "Temp velocities buffer",
+				size: newSize,
+				usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+			});
+	
+			// Fill the new section with the new data 
+			device.queue.writeBuffer(tempPosBuffer, oldSize, newPositions);
+			device.queue.writeBuffer(tempVelBuffer, oldSize, newVelocities);
+	
+			// Fill the old section with the old data
+			const copyEncoder = device.createCommandEncoder(); // Create encoder
+	
+			if (GPUBuffers.positionBuffers && GPUBuffers.velocities) {
+				copyEncoder.copyBufferToBuffer(GPUBuffers.positionBuffers[frame % 2], 0, tempPosBuffer, 0, oldSize);
+				copyEncoder.copyBufferToBuffer(GPUBuffers.velocities, 0, tempVelBuffer, 0, oldSize);
+			}
+	
+			// Re-create the used buffers
+			createPosiVelsGPUBuffers (newSize, newSize);
+	
+			// Fill them with the data from the temporary buffers
+			copyEncoder.copyBufferToBuffer(tempPosBuffer, 0, GPUBuffers.positionBuffers[frame % 2], 0, newSize);
+			copyEncoder.copyBufferToBuffer(tempVelBuffer, 0, GPUBuffers.velocities, 0, newSize);
+	
+			device.queue.submit([copyEncoder.finish()]); // Submit encoder
+	
+			console.log("Frame " +frame+ ": Añadidas partículas manuales a los GPUBuffers.");
+			clearTempParticles();
+	
+		}
+	
+		// Resetear posivels o cargar posiciones precargadas
+		if (flags.justLoadedSetup || flags.resetParts || frame === 0) {
+			
+			let offset = 0, pos = [], vel = [];
+			const positionsArray = new Float32Array(N*4);
+			const velocitiesArray = new Float32Array(N*4);
+	
+			// llenar positionsArray y velocitiesArray
+			for (let i = 0; i<Ne; i++) {
+				if (flags.resetParts) {
+					[pos, vel] = crearPosiVel(elementaries[i].cantidad, i, elementaries[i].radio * 2);
+					elementaries[i].posiciones = pos;
+					elementaries[i].velocidades = vel;
+				} else {
+					pos = elementaries[i].posiciones;
+					vel = elementaries[i].velocidades;
+				}
+	
+				positionsArray.set(pos, offset);
+				velocitiesArray.set(vel, offset);
+	
+				offset += elementaries[i].cantidad*4;
+			}
+	
+			createPosiVelsGPUBuffers (positionsArray.byteLength, velocitiesArray.byteLength);
+			device.queue.writeBuffer(GPUBuffers.positionBuffers[frame % 2], 0, positionsArray);
+			device.queue.writeBuffer(GPUBuffers.velocities, 0, velocitiesArray);
+	
+			if (flags.resetParts) { console.log("Partículas reseteadas y asignadas a los GPUBuffers."); }
+			else { console.log("Partículas asignadas a los GPUBuffers."); }
+			flags.resetParts = false;
+			flags.justLoadedSetup = false;
+			clearTempParticles();
+		}
+		flags.updateParticles = false;
 	}
-	function getDeltas(ev) {
-		const [x1, y1] = [mDownX, mDownY];
-		const [x2, y2] = [ev.offsetX, ev.offsetY];
-		return [x2 - x1, y2 - y1];
+	function updateActiveRules() {
+		const Ne = elementaries.length;
+		const activeRules = [];
+		const m = new Uint8Array(Ne**2);
+		
+		for (let rule of rules) {
+			const targetIndex = elementaries.findIndex(elementary => {return elementary.nombre == rule.targetName});
+			const sourceIndex = elementaries.findIndex(elementary => {return elementary.nombre == rule.sourceName});
+	
+			if (targetIndex === -1 || sourceIndex ===-1) { continue; }
+			activeRules.push(rule);
+	
+			const [f, c] = [targetIndex, sourceIndex].sort();
+	
+			const index = (f * Ne) + c;
+			m[index]++;
+		}
+	
+		const Nr = activeRules.length;
+	
+		paramsArrays.Nr.set([Nr]);
+		device.queue.writeBuffer(GPUBuffers.params, 16, paramsArrays.Nr);
+		return [activeRules, Nr, m];
 	}
-	function getTextureView(dims) {
-		const texture = device.createTexture({
-			size: dims,
-			sampleCount,
-			format: canvasFormat,
-			usage: GPUTextureUsage.RENDER_ATTACHMENT,
+	function updateDistancesBuffers(Nr, m) {
+		Nd = 0;
+		let Npi = 0;
+		let datosInteracciones = [];
+		if (PRECALCULAR_DISTANCIAS && Nr) {
+	
+			Nd = 0;
+			datosInteracciones = [];
+			// recorro la matriz simétrica de interacciones
+			for (let f = 0; f < Ne; f++) {
+				for (let c = f; c < Ne; c++) {
+		
+					if ( sqMatVal(m, f, c) ) {
+						const ndLocal = elementaries[f].cantidad * elementaries[c].cantidad;
+						Nd += ndLocal; // Nd también hace de acumulador para este for.
+	
+						datosInteracciones.push([f, c, Nd, Nd - ndLocal]); // pares de interacciones y cants de distancias acum.
+					}
+				}
+			}
+			Npi = datosInteracciones.length;
+		}
+	
+		GPUBuffers.distancias = device.createBuffer({
+			label: "Distancias buffer",
+			size: Nd * 4 || 4,
+			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
 		});
-		return texture.createView();
+	
+		const datosInteraccionesArray = new Uint32Array(datosInteracciones.flat());
+		GPUBuffers.datosInteracciones = device.createBuffer({
+			label: "datos interacciones buffer",
+			size: Nd * 4 * 4 || 4,
+			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+		});
+		device.queue.writeBuffer(GPUBuffers.datosInteracciones, 0, datosInteraccionesArray);
+	
+		paramsArrays.Nd.set([Nd]);
+		paramsArrays.Npi.set([Npi]);
+		device.queue.writeBuffer(GPUBuffers.params, 20, paramsArrays.Nd);
+		device.queue.writeBuffer(GPUBuffers.params, 24, paramsArrays.Npi);
 	}
-	function labelError(error, label="Default error label") {
-		const labeledError = new Error (label);
-		labeledError.cause = error;
-		return labeledError;
-	}
-	function MAX_SAFE_Ingeter () {
-		let n = 0;
-		try{
-		while (n+1 > n-1) {
-			++n;
-		}} catch(error) {
-			return n-2; // security margin
+	function updateRulesBuffer(activeRules) {
+		const Nr = activeRules.length;
+		const rulesArray = new Float32Array(Nr * 8);
+	
+		for (let i = 0; i < Nr; i++) { // llenar el array de reglas
+	
+			const targetIndex = elementaries.findIndex(elementary => {return elementary.nombre == activeRules[i].targetName});
+			const sourceIndex = elementaries.findIndex(elementary => {return elementary.nombre == activeRules[i].sourceName});
+	
+			rulesArray.set([
+				targetIndex,
+				sourceIndex,
+				activeRules[i].intensity,
+				activeRules[i].quantumForce,
+				activeRules[i].minDist,
+				activeRules[i].maxDist,
+				0.0,//padding
+				0.0,
+			], 8*i)
 		}
-		return n
+	
+		GPUBuffers.rules = device.createBuffer({
+			label: "Reglas",
+			size: rulesArray.byteLength || 32,
+			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+		});
+		device.queue.writeBuffer(GPUBuffers.rules, 0, rulesArray)
+	
+		flags.updateRules = false;
+	}
+	function writePStyleToBuffer() {
+		const data = new Float32Array([styleSettings.particleStyle.borderWidth, styleSettings.particleStyle.spherical])
+		paramsArrays.pStyle.set(data);
+		device.queue.writeBuffer(GPUBuffers.params, 36, paramsArrays.pStyle);
+		flags.editPStyle = false;
+	}
+	function writeRNGSeedToBuffer() {
+		paramsArrays.seeds.set([
+			rng() * 100,
+			rng() * 100, // seed.xy
+			1 + rng(),
+			1 + rng(), // seed.zw
+		])
+		device.queue.writeBuffer(GPUBuffers.params, 48, paramsArrays.seeds);
 	}
 //
 
@@ -1268,9 +1561,9 @@ textureView;
 
 	// Ocultar interfaces
 	panelTitle.onclick =_=> hideCPOptions();
-	ambientOptionsTitle.onclick =_=> switchVisibility(ambientOptionsPanel);
-	creadorPartTitle.onclick =_=> switchVisibility(creadorPartPanel);
-	creadorReglasTitle.onclick =_=> switchVisibility(creadorReglasPanel);
+	ambientOptionsTitle.onclick =_=> switchVisibilityAttribute(ambientOptionsPanel);
+	creadorPartTitle.onclick =_=> switchVisibilityAttribute(creadorPartPanel);
+	creadorReglasTitle.onclick =_=> switchVisibilityAttribute(creadorReglasPanel);
 
 	// Seed input
 	seedInput.onchange =_=> setRNG(seedInput.value);
@@ -1292,39 +1585,12 @@ textureView;
 	}
 
 	// Particles stye 
-	pStyleRange.oninput =_=> {
+	pStyleRange.oninput =_=> { 
 		playSound(clickSound, false);
-		switch (parseInt(pStyleRange.value)) {
-			case 0:
-				styleSettings.particleStyle = [1, 0];
-				break;
-			case 1:
-				styleSettings.particleStyle = [0.85, 0];
-				break;
-			case 2:
-				styleSettings.particleStyle = [1, 1];
-				break;
-			default: 
-				console.warn("Error: slider out of range");
-				break;
-		}
-
-		if (paused) {
-			writePStyleToBuffer()
-			const encoder = device.createCommandEncoder();
-			render(encoder, Math.max(frame - 1, 0));
-			device.queue.submit([encoder.finish()]);
-		} else {
-			flags.editPStyle = true;
-			flags.updateSimParams = true;
-		}
+		applyParticlesStyle();
 	}
 
 	// Particle placing
-
-	let mDownX = 0, mDownY = 0,
-	mouseIsDown = false;
-	
 	canvas.onmousedown = (ev)=> {
 		if (!placePartOnClic || ev.buttons !==1) { return; }
 		mouseIsDown = true;
@@ -1502,19 +1768,19 @@ textureView;
 				volumeRange.style.setProperty("--thumbg", `rgba(255, 255, 255, ${alpha})`);
 				break;
 			case "KeyI":
-				switchVisibility(infoPanel);
+				switchVisibilityAttribute(infoPanel);
 				break;
 			case "KeyH":
-				switchVisibility(panels);
+				switchVisibilityAttribute(panels);
 				break;
 			case "KeyD":
-				switchVisibility(debugInfo);
+				switchVisibilityAttribute(debugInfo);
 				break;
 		}
 	});
 
 	// Botón de info debug
-	infoButton.onclick =_=> switchVisibility(infoPanel);
+	infoButton.onclick =_=> switchVisibilityAttribute(infoPanel);
 
 	// Botón de export e import
 	exportButton.onclick =(event)=> exportarSetup(
@@ -1533,7 +1799,6 @@ textureView;
 		"Cells GPU setup",
 		!!event.ctrlKey
 	);
-
 	importButton.onclick =_=> {
 		importSetup()
 		.then( (setup) => { cargarSetup(setup, true); } );
@@ -1551,7 +1816,6 @@ textureView;
 	}
 
 	// Opciones del ambiente/simulación
-
 	function enableIfChanged(inputs) {
 		let allFieldsEmpty = true;
 		for (const input in inputs) {
@@ -1772,7 +2036,7 @@ textureView;
 
 	// Interfaz
 
-	if (SHOW_DEBUG) { switchVisibility(debugInfo); }
+	if (SHOW_DEBUG) { switchVisibilityAttribute(debugInfo); }
 	// Novedades
 	if (LAST_VISITED_VERSION !== CURRENT_VERSION) {
 
@@ -1829,7 +2093,7 @@ textureView;
 	}
 //
 
-// WEBGPU
+// INICIALIZAR WEBGPU
 
 	// Vértices
 		const v = 1; // ojo!: afecta el shader
@@ -2043,254 +2307,6 @@ textureView;
 	};
 
 //
-
-// Funciones para editar buffers
-function updateDatosElementariesBuffer(Ne) {
-
-	const datosElemsSize = (3 * 4 + 4 + 16) * Ne; // 3 cants, radio, color
-	const datosElementariesArrBuffer = new ArrayBuffer(datosElemsSize);
-	N = 0;
-
-	for (let i = 0; i < Ne; i++) {  //N, radios, colores, cantidades
-
-		const nLocal = elementaries[i].cantidad;
-		N += nLocal; // N también hace de acumulador para este for.
-
-		const cants = new Uint32Array(datosElementariesArrBuffer, i * 8*4, 3);
-		const radioColor = new Float32Array(datosElementariesArrBuffer, (i * 8*4) + 3*4, 5);
-
-		cants.set([nLocal, N, N-nLocal]);	// [cants, cantsacum, cantsAcum2]
-		radioColor.set([elementaries[i].radio]);
-		radioColor.set(elementaries[i].color,1);
-	}
-
-	paramsArrays.N.set([N]);
-	device.queue.writeBuffer(GPUBuffers.params, 8, paramsArrays.N);
-
-	GPUBuffers.datosElementaries = device.createBuffer({
-		label: "Buffer: datos elementaries",
-		size: datosElemsSize,
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-	})
-	device.queue.writeBuffer(GPUBuffers.datosElementaries, 0, datosElementariesArrBuffer, 0, datosElemsSize);
-}
-function updateParticlesBuffers() {
-
-	const Ne = elementaries.length;
-
-	paramsArrays.Ne.set([Ne]);
-	device.queue.writeBuffer(GPUBuffers.params, 12, paramsArrays.Ne);
-	
-	updateDatosElementariesBuffer(Ne);
-	
-	if (flags.justLoadedSetup) { flags.resetParts = false; }
-
-	for (let elem of elementaries) {
-		const L = elem.cantidad * 4;
-		const posiVelsIncompleto = (elem.posiciones.length !== L || elem.velocidades.length !== L);
-		if (posiVelsIncompleto) {
-			flags.resetParts = true;
-			console.warn("Detectadas partículas faltantes, reseteando posiciones y velocidades...");
-			break;
-		}
-	}
-
-	// Agregar partículas manuales a las pre-existentes
-	if (newParticles.length && !flags.resetParts) {
-
-		const newParticlesF = newParticles.flat();
-		const oldSize = GPUBuffers.velocities?.size ?? 0;
-		const newSize = oldSize + newParticlesF.length * 4 * 4;
-
-		//console.log("oldSize: " + oldSize + ", newSize: " + newSize);
-
-		const newPositions = new Float32Array(newParticlesF.length * 4);
-		const newVelocities = new Float32Array(newParticlesF.length * 4);
-		let offset = 0;
-
-		for (let i = 0; i<Ne; i++) {
-			for (let p = 0; p < newParticles[i].length; p++ ) {
-				newPositions.set(newParticles[i][p][0], offset);
-				newVelocities.set(newParticles[i][p][1], offset);
-				offset += 4;
-			}
-		}
-
-		// New temporary buffers of size newSize > oldSize
-		const tempPosBuffer = device.createBuffer({
-			label: "Temp positions buffer",
-			size: newSize,
-			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-		});
-		const tempVelBuffer = device.createBuffer({
-			label: "Temp velocities buffer",
-			size: newSize,
-			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-		});
-
-		// Fill the new section with the new data 
-		device.queue.writeBuffer(tempPosBuffer, oldSize, newPositions);
-		device.queue.writeBuffer(tempVelBuffer, oldSize, newVelocities);
-
-		// Fill the old section with the old data
-		const copyEncoder = device.createCommandEncoder(); // Create encoder
-
-		if (GPUBuffers.positionBuffers && GPUBuffers.velocities) {
-			copyEncoder.copyBufferToBuffer(GPUBuffers.positionBuffers[frame % 2], 0, tempPosBuffer, 0, oldSize);
-			copyEncoder.copyBufferToBuffer(GPUBuffers.velocities, 0, tempVelBuffer, 0, oldSize);
-		}
-
-		// Re-create the used buffers
-		createPosiVelsGPUBuffers (newSize, newSize);
-
-		// Fill them with the data from the temporary buffers
-		copyEncoder.copyBufferToBuffer(tempPosBuffer, 0, GPUBuffers.positionBuffers[frame % 2], 0, newSize);
-		copyEncoder.copyBufferToBuffer(tempVelBuffer, 0, GPUBuffers.velocities, 0, newSize);
-
-		device.queue.submit([copyEncoder.finish()]); // Submit encoder
-
-		console.log("Frame " +frame+ ": Añadidas partículas manuales a los GPUBuffers.");
-		clearTempParticles();
-
-	}
-
-	// Resetear posivels o cargar posiciones precargadas
-	if (flags.justLoadedSetup || flags.resetParts || frame === 0) {
-		
-		let offset = 0, pos = [], vel = [];
-		const positionsArray = new Float32Array(N*4);
-		const velocitiesArray = new Float32Array(N*4);
-
-		// llenar positionsArray y velocitiesArray
-		for (let i = 0; i<Ne; i++) {
-			if (flags.resetParts) {
-				[pos, vel] = crearPosiVel(elementaries[i].cantidad, i, elementaries[i].radio * 2);
-				elementaries[i].posiciones = pos;
-				elementaries[i].velocidades = vel;
-			} else {
-				pos = elementaries[i].posiciones;
-				vel = elementaries[i].velocidades;
-			}
-
-			positionsArray.set(pos, offset);
-			velocitiesArray.set(vel, offset);
-
-			offset += elementaries[i].cantidad*4;
-		}
-
-		createPosiVelsGPUBuffers (positionsArray.byteLength, velocitiesArray.byteLength);
-		device.queue.writeBuffer(GPUBuffers.positionBuffers[frame % 2], 0, positionsArray);
-		device.queue.writeBuffer(GPUBuffers.velocities, 0, velocitiesArray);
-
-		if (flags.resetParts) { console.log("Partículas reseteadas y asignadas a los GPUBuffers."); }
-		else { console.log("Partículas asignadas a los GPUBuffers."); }
-		flags.resetParts = false;
-		flags.justLoadedSetup = false;
-		clearTempParticles();
-	}
-	flags.updateParticles = false;
-}
-function updateActiveRules() {
-	const Ne = elementaries.length;
-	const activeRules = [];
-	const m = new Uint8Array(Ne**2);
-	
-	for (let rule of rules) {
-		const targetIndex = elementaries.findIndex(elementary => {return elementary.nombre == rule.targetName});
-		const sourceIndex = elementaries.findIndex(elementary => {return elementary.nombre == rule.sourceName});
-
-		if (targetIndex === -1 || sourceIndex ===-1) { continue; }
-		activeRules.push(rule);
-
-		const [f, c] = [targetIndex, sourceIndex].sort();
-
-		const index = (f * Ne) + c;
-		m[index]++;
-	}
-
-	const Nr = activeRules.length;
-
-	paramsArrays.Nr.set([Nr]);
-	device.queue.writeBuffer(GPUBuffers.params, 16, paramsArrays.Nr);
-	return [activeRules, Nr, m];
-}
-function updateDistancesBuffers(Nr, m) {
-	Nd = 0;
-	let Npi = 0;
-	let datosInteracciones = [];
-	if (PRECALCULAR_DISTANCIAS && Nr) {
-
-		Nd = 0;
-		datosInteracciones = [];
-		// recorro la matriz simétrica de interacciones
-		for (let f = 0; f < Ne; f++) {
-			for (let c = f; c < Ne; c++) {
-	
-				if ( sqMatVal(m, f, c) ) {
-					const ndLocal = elementaries[f].cantidad * elementaries[c].cantidad;
-					Nd += ndLocal; // Nd también hace de acumulador para este for.
-
-					datosInteracciones.push([f, c, Nd, Nd - ndLocal]); // pares de interacciones y cants de distancias acum.
-				}
-			}
-		}
-		Npi = datosInteracciones.length;
-	}
-
-	GPUBuffers.distancias = device.createBuffer({
-		label: "Distancias buffer",
-		size: Nd * 4 || 4,
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-	});
-
-	const datosInteraccionesArray = new Uint32Array(datosInteracciones.flat());
-	GPUBuffers.datosInteracciones = device.createBuffer({
-		label: "datos interacciones buffer",
-		size: Nd * 4 * 4 || 4,
-		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-	});
-	device.queue.writeBuffer(GPUBuffers.datosInteracciones, 0, datosInteraccionesArray);
-
-	paramsArrays.Nd.set([Nd]);
-	paramsArrays.Npi.set([Npi]);
-	device.queue.writeBuffer(GPUBuffers.params, 20, paramsArrays.Nd);
-	device.queue.writeBuffer(GPUBuffers.params, 24, paramsArrays.Npi);
-}
-function updateRulesBuffer(activeRules) {
-	const Nr = activeRules.length;
-	const rulesArray = new Float32Array(Nr * 8);
-
-	for (let i = 0; i < Nr; i++) { // llenar el array de reglas
-
-		const targetIndex = elementaries.findIndex(elementary => {return elementary.nombre == activeRules[i].targetName});
-		const sourceIndex = elementaries.findIndex(elementary => {return elementary.nombre == activeRules[i].sourceName});
-
-		rulesArray.set([
-			targetIndex,
-			sourceIndex,
-			activeRules[i].intensity,
-			activeRules[i].quantumForce,
-			activeRules[i].minDist,
-			activeRules[i].maxDist,
-			0.0,//padding
-			0.0,
-		], 8*i)
-	}
-
-	GPUBuffers.rules = device.createBuffer({
-		label: "Reglas",
-		size: rulesArray.byteLength || 32,
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-	});
-	device.queue.writeBuffer(GPUBuffers.rules, 0, rulesArray)
-
-	flags.updateRules = false;
-}
-function writeCanvasToBuffer() {
-	paramsArrays.canvasDims.set(ambient.canvasDims);
-	device.queue.writeBuffer(GPUBuffers.params, 0, paramsArrays.canvasDims);
-	flags.updateCanvas = false;
-}
 
 // Funciones importantes
 

@@ -27,8 +27,7 @@
 	wind = 0,
 	v0m = 0; //initialSpeedMultiplier
 
-	m=document.getElementById("life").getContext('2d')
-
+	m=document.getElementById("life").getContext('2d');
 
 	beep3=()=> {
 	  context = new AudioContext();
@@ -43,16 +42,11 @@
 	  }, 4);
 	}
 
-	draw=(x,y,c,s)=>{
-		m.fillStyle=c
-		m.fillRect(x, y, s, s)
-	}
-
-	drawCircle=(x, y, radius, fill, stroke, strokeWidth)=> {
+	drawCircle=(x, y, radius, fillColor, stroke, strokeWidth)=> {
 		m.beginPath()
 		m.arc(x, y, radius, 0, 2 * Math.PI, false)
-		if (fill) {
-			m.fillStyle = fill
+		if (fillColor) {
+			m.fillStyle = fillColor
 			m.fill()
 		}
 		if (stroke) {
@@ -109,10 +103,6 @@
 			}
 			a.vx = (a.vx + fx)*slowfactor - wind
 			a.vy = (a.vy + fy)*slowfactor - wind
-			//a.x += a.vx
-			//a.y += a.vy
-			//if(a.x <= ba/20 || a.x >= ba-ba/20){ a.vx *=-.8 }
-			//if(a.y <= ha/20 || a.y >= ha-ha/20){ a.vy *=-.8 }
 		}
 	}
 
@@ -183,7 +173,6 @@
 		//emerging: merging cells expulse viruses
 
 		m.clearRect(0, 0, ba, ha)
-		//draw(0, 0, "white", ba)
 
 		//update positions and draw
 
@@ -192,8 +181,8 @@
 			particles[i].y += particles[i].vy
 			if(particles[i].x <= ba/20 || particles[i].x >= ba-ba/20){ particles[i].vx *=-.8 }
 			if(particles[i].y <= ha/20 || particles[i].y >= ha-ha/20){ particles[i].vy *=-.8 }
-			//draw(particles[i].x, particles[i].y, particles[i].color, 4)
-			drawCircle(particles[i].x, particles[i].y, particles[i].rads, particles[i].color, 1)
+
+			drawCircle(particles[i].x, particles[i].y, particles[i].rads, particles[i].color, true)
 		}
 
 		//m.font = "bold 18px Arial";

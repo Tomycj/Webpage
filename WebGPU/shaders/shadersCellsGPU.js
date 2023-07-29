@@ -316,13 +316,13 @@ export function renderShader() { return /*wgsl*/`
 
     struct VertexInput {
         @builtin(instance_index) instance: u32, // índice de cada instancia. Hay N instancias.
-        @builtin(vertex_index) vertex: u32, // índice de cada vértices. Hay 6 vertices.
+        @builtin(vertex_index) vertex: u32, // índice de cada vértice. Hay 6 vertices.
         @location(0) pos: vec2f, // índice 0 de la lista de vertex attributes en el vertex buffer layout.
         // TODO: Ver si puedo traer desde el compute shader al índice de elementary (k).
     };
 
     struct VertexOutput{
-        @builtin(position) pos: vec4f, // posición de cada vértice  || para el fragment shader, al parecer usa un sist. coords distinto (abs from top left)
+        @builtin (position) pos: vec4f, // posición de cada vértice  || para el fragment shader, al parecer usa un sist. coords distinto (abs from top left)
         @location(1) @interpolate(flat) idx: u32, // Índice de instancia
         @location(2) quadpos: vec2f,
         @location(3) @interpolate(flat) k: u32,
@@ -352,9 +352,9 @@ export function renderShader() { return /*wgsl*/`
         let alto = params.alto;
         let ar = ancho/alto;
 
-        let k = u32(updatedpositions[idx].w);
+        let k = u32(updatedpositions[idx].w); // elementary index.
         
-        let diameter = f32(elems[k].radio) * 2 / ancho; // diámetro en clip space  [-1 1]
+        let diameter = f32(elems[k].radio) * 2 / ancho; // diámetro en pixeles. Dividido ancho da en clip space  [-1 1]
 
         // OUTPUT
         var output: VertexOutput;
@@ -375,14 +375,16 @@ export function renderShader() { return /*wgsl*/`
 
     @fragment   
     fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {  // @location(n) está asociado al índice n del colorAttachment en el renderpass a utilizar
-
+        
         let r = length(input.quadpos);
         if r > 1 { discard; }
 
         //let idx = input.idx;
         let k = input.k;
 
+        //let border = step(r, 1 - params.borderStart/elems[k].radio); // Si uso borderStart como ancho en píxeles
         let border = step(r, params.borderStart);
+
         let gradient = ( 1 + params.spherical * (sqrt(1 - r*r) - 1) );
         let color_xyz = elems[k].color.xyz * border * gradient * input.random;
         
