@@ -1,5 +1,5 @@
-import { inicializarCells, autoCanvasDims } from "inicializar-webgpu";
-import { renderShader, computeShader, computeDistancesShader } from "shaders";
+import { inicializarCells, autoCanvasDims, Mat4 } from "inicializar-webgpu";
+import { renderShader3D, wallShader3D, computeShader3D } from "shaders";
 
 // ref https://www.cg.tuwien.ac.at/research/publications/2023/PETER-2023-PSW/PETER-2023-PSW-.pdf
 
@@ -16,19 +16,7 @@ LAST_VISITED_VERSION = localStorage.getItem("STORED_VERSION_NUMBER"),
 CHANGELOG = `\
 	${CURRENT_VERSION}
 
-	* El sistema para poner partículas manualmente está oficialmente completado, aunque en el futuro podría\
-	pulirse o ampliarse su funcionalidad (ej: arrastrar para dibujar un trazo de muchas partículas).
-
-	* Mejoras en la interfaz y la funcionalidad. Algunas son:\
-	\n   + Ahora se puede cambiar, exportar e importar el tamaño del canvas.\
-	\n   + El color del canvas ahora se puede cambiar "en tiempo real".
-	
-	* Corregido un bug relevante al borrar partículas y aplicar reglas.
-
-	* Enormes cambios en la organización del código, está más presentable y mantenible pero falta.\
-	Uso de Clases para algunos elementos. 
-
-	* Algunos setups para importar y probar: https://github.com/Tomycj/Webpage/tree/main/data
+	* En desarrollo.
 
 `,
 particleStyles = [
@@ -66,21 +54,21 @@ flags = {
 	editPStyle: true,
 
 	justLoadedSetup: false,
-};
+
+	moveCamera: false,
+},
+eyePosition = new Float32Array([0, 0, 1300]);
 
 let 
 N = 0, 	// Cantidad total de partículas
-Nd = 0, // Cantidad total de distancias a precalcular (si habilitado)
 elementaries = [],	// Array de familias de partículas (clase Elementary)
 rules = [],			// Array de reglas de interacción (clase Rule)
 workgroupCount,		// workgroups para ejecutar las reglas de interacción (mover las partículas)
-workgroupCount2, 	// worgroups para calcular distancias entre partículas
 rng,
 frame = 0,
 animationId,
 paused = true,
 stepping = false,
-listaInteracciones = [],
 awaitingResetCall = false,
 muted = false,
 fps = 0,
@@ -91,15 +79,23 @@ mouseIsDown = false,
 mDownX = 0, mDownY = 0,
 newParticles = [], // PosiVels de partículas creadas manualmente para cada elementary
 sampleCount = 1, // Parece que sólo puede ser 1 o 4.
-textureView;
+textureView,
+projectionMatrix = new Mat4(),
+viewProjectionMatrix = new Mat4(),
+rotAxis = new Float32Array([0, 1, 0]),
+rotYCurrent = 0,//-Math.PI/2,
+xlim = 500,
+ylim = 300,
+zlim = 300,
+moveSpeed = 20,
+rotateSpeed = 3*Math.PI/180;
 
 // TIMING & DEBUG 
 	const STARTING_SETUP_NUMBER = 1,
 	SETUP_FILENAME = "Cells GPU setup - ClassicX10",
-	SHOW_DEBUG = false;
+	SHOW_DEBUG = true;
 	//localStorage.setItem("NEW_USER", 1);
 	//localStorage.setItem("STORED_VERSION_NUMBER", -1);
-	let PRECALCULAR_DISTANCIAS = false;
 	let capacity = 4; //Max number of timestamps 
 	let t = [];
 	let querySet, queryBuffer;
@@ -133,9 +129,9 @@ textureView;
 	}
 	function randomPosition(elementaryIndex, margin = 0) {
 		return ([
-			(rng() - 0.5) * (ambient.canvasDims[0] - margin), // TODO: así como está es eficiente pero el margen no es el esperado
-			(rng() - 0.5) * (ambient.canvasDims[1] - margin),
-			0,
+			(rng() - 0.5) * (xlim*2 - margin), // TODO: así como está es eficiente pero el margen no es el esperado
+			(rng() - 0.5) * (ylim*2 - margin),
+			(rng() - 0.5) * (zlim*2 - margin),
 			elementaryIndex
 		]);
 	}
@@ -143,7 +139,7 @@ textureView;
 		return ([
 			(2 * rng() - 1) * ambient.maxInitVel,
 			(2 * rng() - 1) * ambient.maxInitVel,
-			0,
+			(2 * rng() - 1) * ambient.maxInitVel,
 			1,
 		]);
 	}
@@ -237,55 +233,6 @@ textureView;
 		});
 
 	}
-	function includesIn2nd(array, num) { // busca num entre el 2do elemento de los subarrays dentro de array
-		return array.some(subarray => subarray[1] == num);
-	}
-	function findIndexOf2nd(array, num) { // devuelve el índice del subarray que cumple includesIn2nd
-		return array.findIndex(subarray => subarray[1] == num);
-	}
-	function expandir(m) { // agrega una columna y fila de ceros a una matriz
-		const newFil = Array(m.length).fill(0);
-		m.push(newFil);
-		m.forEach(fil => fil.push(0));
-	}
-	function matrizDistancias(m, D, rule) { // actualiza la matriz triangular de interacciones con la regla proporcionada
-
-		const targetIndex = elementaries.findIndex(elementary => {return elementary.nombre == rule.targetName});
-		const sourceIndex = elementaries.findIndex(elementary => {return elementary.nombre == rule.sourceName});
-		
-		/*	Agregar familias a lista D de familias que interactúan de alguna forma, si no lo estaban ya.
-		*	La lista D también asocia cada familia interactuante (su índice en la lista de los selectores) 
-		*	con su índice en la matriz de interacciones.
-		*/
-		let a, b;
-		if (!includesIn2nd(D, targetIndex)) {
-			// Nueva familia que tendrá interacciones
-			a = D.length;
-			D.push([a, targetIndex, rule.targetName]);
-			expandir(m);
-		} else { a = findIndexOf2nd(D, targetIndex) }
-
-		if (!includesIn2nd(D, sourceIndex)) {
-			// Nueva familia que tendrá interacciones
-			b = D.length;
-			D.push([b, sourceIndex, rule.sourceName]);
-			expandir(m);
-		} else { b = findIndexOf2nd(D, sourceIndex) }
-
-		if (a>b) { // Me aseguro que a <= b, para trabajar con la matriz triangular superior
-			const temp = a;
-			a = b;
-			b = temp;
-		}
-
-		// Agregar la nueva interacción a la matriz triangular de interacciones (Se le suma 1 a la casilla correspondiente)
-
-		const fil = D[a][0];
-		const col = D[b][0];
-		m[ fil ] [ col ] ++;
-
-		return [m, D];
-	}
 	function hasSameStructure(obj1, obj2) { 
 		// no revisa la estructura de los arrays de elementaries y rules
 		const keys1 = Object.keys(obj1).sort();
@@ -312,23 +259,12 @@ textureView;
 		}
 		return true;
 	}
-	function mapAndPadNtoXNUint(array, x) { // [1,2,3] -> UintArray [1, 0...0, 2, 0...0, 3, 0...0]
-		const typedArray = new Uint32Array(array.length * x);
-		for (let i = 0; i < typedArray.length; i += x) {
-			typedArray[i] = array[i/x];
-		}
-		return typedArray;
-	}
 	function rgba_to_hexString(rgbaArray) {
 		const [r, g, b] = rgbaArray;
 		const hexR = Math.floor(r * 255).toString(16).padStart(2, '0');
 		const hexG = Math.floor(g * 255).toString(16).padStart(2, '0');
 		const hexB = Math.floor(b * 255).toString(16).padStart(2, '0');
 		return `#${hexR}${hexG}${hexB}`;
-	}
-	function sqMatVal(m, f, c) {
-		const numCols = Math.sqrt(m.length);
-		return m[f * numCols + c]
 	}
 	function labelError(error, label="Default error label") {
 		const labeledError = new Error (label);
@@ -397,15 +333,17 @@ textureView;
 		}
 		console.table(tabla);
 	}
-	function MAX_SAFE_Ingeter () {
-		let n = 0;
-		try{
-		while (n+1 > n-1) {
-			++n;
-		}} catch(error) {
-			return n-2; // security margin
+	function printMatrix(matrix) { //column major
+		const formattedMatrix = [];
+		for (let i = 0; i < 16; i+=4) {
+			formattedMatrix.push([
+				parseFloat(matrix[i].toFixed(3)),
+				parseFloat(matrix[i+1].toFixed(3)),
+				parseFloat(matrix[i+2].toFixed(3)),
+				parseFloat(matrix[i+3].toFixed(3)),
+			]);
 		}
-		return n
+		console.table(formattedMatrix);
 	}
 
 	// Utilities for some HTML elements
@@ -599,25 +537,6 @@ textureView;
 			if (newParticles.length) { newParticles.push([]); } // Si estoy colocando partículas manualmente, agregar el slot.
 		}
 		partiControls.selector.selectedIndex = i;
-	}
-	function exportarElementary(elementary) {
-
-		elementary.posiciones = Array.from(elementary.posiciones);
-		elementary.velocidades = Array.from(elementary.velocidades);
-
-		const jsonString = JSON.stringify(elementary, null, 2);
-
-		const blob = new Blob([jsonString], { type: "application/json" });
-		const url = URL.createObjectURL(blob);
-		
-		const a = document.createElement("a");
-		a.href = url;
-		a.download = elementary.nombre;
-		document.body.appendChild(a);
-		a.click();
-		
-		document.body.removeChild(a);
-		URL.revokeObjectURL(url);
 	}
 	class Rule {
 		constructor(ruleName, targetName, sourceName, intensity, quantumForce, minDist, maxDist) {
@@ -1012,6 +931,10 @@ textureView;
 		const [x2, y2] = [event.offsetX, event.offsetY];
 		return [x2 - x1, y2 - y1];
 	}
+	function updatePosInfoPanel() {
+		posInfo.innerText = `(${eyePosition[0].toFixed(2)} , ${eyePosition[1].toFixed(2)} , ${eyePosition[2].toFixed(2)})
+		Y Rot: ${(rotYCurrent*180/Math.PI).toFixed(1)}°`
+	}
 
 	// Simulation flow
 	function pausar() {
@@ -1371,48 +1294,6 @@ textureView;
 		device.queue.writeBuffer(GPUBuffers.params, 16, paramsArrays.Nr);
 		return [activeRules, Nr, m];
 	}
-	function updateDistancesBuffers(Nr, m) {
-		Nd = 0;
-		let Npi = 0;
-		let datosInteracciones = [];
-		if (PRECALCULAR_DISTANCIAS && Nr) {
-	
-			Nd = 0;
-			datosInteracciones = [];
-			// recorro la matriz simétrica de interacciones
-			for (let f = 0; f < Ne; f++) {
-				for (let c = f; c < Ne; c++) {
-		
-					if ( sqMatVal(m, f, c) ) {
-						const ndLocal = elementaries[f].cantidad * elementaries[c].cantidad;
-						Nd += ndLocal; // Nd también hace de acumulador para este for.
-	
-						datosInteracciones.push([f, c, Nd, Nd - ndLocal]); // pares de interacciones y cants de distancias acum.
-					}
-				}
-			}
-			Npi = datosInteracciones.length;
-		}
-	
-		GPUBuffers.distancias = device.createBuffer({
-			label: "Distancias buffer",
-			size: Nd * 4 || 4,
-			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-		});
-	
-		const datosInteraccionesArray = new Uint32Array(datosInteracciones.flat());
-		GPUBuffers.datosInteracciones = device.createBuffer({
-			label: "datos interacciones buffer",
-			size: Nd * 4 * 4 || 4,
-			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-		});
-		device.queue.writeBuffer(GPUBuffers.datosInteracciones, 0, datosInteraccionesArray);
-	
-		paramsArrays.Nd.set([Nd]);
-		paramsArrays.Npi.set([Npi]);
-		device.queue.writeBuffer(GPUBuffers.params, 20, paramsArrays.Nd);
-		device.queue.writeBuffer(GPUBuffers.params, 24, paramsArrays.Npi);
-	}
 	function updateRulesBuffer(activeRules) {
 		const Nr = activeRules.length;
 		const rulesArray = new Float32Array(Nr * 8);
@@ -1458,6 +1339,20 @@ textureView;
 		])
 		device.queue.writeBuffer(GPUBuffers.params, 48, paramsArrays.seeds);
 	}
+
+	// Camera updating
+	function renderNewPerspective() {
+		if (paused) {
+			updateCamera();
+			const encoder = device.createCommandEncoder();
+			render(encoder, frame);
+			device.queue.submit([encoder.finish()]);
+		} else {
+			flags.moveCamera = true;
+		}
+		updatePosInfoPanel();
+	}
+	
 //
 
 // ELEMENTOS HTML
@@ -1472,6 +1367,7 @@ textureView;
 	fpsInfo = document.getElementById("fpsinfo"),
 	debugInfo = document.getElementById("debuginfo"),
 	canvasInfo = document.getElementById("canvasinfo"),
+	posInfo = document.getElementById("positioninfo"),
 	displayTiming = document.getElementById("performanceinfo"),
 	// panel de opciones
 	panelTitle = document.getElementById("controlPanelTitle"),
@@ -1608,6 +1504,34 @@ textureView;
 				break;
 			case "KeyD":
 				switchVisibilityAttribute(debugInfo);
+				break;
+			case "ArrowLeft":
+				event.preventDefault();
+				eyePosition[0] -= moveSpeed;
+				renderNewPerspective();
+				break;
+			case "ArrowRight":
+				event.preventDefault();
+				eyePosition[0] += moveSpeed;
+				renderNewPerspective();
+				break;
+			case "ArrowUp":
+				event.preventDefault();
+				eyePosition[2] -= moveSpeed;
+				renderNewPerspective();
+				break;
+			case "ArrowDown":
+				event.preventDefault();
+				eyePosition[2] += moveSpeed;
+				renderNewPerspective();
+				break;
+			case "KeyJ":
+				rotYCurrent -= rotateSpeed;
+				renderNewPerspective()
+				break;
+			case "KeyL":
+				rotYCurrent += rotateSpeed;
+				renderNewPerspective()
 				break;
 		}
 	});
@@ -2067,6 +1991,9 @@ textureView;
 	// Tamaño canvas y sonido
 	canvasInfo.innerText = `${canvas.width} x ${canvas.height} (${(canvas.width/canvas.height).toFixed(6)})`;
 	clickSound.volume = volumeRange.value;
+	// Info
+	updatePosInfoPanel();
+
 	// Valores por defecto
 	ambientControls.inputs.friction.placeholder = ambient.friction.toFixed(3);
 	ambientControls.inputs.bounce.placeholder = ambient.bounce;
@@ -2121,9 +2048,71 @@ textureView;
 		}]
 	};
 
+	const scenarioVertices = new Float32Array([
+		// X, Y, Z
+		-xlim, -ylim, -zlim, // left wall upper triangle
+		-xlim, ylim, zlim,
+		-xlim, ylim, -zlim,
+
+		-xlim, -ylim, -zlim, // left wall lower triangle
+		-xlim, -ylim, zlim,
+		-xlim, ylim, zlim,
+
+		xlim, -ylim, -zlim, // right wall upper triangle
+		xlim, ylim, zlim,
+		xlim, ylim, -zlim,
+
+		xlim, -ylim, -zlim, // right wall lower triangle
+		xlim, -ylim, zlim,
+		xlim, ylim, zlim,
+
+		-xlim, -ylim, -zlim, // bottom wall near triangle
+		xlim, -ylim, -zlim,
+		xlim, -ylim, zlim,
+
+		-xlim, -ylim, -zlim, // bottom wall far triangle
+		xlim, -ylim, zlim,
+		-xlim, -ylim, zlim,
+
+		-xlim, ylim, -zlim, // upper wall near triangle
+		xlim, ylim, -zlim,
+		xlim, ylim, zlim,
+
+		-xlim, ylim, -zlim, // upper wall far triangle
+		xlim, ylim, zlim,
+		-xlim, ylim, zlim,
+
+		-xlim, -ylim, -zlim, // front wall lower triangle
+		xlim, -ylim, -zlim,
+		xlim, ylim, -zlim,
+
+		-xlim, -ylim, -zlim, // front wall upper triangle
+		xlim, ylim, -zlim,
+		-xlim, ylim, -zlim,
+
+		-xlim, -ylim, zlim, // back wall lower triangle
+		xlim, -ylim, zlim,
+		xlim, ylim, zlim,
+
+		-xlim, -ylim, zlim, // back wall upper triangle
+		xlim, ylim, zlim,
+		-xlim, ylim, zlim
+	])
+	const vertexBuffer2 = device.createBuffer({
+		label: "Walls vertices",
+		size: scenarioVertices.byteLength, // 12 tris * 3 vert per tri * 12 bytes per tri
+		usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+	});
+	device.queue.writeBuffer(vertexBuffer2, 0, scenarioVertices);
 
 	// texture y su view, para multisampling (MSAA)
 	if (!textureView) { textureView = getTextureView(ambient.canvasDims); }
+
+	const depthTexture = device.createTexture({
+		size: [canvas.width, canvas.height],
+		format: 'depth24plus',
+		usage: GPUTextureUsage.RENDER_ATTACHMENT,
+	});
 
 	const renderPassDescriptor = {	// Parámetros para el render pass que se ejecutará cada frame
 		colorAttachments: [{		// es un array, de momento sólo hay uno, su @location en el fragment shader es entonces 0
@@ -2132,27 +2121,30 @@ textureView;
 			loadOp: "clear",
 			clearValue: styleSettings.bgColor,
 			storeOp: "store",
-		}]
+		}],
+		depthStencilAttachment: {
+			view: depthTexture.createView(),
+			depthClearValue: 1.0,
+			depthLoadOp: 'clear',
+			depthStoreOp: 'store',
+		},
 	};
+
 
 	// Shaders
 
 	const particleShaderModule = device.createShaderModule({
 		label: "Particle shader",
-		code: renderShader(),
+		code: renderShader3D(),
+	});
+	const wallShaderModule = device.createShaderModule({
+		label: "Walls shader",
+		code: wallShader3D(),
 	});
 	const simulationShaderModule = device.createShaderModule({
 		label: "Compute shader",
-		code: computeShader(WORKGROUP_SIZE),
+		code: computeShader3D(WORKGROUP_SIZE),
 	})
-
-	let distancesShaderModule;
-	if (PRECALCULAR_DISTANCIAS) {
-		distancesShaderModule = device.createShaderModule({
-			label: "Distances compute shader",
-			code: computeDistancesShader(WORKGROUP_SIZE, Nd), // Falta actualizar la toma de Nd en shader
-		})
-	}
 
 	// Bind groups
 
@@ -2185,28 +2177,16 @@ textureView;
 			visibility: GPUShaderStage.COMPUTE,
 			buffer: { type: "read-only-storage"}
 		}, {
-			binding: 3, // distancias
-			visibility: GPUShaderStage.COMPUTE,
-			buffer: { type: "storage" }
-		}, {
 			binding: 4, // Datos elementaries (cantidades, radio, color)
 			visibility: GPUShaderStage.COMPUTE | GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
 			buffer: { type: "read-only-storage" }
 		}, {
-			binding: 5,	// datos interacciones
-			visibility: GPUShaderStage.COMPUTE,
-			buffer: { type: "uniform" }
+			binding: 6, // render perspective
+			visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+			buffer: { type: "uniform"}
 		}]
 	});
 
-	/*const bindGroupLayoutDist = device.createBindGroupLayout({
-		label: "distances comp bind groups layout",
-		entries: [{
-			binding: 0,
-			visibility: GPUShaderStage.COMPUTE,
-			buffer: {}
-		},]
-	})*/
 
 	// Pipelines
 
@@ -2214,11 +2194,6 @@ textureView;
 		label: "Pipeline Layout",
 		bindGroupLayouts: [ bindGroupLayoutPos, bindGroupLayoutResto],
 	}); // El orden de los bind group layouts tiene que coincider con los atributos @group en el shader
-
-	/*const pipelineLayout2 = device.createPipelineLayout({
-		label: "Pipeline Layout 2",
-		bindGroupLayouts: [ bindGroupLayoutPos, bindGroupLayoutResto, bindGroupLayoutDist ],
-	});*/
 
 	const renderPipelineDescriptor = {
 		label: "Particle render pipeline",
@@ -2236,8 +2211,13 @@ textureView;
 			}]
 		},
 		multisample: {
-			count: sampleCount, // default 1
-		}
+			count: sampleCount,
+		},
+		depthStencil: {
+			depthWriteEnabled: true,
+			depthCompare: "less",
+			format: "depth24plus",
+		},
 	}
 
 	const simulationPipelineDescriptor = {
@@ -2252,58 +2232,104 @@ textureView;
 		},
 	}
 
-	let simulationPipeline2Descriptor;
-	if (PRECALCULAR_DISTANCIAS) {
-		simulationPipeline2Descriptor = {
-			label: "Distances pipeline",
-			layout: pipelineLayout,
-			compute: {
-				module: distancesShaderModule,
-				entryPoint: "computeMain",
-			},
-		}
-	}
-
-	// Crear render pipeline (para usar vertex y fragment shaders)
+	// Crear render pipelines
 	const particleRenderPipeline = device.createRenderPipeline(renderPipelineDescriptor);
+
+	const wallRenderPipeline = device.createRenderPipeline({
+		layout: "auto",
+		vertex: {
+			module: wallShaderModule,
+			entryPoint: "vertexMain",
+			buffers:[{
+					arrayStride: 12,
+					attributes:[{
+						format: "float32x3",
+						offset: 0,
+						shaderLocation: 0,
+					}]
+				},
+			],
+		},
+		fragment: {
+			module: wallShaderModule,
+			entryPoint: "fragmentMain",
+			targets: [{
+				format: canvasFormat
+			}],
+		},
+		depthStencil: {
+			depthWriteEnabled: true,
+			depthCompare: "always",
+			format: "depth24plus",
+		},
+	})
+
 
 	// Crear compute pipelines
 	const simulationPipeline = device.createComputePipeline(simulationPipelineDescriptor);
-
-	let simulationPipeline2;
-	if (PRECALCULAR_DISTANCIAS) {
-		simulationPipeline2 = device.createComputePipeline(simulationPipeline2Descriptor);
-	}
 
 	// Buffers
 
 	// Parámetros de longitud fija (por lo tanto buffers de size fijo)
 
-	const paramsBufferSize = 8 + 4 + 4 + 4 + 4 + 4 + 8 + 8 + 4 + 16;
-	// [canvasDims], N, Ne, Nr, Nd, Npi, [frictionInv, bounceF], [borderStart, spherical], padding, [4 RNGSeeds]
+	const paramsBufferSize = 8 + 4 + 4 + 4 + 4 + 4 + 8 + 8 + 4 + 16 + 12 + 4;
+	// [canvasDims], N, Ne, Nr, Nd, Npi, [frictionInv, bounceF], [borderStart, spherical], padding, [4 RNGSeeds], [3 lims], padding
 	const paramsArrBuffer = new ArrayBuffer(paramsBufferSize);
 
 	const paramsArrays = {
 		canvasDims: new Float32Array(paramsArrBuffer, 0, 2), // offset en bytes, longitud en cant de elementos
 		N: new Uint32Array(paramsArrBuffer, 8, 1),		//  Cantidad total de partículas
 		Nr: new Uint32Array(paramsArrBuffer, 16, 1),	//  Cantidad de reglas activas (que involucran elementaries cargados)
-		Nd: new Uint32Array(paramsArrBuffer, 20, 1),	//  Cantidad total de distancias a precalcular (si habilitado)
+		Nd: new Uint32Array(paramsArrBuffer, 20, 1),	//  Cantidad total de distancias a precalcular (deprecated)
 		Ne: new Uint32Array(paramsArrBuffer, 12, 1),	//  Cantidad de elementaries
 		Npi: new Uint32Array(paramsArrBuffer, 24, 1),	//  Cantidad de pares de interacción distintos 
 		ambient: new Float32Array(paramsArrBuffer, 28, 2),	// Parámetros de entorno
 		pStyle: new Float32Array(paramsArrBuffer, 36, 2),	// Estilo visual de las partículas
 		// 4 bytes of padding
 		seeds: new Float32Array(paramsArrBuffer, 48, 4),	// Seed para el rng en los shaders
+		lims: new Float32Array(paramsArrBuffer, 64, 3),		// Paredes para colisiones
 	}
+
+	paramsArrays.lims.set([xlim, ylim, zlim])
 
 	const GPUBuffers = {
 		params: device.createBuffer({
 			label: "Params buffer",
 			size: paramsBufferSize,
-			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-		})
-	};
+			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+		}),
 
+		renderPerspective: device.createBuffer({
+			label: "Render perspective buffer",
+			size: 16*4,
+			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+		}),
+
+		scenarioData: device.createBuffer({
+			label: "Scenario data buffer",
+			size: 12,
+			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+		}),
+
+	};
+	device.queue.writeBuffer(GPUBuffers.params, 64, paramsArrays.lims);
+	device.queue.writeBuffer(GPUBuffers.scenarioData, 0, paramsArrays.lims);
+	updateCamera();
+
+
+	const scenarioBindGroups = [
+		device.createBindGroup({
+			label: "Scenario BindGroup",
+			layout: wallRenderPipeline.getBindGroupLayout(0),
+			entries: [{
+				binding: 0,
+				resource: { buffer: GPUBuffers.renderPerspective }
+			}, {
+				binding: 1,
+				resource: { buffer: GPUBuffers.scenarioData }
+			}],
+		}),
+	];
 //
 
 // Funciones importantes
@@ -2333,7 +2359,7 @@ function editBuffers() {
 	// Reglas
 	if (flags.updateRules) {
 		const [activeRules, Nr, m] = updateActiveRules(); // Reglas parte A
-		updateDistancesBuffers(Nr, m); // Distancias
+		
 		updateRulesBuffer(activeRules); // Reglas parte B
 		msg += "rules/";
 	}
@@ -2398,32 +2424,21 @@ function updateSimulationParameters() {
 					binding: 2,
 					resource: { buffer: GPUBuffers.rules }
 				}, {
-					binding: 3,
-					resource: { buffer: GPUBuffers.distancias }
-				}, {
 					binding: 4,
 					resource: { buffer: GPUBuffers.datosElementaries }
 				}, {
-					binding: 5,
-					resource: { buffer: GPUBuffers.datosInteracciones }
+					binding: 6,
+					resource: { buffer: GPUBuffers.renderPerspective }
 				}
 			],
 		}),
-		/*device.createBindGroup({
-			label: "Distances computation bindgroup",
-			layout: bindGroupLayoutDist,
-			entries: [{
-				binding: 0,
-				resource: { buffer: GPUBuffers.EXAMPLEBUFFER}
-			},]
-		})*/
+
 	];
 
 	// Pipelines pueden ir acá
 
 	// Actualizar workgroup counts para compute passes
 	workgroupCount = Math.ceil(N / WORKGROUP_SIZE);
-	workgroupCount2 = Math.ceil(Nd / WORKGROUP_SIZE);
 	//console.log( `N / workgroup size: ${N} / ${WORKGROUP_SIZE} = ${N/WORKGROUP_SIZE}\nworkgroup count: ${workgroupCount}`);
 
 	console.log("Updated sim params: " + msg + ".");
@@ -2447,6 +2462,13 @@ function render(encoder, frame) {
 	}
 	
 	const pass = encoder.beginRenderPass(renderPassDescriptor);
+
+	/*
+	pass.setPipeline(wallRenderPipeline);
+	pass.setVertexBuffer(0,vertexBuffer2);
+	pass.setBindGroup(0, scenarioBindGroups[0]);
+	pass.draw(scenarioVertices.length/3);*/
+	
 	if (N) {
 		pass.setPipeline(particleRenderPipeline);
 		pass.setVertexBuffer(0, vertexBuffer);
@@ -2454,22 +2476,15 @@ function render(encoder, frame) {
 		pass.setBindGroup(1, bindGroups[2]);
 		pass.draw(vertices.length /2, N);	// 6 vertices. renderizados N veces
 	}
+
+
+
+
 	pass.end(); // finaliza el render pass
 }
 
 function computeNextFrame(encoder, frame) {
 	if (N) { // Aunque no haya reglas activas, las partículas pueden estar moviéndose. Hay que calcular su pos.
-
-		if (PRECALCULAR_DISTANCIAS) {
-			// Calcular distancias
-			const computePass2 = encoder.beginComputePass();
-			computePass2.setPipeline(simulationPipeline2);
-			computePass2.setBindGroup(0, bindGroups[frame % 2]); // posiciones alternantes
-			computePass2.setBindGroup(1, bindGroups[2]);
-			//computePass2.setBindGroup(2, bindGroups[3]);	// bind groups exclusivos para calcular las distancias
-			computePass2.dispatchWorkgroups(workgroupCount2, 1, 1);
-			computePass2.end();
-		}
 
 		timestamp(2, encoder); // Compute dist
 
@@ -2487,13 +2502,39 @@ function computeNextFrame(encoder, frame) {
 	} else {timestamp(2, encoder);}  // render - compute all (=0)
 }
 
+function updateCamera() {
+
+	projectionMatrix = new Mat4();
+	viewProjectionMatrix = new Mat4();
+	
+	projectionMatrix.perspectiveZO(1.0, canvas.width / canvas.height, 0.1, 3000.0);
+	//projectionMatrix.orthoZO(-canvas.width/2,canvas.width/2,-canvas.height/2,canvas.height/2,0.1,5000);
+
+	//printMatrix(projectionMatrix);
+	
+	viewProjectionMatrix.rotate(rotYCurrent, rotAxis);
+	viewProjectionMatrix.translate(eyePosition.map(x => -x));
+	
+	viewProjectionMatrix.multiply2(projectionMatrix);
+
+	device.queue.writeBuffer(GPUBuffers.renderPerspective, 0, viewProjectionMatrix);
+
+	flags.moveCamera = false;
+}
 // ANIMATION LOOP
 
 async function newFrame() {
 
+	if (flags.moveCamera) {
+		updateCamera();
+		const encoder = device.createCommandEncoder();
+		render(encoder, frame);
+		device.queue.submit([encoder.finish()]);
+	}
+
 	if (paused && !stepping) { return; }
 
-	if ( flags.updateSimParams ){	// Rearmar buffers y pipeline
+	if (flags.updateSimParams) {	// Rearmar buffers y pipeline
 		updateSimulationParameters();
 	}
 
@@ -2512,15 +2553,18 @@ async function newFrame() {
 	device.queue.submit([encoder.finish()]);
 
 
-	if ( false && (frame % 60 === 30)) {
+	if ( false && (frame % 60 === 30)) { //frame % 60 === 30
 
-		const values = new Float32Array(await readBuffer(device, GPUBuffers.velocities));
-		
+		const values = new Float32Array(await readBuffer(device, GPUBuffers.positionBuffers[0]));
+
 		const values2 = [];
-		for (let i=3; i<values.length; i += 4) { values2.push(values[i]); } // read the w component of velocities
+		//for (let i=2; i<values.length; i += 4) { values2.push(values[i]); } // read the z component of velocities
 		//generateHistogram2(values2, 0.6, 10);
+
+		const pos = values.slice(3801*4, 3801*4+4);
+		console.log(`${pos[0].toFixed(0)} ${pos[1].toFixed(0)} ${pos[2].toFixed(0)} ${pos[3].toFixed(0)}`);
 		
-		console.log(values2[0]);
+		//console.log(values2[0]);
 		//console.log(values[2]);
 		//console.log(values[0]);
 	}

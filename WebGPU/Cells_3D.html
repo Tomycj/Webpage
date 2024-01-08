@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="es">
+	<head>
+		<title id="title">Cells 3D - v0.5</title>
+		<meta charset="utf-8">
+		<link rel="stylesheet" href="../styles/CellsGPU.css">
+		<link rel="icon" href="../images/logoBLR.png" type="image/icon type">
+		<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"> <!--Fuerza a re-cargar el cache-->
+		<script type="importmap">
+			{
+				"imports": {
+					"inicializar-webgpu": "./modules/misFunciones.js",
+					"shaders": "./shaders/shadersCellsGPU.js",
+					"utilities": "./modules/utilities.js"
+				}
+			}
+		</script>
+	</head>
+
+	<body>
+		<h2 hidden style ="text-align: center; margin: 6px;" >
+			Cells 3D
+		</h2>
+
+		<audio id="clicksound" preload="auto" src="../sounds/79624_click.wav"></audio>
+		
+		<p id="estatus" style="text-align: center;" >  Iniciando... </p>  <!-- mensaje de estatus -->
+		
+		<div id="canvascontainer" class="overlayed">
+
+			<div id="canvaswrapper">
+
+				<canvas id="canvas" hidden width="100" height="100"></canvas>
+
+				<span id="circle" hidden class="circle"></span>
+				<span id="arrowend" hidden class="circle arrowend"> › </span>
+				<span id="line" hidden class="circle line"></span>
+
+				<div id="temporarycircles"> <!-- Podría haber usado SVG circles y lines -->
+
+				</div>
+			</div>
+
+			<div id="panels">
+				<div id="controlPanel" class="overlay left">
+					
+					<div id = timeControls>
+						<button id="pausebutton" class="button">Iniciar</button>
+						<button id="stepbutton" class="button">Step</button>
+						<button id="resetbutton" class="button hastooltip" hidden>Reiniciar
+							<span class="tooltiptext long">
+								Aplica todos los parámetros y reinicia.<br>
+								Ctrl + Click para BORRAR TODO.
+							</span>
+						</button>
+					</div>
+
+					<span id="controlPanelTitle" class="categoryspan">Panel de control</span>
+
+					<div id="controlPanelOptions" hidden>
+
+						<div id ="firstoptions">
+							<div class="hastooltip" style="display: inline-block;">
+								<label for="seed">Seed: </label>
+								<input type="text" id="seed" class="textinput">
+		
+								<span class="tooltiptext long"> Ctrl + Click para convertir en seed manual
+								</span>
+							</div>
+							<!--
+							<button class="button switchedoff hastooltip" id="preloadpositions" >P.P.
+								<span class="tooltiptext">
+									Precargar Posiciones<br>
+									Calcula la posición inicial de las partículas al momento de crearlas, en vez de al iniciar la simulación.
+								</span>
+							</button>  FUERA DE USO: CODE 0, COMPLICA LAS COSAS CON EL COLOCADOR MANUAL-->
+							
+							<br>
+							<label for="bgcolorpicker">Color de fondo: </label>
+							<input type="color" id="bgcolorpicker" value="#000000" class="colorinput"><br>
+	
+							<label for="volume">Sonidos: </label>
+							<input type="range" id="volume" value="0.2" class="rangeinput" min ="0" max="1" step="0.001"><br>
+
+							<label for="pstyle">Shader: </label>
+							<input type="range" id="pstyle" value="2" class="rangeinput discrete" min ="0" max="2" step="1"><br>
+
+						</div>
+
+						<div style="position: relative;">
+							<span id ="ambientoptionstitle" class="categoryspan">Entorno</span>
+							<div id="marker1" hidden class="marker">∗</div>
+						</div>
+						
+						<div id="ambientoptions" hidden>
+
+							<div class="options-row hastooltip">
+								<label for="friction">Fricción: </label>
+								<input type="number" id="friction" class="numberinput" min="0" max="1" step="any">
+								<span class="tooltiptext short">
+									De 0 a 1 para valores realistas
+								</span>
+							</div>
+
+							<div class="options-row hastooltip">
+								<label for="bounce">Rebote: &nbsp</label>
+								<input type="number" id="bounce" class="numberinput" 
+									style="width: 3ch; text-align: end;" min="0" max="100" step="1"> %
+								<span class="tooltiptext">
+									Velocidad conservada al rebotar
+								</span>
+							</div>
+
+							<div class="options-row hastooltip">
+								<label for="initialvel">Vel. inicial: </label>
+								<input type="number" id="initialvel" class="numberinput" min="0" step="any">
+								<span class="tooltiptext long">
+									Máxima rapidez inicial de las partículas<br>
+									(Distribución aleatoria uniforme)
+								</span>
+							</div>
+
+							<div class="options-row">
+								<button class="button hastooltip" id="ambientupdate">Aplicar
+									<span class="tooltiptext">
+										Aplica configuración de entorno
+									</span>
+								</button>
+							</div>
+						</div>
+
+						<div style="position: relative;">
+							<span id="creadorparticulasTitle" class="categoryspan">Partículas</span>
+							<div id = "marker2" hidden class="marker"> ∗ </div>
+						</div>
+
+						<div class="creador", id="creadorparticulas">
+
+							<div class="options-row" id="particlemanager">
+								<!-- <label for="particleselect">Partículas: </label> -->
+								<select id="particleselect" class="selector" style="width: 8ch;">
+								
+								</select>
+
+								<button class="button hastooltip" id="borraparticula">Borrar
+									<span class="tooltiptext short">
+										Ctrl + Click para borrar todas
+									</span>
+								</button>
+
+								<button id="c.place" hidden class="button hastooltip switchedoff">Colocar
+									<span class="tooltiptext">
+										Colocar partículas manualmente.<br>
+										Arrastrar para darles velocidad.
+									</span>
+								</button>
+							</div>
+		
+							<div class="options-row hastooltip">
+								<label for="c.nom">Nombre: </label>
+								<input type="text" id="c.nom" class="textinput">
+								<span class="tooltiptext" style="width: 38ch;">
+									Dejar el mismo nombre para sobreescribirlas
+								</span>
+							</div>
+		
+							<div class="options-row">
+								<label for="c.col">Color: </label>
+								<input type="color" id="c.col" class="colorinput" value="#101010">
+							</div>
+		
+							<div class="options-row">
+								<label for="c.cant">Cantidad: </label>
+								<input type="number" id="c.cant" class="numberinput" min="0" max="100000" step="1">
+							</div>
+		
+							<div class="options-row hastooltip">
+								<label for="c.radius">Radio: </label>
+								<input type="number" id="c.radius" class="numberinput" min="0" max="500" step="any">
+								<span class="tooltiptext short">
+									Tiene que entrar en el área
+								</span>
+							</div>
+		
+							<div class="options-row">
+								<button id="c.elemsubmit" class="button" >Crear</button>
+
+								<button class="button hastooltip disabled" id="c.update">Aplicar
+									<span class="tooltiptext long">
+										Aplica la configuración de partículas creada
+									</span>
+								</button>
+							</div>
+						</div>
+
+						<div style="position: relative;">
+							<span id="creadorreglasTitle" class="categoryspan">Reglas</span>
+							<div id="marker3" hidden class="marker">∗</div>
+						</div>
+						
+						<div class="creador" id="creadorreglas" hidden>
+
+							<div class="options-row" id="rulemanager">
+								<select id="ruleselect" class="selector" style="width: 9ch;">
+			
+								</select>
+								<button class="button hastooltip" id="borrarule">Borrar
+									<span class="tooltiptext short">
+										Ctrl + Click para borrar todas
+									</span>
+								</button>
+							</div>
+
+							<div class="options-row">
+								<label for="rulename">Nombre: </label>
+								<input type="text" id="rulename" class="textinput">
+							</div>
+
+							<div class="options-row hastooltip">
+								<label for="targetselect">Afecta a: </label>
+								<select class="selector" id="targetselect">
+		
+								</select>
+								<span class="tooltiptext long">
+									Partículas que sentirán la fuerza a definir
+								</span>
+							</div>
+		
+							<div class="options-row hastooltip">
+								<label for="sourceselect">Ejercida por: </label>
+								<select class="selector" id="sourceselect">
+								
+								</select>
+								<span class="tooltiptext long">
+									Partículas que ejercerán la fuerza a definir
+								</span>
+							</div>
+		
+							<div class="options-row">
+								<label for="r.intens">Intensidad: </label>
+								<input type="number" id="r.intens" class="numberinput" step="any">
+							</div>
+		
+							<div class="options-row hastooltip">
+								<label for="r.qm">Ruido cuántico: </label>
+								<input type="number" id="r.qm" class="numberinput" min="0" step="any">
+								<span class="tooltiptext short">
+									Intensidad de fuerzas aleatorias de corto alcance
+								</span>
+							</div>
+		
+							<div class="options-row">
+								<label for="r.dmin">Dist. mín: </label>
+								<input type="number" id="r.dmin" class="numberinput" min="0" step="any">
+							</div>
+		
+							<div class="options-row">
+								<label for="r.dmax">Dist. máx: </label>
+								<input type="number" id="r.dmax" class="numberinput" min="0" step="any">
+							</div>
+		
+							<div class="options-row">
+								<button class="button hastooltip" id="r.submit">Crear
+									<span class="tooltiptext short">
+										Ctrl + Click para sobreescribir regla homónima
+									</span>
+								</button>
+
+								<button class="button hastooltip disabled" id="r.update">Aplicar
+									<span class="tooltiptext">
+										Aplica todas las reglas creadas.<br>
+										Las partículas deben estar aplicadas.
+									</span>
+								</button>
+							</div>
+						</div>
+
+						<hr style="border-color: rgba(255, 0255, 255, 0.3); margin: 3px;">
+
+						<div class="options-row">
+							<button class="button hastooltip" id="export">Exportar
+								<span class="tooltiptext">
+									Descarga la configuración actual. <br>
+									Ctrl + Click para incluir posiciones.
+								</span>
+							</button>
+							<button class="button" id="import">Importar</button>
+							<button class="button" id="mostrarinfo">Info</button>
+						</div>
+
+					</div>
+
+				</div>
+
+				<div id="infopanel" class="overlay right">
+
+					<div style="line-height: 1.2; height: 4.5ch;">
+						<span class="smallp">Edad:&nbsp</span> <span id="ageinfo"class="smallp monospaced">-</span>
+						<br>
+						<span class="smallp">FPS:&nbsp</span> <span id="fpsinfo"class="smallp monospaced">-</span>
+					</div>
+
+					<div id="debuginfo" hidden>
+						<p id="canvasinfo" style="margin-top: 8px; margin-bottom: 0;"></p>
+						<p id="positioninfo" style="margin: 0;"></p>
+						<p id="performanceinfo" style="margin: 0;"></p>
+						<p style="font-size: small; color:rgba(255, 255, 255, 0.5); max-width: 25ch; margin:0; line-height: 2ch;">
+							Space, W, S, R, M, I, H, D <br> 3D: Flechas, J, L </p>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<div id="backbutton" style="text-align: center; padding: 4px;">
+			<button onclick="location.href = '../index.html';" class="button" >Volver</button>
+		</div>
+
+		<div id="dialogs">
+			<dialog id="helpdialog" class="dialogo">
+				<p style="margin: 0;">Controles: <br>Space, W, S, R, M, I, H, D, J, L, Flechas <br><br></p>
+				<button id="dialogok" class="button">Ok</button>
+				&nbsp&nbsp&nbsp
+				<button id="dialognvm" class="button">No volver a mostrar</button>
+			</dialog>
+	
+			<dialog id="newsdialog" class="dialogo">
+				<div>
+					<p style="margin: 10px; font-weight: bold; font-size: large;">Novedades</p>
+					<p id="newstext" style="text-align: left; margin: 0; line-height: 1.5; padding-bottom: 6px;"></p>
+					
+					<button id="dialogok2" class="button">Ok</button>
+					&nbsp&nbsp&nbsp
+					<button id="dialognvm2" class="button">Hasta la próxima</button>
+				</div>
+			</dialog>
+		</div>
+
+		<script src="//cdnjs.cloudflare.com/ajax/libs/seedrandom/3.0.5/lib/alea.min.js"></script>
+		<script type="module" src="./scripts/cells3D.js"></script>
+
+	</body>
+</html>

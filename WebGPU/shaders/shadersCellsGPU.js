@@ -254,8 +254,6 @@ export function computeShader(sz) { return /*wgsl*/`
 
         pos += vel;
 
-        // Colisiones TODO: Colisiones de alta precisión a altas velocidades (reflejar etc). Bounce dependiente del ángulo de incidencia.
-        
         let bordex = params.ancho/2;
         let bordey = params.alto/2;
         let r = elems[k].radio;
@@ -275,7 +273,7 @@ export function computeShader(sz) { return /*wgsl*/`
         
         velocities[i].x = vel.x;
         velocities[i].y = vel.y;
-        //velocities[0].w = // for debugging
+        //velocities[0].w = ;// for debugging
     }
     `;
 }
@@ -627,6 +625,342 @@ export function computeShaderConDistancias(sz) { return /*wgsl*/`
         
         velocities[i].x = vel.x;
         velocities[i].y = vel.y;
+    }
+    `;
+}
+
+export function computeShader3D(sz) { return /*wgsl*/`
+
+    struct Params { 
+        ancho: f32,
+        alto: f32,
+        n: u32,
+        ne: u32,
+
+        nr: u32,
+        nd: u32,
+        lp: u32,
+        frictionInv: f32,
+
+        bounceF: f32,
+        borderStart: f32, // not used in compute shader
+        spherical: f32,
+        padding: f32,   // to get to 48 bytes.
+
+        seeds: vec4f, // requires to be aligned to 16 bytes
+
+        lims: vec3f,
+    }
+
+    struct Rule { 
+        tarInd: f32,
+        srcInd: f32,
+        g: f32, 
+        q: f32,
+        mind: f32,
+        maxd: f32,
+        pad1: f32,
+        pad2: f32,
+    }
+
+    struct DatosElementaries {
+        cant: u32,
+        cantAcum: u32,
+        cantAcum2: u32,
+        radio: f32,
+        color: vec4f,
+    }
+
+    // Bindings 
+        @group(0) @binding(0) var<storage, read> positionsIn: array<vec4f>; // read only
+        @group(0) @binding(1) var<storage, read_write> positionsOut: array<vec4f>; //al poder write, lo uso como output del shader
+
+        @group(1) @binding(0) var<uniform> params: Params; // parameters
+        @group(1) @binding(1) var<storage, read_write> velocities: array<vec4f>; //al poder write, lo uso como output del shader
+        @group(1) @binding(2) var<storage> rules: array<Rule>;
+        @group(1) @binding(4) var<storage> elems: array<DatosElementaries>;
+    //
+    
+    // rng mostrado en Hello Triangle demos:
+    var<private> seed : vec2u;
+    var<private> rand_seed : vec2f;
+
+    fn init_rng2(invocation_id : u32, seed : vec4<f32>) {
+        rand_seed = seed.xz;
+        rand_seed = fract(rand_seed * cos(35.456 + f32(invocation_id) * seed.yw));
+        rand_seed = fract(rand_seed * cos(41.235 + f32(invocation_id) * seed.xw));
+    }
+
+    fn rng2() -> f32 {
+        rand_seed.x = fract(cos(dot(rand_seed, vec2<f32>(23.14077926, 232.61690225))) * 136.8168);
+        rand_seed.y = fract(cos(dot(rand_seed, vec2<f32>(54.47856553, 345.84153136))) * 534.7645);
+        return rand_seed.y;
+    }
+  
+    fn applyrule2( posi: vec3f, posj: vec3f , d:f32, g: f32, q: f32, rmin: f32, rmax: f32 ) -> vec3f {
+        // Usa el rng mostrado en HelloTriangle
+        if d > rmax {
+            return vec3f();
+        }
+        if d >= rmin {
+            let f = -g/(d*d);
+            return vec3f(posi.x - posj.x, posi.y - posj.y, posi.z - posj.z) * f;
+        }
+        return (vec3f(rng2(), rng2(), rng2()) * 2 - 1) * q;
+    }
+
+    @compute
+    @workgroup_size(${sz}, 1, 1) // el tercer parámetro (z) es default 1.
+    fn computeMain(@builtin(global_invocation_id) ind: vec3u){
+
+        let i = ind.x; // index global
+        let n = params.n;
+
+        if i >= n {
+            return;
+        }
+
+        init_rng2(i, params.seeds);
+
+        //var iterations = u32(); // debug iterations counter
+        
+        let k = u32(positionsIn[i].w); // pos.w is used as elementary index.
+
+        var pos = positionsIn[i].xyz;
+        var vel = velocities[i].xyz;
+        var deltav = vec3f();
+        var kj = u32(); // elementary index de pj
+        
+        // por cada regla:  -- Es mucho más eficiente tomar el loop más corto como el más externo.
+        for (var r: u32 = 0; r < params.nr; r++) {
+
+            if k != u32(rules[r].tarInd) { continue; }
+
+            // Por cada partícula:
+            for (var pj: u32 = 0; pj < n; pj++) {
+
+                if pj == i {continue;}
+                
+                kj = u32(positionsIn[pj].w);
+                
+                //iterations++;
+                // revisar si esta regla le afecta y pj es source
+                if kj == u32(rules[r].srcInd) {
+
+                    // Obtengo la posición de pj
+                    let posj = positionsIn[pj].xyz;
+                    let ilj = pj - elems[kj].cantAcum2; // índice local de pj
+
+                    // Obtengo la distancia a pj
+                    let d = distance(pos, posj);
+                    
+                    deltav += applyrule2(pos, posj, d, rules[r].g, rules[r].q, rules[r].mind, rules[r].maxd);
+                }
+            }
+        }
+
+        vel = (vel + deltav) * params.frictionInv;
+
+        pos += vel;
+
+        let bordex = params.lims.x;
+        let bordey = params.lims.y;
+        let bordez = params.lims.z;
+
+        let r = elems[k].radio;
+
+        if abs(pos.x) > bordex - r {
+            pos.x = 2 * sign(vel.x) * (bordex - r) - (pos.x); // parece que es seguro usar sign: vel nunca es 0 aquí.
+            vel.x *= -params.bounceF;
+        }
+        if abs(pos.y) > bordey - r {
+            pos.y = 2 * sign(vel.y) * (bordey - r) - (pos.y);
+            vel.y *= -params.bounceF;
+        }
+        if abs(pos.z) > bordez - r {
+            pos.z = 2 * sign(vel.z) * (bordez - r) - (pos.z);
+            vel.z *= -params.bounceF;
+        }
+
+        positionsOut[i].x = pos.x;
+        positionsOut[i].y = pos.y;
+        positionsOut[i].z = pos.z;
+        positionsOut[i].w = positionsIn[i].w; 
+        
+        velocities[i].x = vel.x;
+        velocities[i].y = vel.y;
+        velocities[i].z = vel.z;
+        //velocities[0].w = ;// for debugging
+    }
+    `;
+}
+
+export function renderShader3D() { return /*wgsl*/`
+
+    struct Params { 
+        ancho: f32,
+        alto: f32,
+        n: u32,
+        ne: u32,
+
+        nr: u32,
+        nd: u32,
+        lp: u32,
+        frictionInv: f32,
+
+        bounceF: f32,
+        borderStart: f32,
+        spherical: f32,
+        padding: f32,
+
+        seeds: vec4f,
+
+        lims: vec3f,
+        
+    }
+
+    struct DatosElementaries {
+        cant: u32,
+        cantAcum: u32,
+        cantAcum2: u32,
+        radio: f32,
+        color: vec4f,
+    }
+
+    // Bindings
+        @group(0) @binding(0) var<storage, read> updatedpositions: array<vec4<f32>>; // read only
+
+        @group(1) @binding(0) var<uniform> params: Params; // parameters
+        @group(1) @binding(4) var<storage> elems: array<DatosElementaries>;
+        @group(1) @binding(6) var<uniform> perspective: mat4x4<f32>;
+    //
+
+    // VERTEX SHADER
+
+    struct VertexInput {
+        @builtin(instance_index) instance: u32, // índice de cada instancia. Hay N instancias.
+        @builtin(vertex_index) vertex: u32, // índice de cada vértice. Hay 6 vertices.
+        @location(0) pos: vec2f, // índice 0 de la lista de vertex attributes en el vertex buffer layout.
+        // TODO: Ver si puedo traer desde el compute shader al índice de elementary (k).
+    };
+
+    struct VertexOutput{
+        @builtin (position) pos: vec4f, // posición de cada vértice  || para el fragment shader, al parecer usa un sist. coords distinto (abs from top left)
+        @location(1) @interpolate(flat) idx: u32, // Índice de instancia
+        @location(2) quadpos: vec2f,
+        @location(3) @interpolate(flat) k: u32,
+        @location(4) @interpolate(flat) random: f32,
+    };
+
+    fn LFSR( z: u32, s1: u32, s2: u32, s3: u32, m:u32) -> u32 {
+        let b = (((z << s1) ^ z) >> s2);
+        return (((z & m) << s3) ^ b);
+    }
+    fn rng(i: u32) -> f32 {
+        let seed = i*1099087573;
+        let z1 = LFSR(seed,13,19,12, u32(4294967294));
+        let z2 = LFSR(seed,2 ,25,4 , u32(4294967288));
+        let z3 = LFSR(seed,3 ,11,17, u32(4294967280));
+        let z4 = 1664525 * seed + 1013904223;
+        let r0 = z1^z2^z3^z4;
+        return f32( r0 ) * 2.3283064365387e-10 ;
+    }
+
+    @vertex
+    fn vertexMain(input: VertexInput) -> VertexOutput   {
+
+        let idx = input.instance;
+
+        let ancho = params.ancho;
+        let alto = params.alto;
+        let ar = ancho/alto;
+
+        let k = u32(updatedpositions[idx].w); // elementary index.
+        
+        let diameter = f32(elems[k].radio);// * 2 / ancho; // diámetro en pixeles. Dividido ancho da en clip space  [-1 1]
+
+        // OUTPUT
+        var output: VertexOutput;
+        output.pos = vec4f(updatedpositions[idx].xyz, 1);
+
+        output.pos.z += params.lims.z;
+
+        output.pos = perspective * output.pos;  // output.pos must end up in clip space: [x(-1,1) y(-1,1) z(0,1)]/w
+
+        //output.pos.z = min(output.pos.z, 2);
+
+        output.pos.x += input.pos.x * diameter;
+        output.pos.y += input.pos.y * diameter * ar;
+
+        output.idx = idx; // índice de cada instancia, pasado a float para el fragment shader
+        output.quadpos = input.pos;
+        output.k = k;
+        output.random = mix(0.8, 1.2, rng(idx) );
+
+        return output;
+    }
+
+    // FRAGMENT SHADER 
+
+    @fragment   
+    fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {  // @location(n) está asociado al índice n del colorAttachment en el renderpass a utilizar
+        
+        let r = length(input.quadpos);
+        if r > 1 { discard; }
+
+        //let idx = input.idx;
+        let k = input.k;
+
+        //let border = step(r, 1 - params.borderStart/elems[k].radio); // Si uso borderStart como ancho en píxeles
+        let border = step(r, params.borderStart);
+
+        let gradient = ( 1 + params.spherical * (sqrt(1 - r*r) - 1) );
+        var color_xyz = elems[k].color.xyz * border * gradient * input.random;
+
+        let test = vec3f(input.pos.x,input.pos.y,input.pos.z);
+
+        if input.idx == 3801 {color_xyz = vec3f(0,1,1);}
+        
+        return vec4f(color_xyz, 1); //color_xyz
+
+    }
+    `;
+}
+
+export function wallShader3D() { return /*wgsl*/`
+
+    @group(0) @binding(0) var<uniform> perspective: mat4x4<f32>;
+    @group(0) @binding(1) var<uniform> lims: vec3f;
+
+    struct VertexInput {
+        @location(0) pos: vec3f, // índice 0 de la lista de vertex attributes en el vertex buffer layout.
+        @builtin(vertex_index) ind: u32,
+    };
+
+    struct VertexOutput{
+        @builtin (position) pos: vec4f,
+        @location(1) vpos: vec3f,
+    };
+
+
+    @vertex
+    fn vertexMain(input:VertexInput) -> VertexOutput {
+
+        let limsx = lims.x;
+        let pers = perspective[0][0];
+
+        var output: VertexOutput;
+        output.pos = perspective * vec4f(input.pos, 1);
+
+        output.vpos = vec3f(input.pos/lims);
+
+        return output;
+    }
+
+    @fragment   
+    fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
+        
+        return vec4f(input.vpos, 1);
     }
     `;
 }

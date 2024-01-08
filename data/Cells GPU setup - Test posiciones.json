@@ -1,0 +1,31 @@
+{
+  "name": "Test posiciones",
+  "seed": "",
+  "ambient": {
+    "friction": 0,
+    "bounce": 100,
+    "maxInitVel": 0,
+    "canvasDims": [
+      "auto",
+      "auto"
+    ]
+  },
+  "elementaries": [
+    {
+      "nombre": "A",
+      "color": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "cantidad": 1,
+      "radio": 10,
+      "posiciones": [350,300,0,0],
+      "velocidades": [-1,-1,0,0]
+    }
+  ],
+  "rules": [
+
+  ]
+}
