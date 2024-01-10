@@ -1,5 +1,6 @@
-import { inicializarCells, autoCanvasDims, Mat4 } from "inicializar-webgpu";
+import { inicializarCells, autoCanvasDims } from "inicializar-webgpu";
 import { renderShader3D, wallShader3D, computeShader3D } from "shaders";
+import { Mat4, Vec3, Elementary, Rule, Setup} from "classes";
 
 // ref https://www.cg.tuwien.ac.at/research/publications/2023/PETER-2023-PSW/PETER-2023-PSW-.pdf
 
@@ -16,7 +17,8 @@ LAST_VISITED_VERSION = localStorage.getItem("STORED_VERSION_NUMBER"),
 CHANGELOG = `\
 	${CURRENT_VERSION}
 
-	* En desarrollo.
+	* En desarrollo, pero casi todo lo fundamental ya está hecho :D
+	* Aviso: cambiaron varios controles.
 
 `,
 particleStyles = [
@@ -55,9 +57,25 @@ flags = {
 
 	justLoadedSetup: false,
 
-	moveCamera: false,
+	runningCameraLoop: false,
 },
-eyePosition = new Float32Array([0, 0, 1300]);
+eyePosition = new Vec3([0,0,1000]),  //camera position in world space
+eyeDirection = new Vec3([0, 0, -1]), //camera direction in world space
+up = new Vec3([0, 1, 0]),
+ph = new Vec3(), //placeholder
+keysPressed = new Set(),
+camControls = {
+	left: "KeyA",
+	right: "KeyD",
+	forward: "KeyW",
+	backward: "KeyS",
+	up: "KeyZ",
+	down: "KeyX",
+	rotLeft: "KeyJ",
+	rotRight: "KeyL",
+	slow: "ShiftLeft",
+	test: "KeyK",
+};
 
 let 
 N = 0, 	// Cantidad total de partículas
@@ -83,16 +101,16 @@ textureView,
 projectionMatrix = new Mat4(),
 viewProjectionMatrix = new Mat4(),
 rotAxis = new Float32Array([0, 1, 0]),
-rotYCurrent = 0,//-Math.PI/2,
+rotYCurrent = 0,
 xlim = 500,
 ylim = 300,
-zlim = 300,
-moveSpeed = 20,
-rotateSpeed = 3*Math.PI/180;
+zlim = 500,
+baseCamSpeed = 20,
+rotateSpeed = 2*Math.PI/180;
 
 // TIMING & DEBUG 
 	const STARTING_SETUP_NUMBER = 1,
-	SETUP_FILENAME = "Cells GPU setup - ClassicX10",
+	SETUP_FILENAME = "Cells GPU setup - Campos de repulsión 2",
 	SHOW_DEBUG = true;
 	//localStorage.setItem("NEW_USER", 1);
 	//localStorage.setItem("STORED_VERSION_NUMBER", -1);
@@ -115,7 +133,7 @@ rotateSpeed = 3*Math.PI/180;
 // FUNCIONES VARIAS Y CLASES - TODO: Modularizar
 
 	// General utility
-	function hexString_to_rgba(hexString, a) {
+	function hexString_to_rgba(hexString, alpha) {
 		
 		hexString = hexString.replace("#",""); // remove possible initial #
 
@@ -125,7 +143,7 @@ rotateSpeed = 3*Math.PI/180;
 
 		// console.log(`Returned RGBA array [${[red, green, blue, a]}] from "#${hexString}" [hexString_to_rgba] `);
 
-		return new Float32Array([red, green, blue, a]); // Store the RGB values in an array
+		return new Float32Array([red, green, blue, alpha]); // Store the RGB values in an array
 	}
 	function randomPosition(elementaryIndex, margin = 0) {
 		return ([
@@ -333,16 +351,28 @@ rotateSpeed = 3*Math.PI/180;
 		}
 		console.table(tabla);
 	}
-	function printMatrix(matrix) { //column major
+	function printMatrix(matrix,raw = false) { //column major
+		
 		const formattedMatrix = [];
-		for (let i = 0; i < 16; i+=4) {
-			formattedMatrix.push([
-				parseFloat(matrix[i].toFixed(3)),
-				parseFloat(matrix[i+1].toFixed(3)),
-				parseFloat(matrix[i+2].toFixed(3)),
-				parseFloat(matrix[i+3].toFixed(3)),
-			]);
+
+		if (!raw) {
+			for (let col = 0; col < 4; col++) {
+				const column = [];
+				for (let row = 0; row < 4; row++) {
+					column.push(parseFloat(matrix[col + row * 4].toFixed(3)));
+				}
+				formattedMatrix.push(column);
+			}
+		} else {
+			for (let col = 0; col < 4; col++) {
+				const column = [];
+				for (let row = 0; row < 4; row++) {
+					column.push(matrix[col + row * 4]);
+				}
+				formattedMatrix.push(column);
+			}
 		}
+
 		console.table(formattedMatrix);
 	}
 
@@ -435,95 +465,8 @@ rotateSpeed = 3*Math.PI/180;
 		}
 	}
 
-	// Classes and their handling
-	class Elementary {
-		constructor(nombre, color, cantidad, radio, posiciones, velocidades) {
-			// Check input parameter types and sizes
-			if (typeof nombre !== "string") {
-				throw new Error("Nombre no es string.");
-			}
-			if (color.constructor !== Float32Array || color.length !== 4) {
-				throw new Error("Color no es Float32Array de 4 elementos.");
-			}
-			if (!Number.isInteger(cantidad) || cantidad < 0) {
-				throw new Error("Cantidad no es un entero >= 0.");
-			}
-			if (typeof radio !== "number" || radio <= 0) {
-				throw new Error("Radio no es un número positivo.");
-			}
-			this.#validateArray(posiciones, "posiciones");
-			this.#validateArray(velocidades, "velocidades");
+	// Handling of classes
 
-			this.nombre = nombre;
-			this.color = color;
-			this.cantidad = cantidad;
-			this.radio = radio;
-			this.posiciones = posiciones;
-			this.velocidades = velocidades;
-
-		}
-		static fromJsonObjectLit(obj) {
-			return new Elementary(
-				obj.nombre,
-				new Float32Array(obj.color),
-				obj.cantidad,
-				obj.radio,
-				new Float32Array(obj.posiciones),
-				new Float32Array(obj.velocidades)
-			);
-		}
-		isFilled(prop) {
-			switch (prop) {
-				case "posiciones":
-					return this.posiciones.length === this.cantidad * 4;
-				case "velocidades":
-					return this.velocidades.length === this.cantidad * 4;
-				default:
-					console.log("a")
-					throw new Error('isFilled() sólo acepta "posiciones" o "velocidades".');
-			}
-		}
-
-		get filledPosiVels() {
-			let str = "";
-			if (this.isFilled("posiciones")) { str += "posi"; }
-			if (this.isFilled("velocidades")) { str += "vels"; }
-			return str;
-		}
-
-		get colorAsHex() {
-			const [r, g, b] = this.color;
-			const hexR = Math.floor(r * 255).toString(16).padStart(2, "0");
-			const hexG = Math.floor(g * 255).toString(16).padStart(2, "0");
-			const hexB = Math.floor(b * 255).toString(16).padStart(2, "0");
-			return `#${hexR}${hexG}${hexB}`;
-		}
-
-		get asJsonObjectLit() {
-			return {
-				nombre: this.nombre,
-				color: Array.from(this.color),
-				cantidad: this.cantidad,
-				radio: this.radio,
-				posiciones: [],
-				velocidades: []
-			}
-		}
-
-		get asJsonObjectLitFull() {
-			const output = this.asJsonObjectLit;
-			output.posiciones = Array.from(this.posiciones);
-			output.velocidades =  Array.from(this.velocidades);
-			console.log("output")
-			return output;
-		}
-
-		#validateArray(array, inputName) {
-			if (array.constructor !== Float32Array && !(Array.isArray(array) && array.length === 0)) {
-				throw new Error (`Entrada ${inputName} inválida`);
-			}
-		}
-	}
 	function cargarElementary(newElementary) {
 		if (!(newElementary instanceof Elementary)) { throw new Error("No es una instancia de Elementary"); }
 		let i = elementaries.length;
@@ -538,23 +481,6 @@ rotateSpeed = 3*Math.PI/180;
 		}
 		partiControls.selector.selectedIndex = i;
 	}
-	class Rule {
-		constructor(ruleName, targetName, sourceName, intensity, quantumForce, minDist, maxDist) {
-			this.ruleName = ruleName || `${targetName} ← ${sourceName}`;
-			this.targetName = targetName;
-			this.sourceName = sourceName;
-			this.intensity = intensity;
-			this.quantumForce = quantumForce;
-			this.minDist = minDist;
-			this.maxDist = maxDist;
-		}
-		static fromJsonObjectLit(obj) {
-			return new Rule(
-				obj.ruleName, obj.targetName, obj.sourceName, obj.intensity, 
-				obj.quantumForce, obj.minDist, obj.maxDist
-			);
-		}
-	}
 	function cargarRule(newRule) {
 		if (!(newRule instanceof Rule)) { throw new Error("No es una instancia de Rule"); }
 		let i = rules.length;
@@ -567,63 +493,6 @@ rotateSpeed = 3*Math.PI/180;
 			actualizarRuleSelector(newRule); // actualizar lista de nombres en el creador de reglas de interacción
 		}
 		ruleControls.selector.selectedIndex = i;
-	}
-	class Setup {
-		constructor(name, seed, ambient, elementaries, rules) {
-
-			this.#validateCanvasDims(ambient.canvasDims);
-			this.#validateObjectArray(elementaries, Elementary);
-			this.#validateObjectArray(rules, Rule);
-
-			this.name = name;
-			this.seed = seed;
-			this.ambient = ambient;
-			this.elementaries = elementaries;
-			this.rules = rules;
-		}
-		static fromJsonObjectLit(obj) {
-			return new Setup(
-				obj.name,
-				obj.seed,
-				obj.ambient,
-				obj.elementaries.map(elem => Elementary.fromJsonObjectLit(elem)),
-				obj.rules.map(rule => Rule.fromJsonObjectLit(rule)),
-			);
-		}
-		
-		#validateCanvasDims(dims) {
-			if (!Number.isInteger(dims[0]) && dims[0] !== "auto" && dims[0] !== "previous") {
-				throw new Error("Invalid canvas width.");
-			}
-			if (!Number.isInteger(dims[1]) && dims[1] !== "auto" && dims[1] !== "previous") {
-				throw new Error("Invalid canvas height.");
-			}
-		}
-		#validateObjectArray(array, _class) {
-			for (let obj of array) {
-				if (!(obj instanceof _class)) throw new Error(`${obj} is not instance of ${_class.name}.`);
-			}
-		}
-		#validateRules(rules) {
-			for (let rule of rules) {
-				if (!(rule instanceof Rule)) { throw new Error(`${rule?.ruleName} is not instance of Elementary.`); }
-			}
-		}
-		
-		get asJsonObjectLit() {
-			return {
-				name: this.name,
-				seed: this.seed,
-				ambient: this.ambient,
-				elementaries: this.elementaries.map(elem => elem.asJsonObjectLit),
-				rules: this.rules
-			}
-		}
-		get asJsonObjectLitFull() {
-			const output = this.asJsonObjectLit;
-			output.elementaries = this.elementaries.map(elem => elem.asJsonObjectLitFull);
-			return output;
-		}
 	}
 	async function importSetup(path) {
 
@@ -932,7 +801,8 @@ rotateSpeed = 3*Math.PI/180;
 		return [x2 - x1, y2 - y1];
 	}
 	function updatePosInfoPanel() {
-		posInfo.innerText = `(${eyePosition[0].toFixed(2)} , ${eyePosition[1].toFixed(2)} , ${eyePosition[2].toFixed(2)})
+		posInfo.innerText = `Pos: (${eyePosition.toString(0)})
+		Aim: (${eyeDirection.toString(2)})
 		Y Rot: ${(rotYCurrent*180/Math.PI).toFixed(1)}°`
 	}
 
@@ -1339,19 +1209,6 @@ rotateSpeed = 3*Math.PI/180;
 		])
 		device.queue.writeBuffer(GPUBuffers.params, 48, paramsArrays.seeds);
 	}
-
-	// Camera updating
-	function renderNewPerspective() {
-		if (paused) {
-			updateCamera();
-			const encoder = device.createCommandEncoder();
-			render(encoder, frame);
-			device.queue.submit([encoder.finish()]);
-		} else {
-			flags.moveCamera = true;
-		}
-		updatePosInfoPanel();
-	}
 	
 //
 
@@ -1475,6 +1332,8 @@ rotateSpeed = 3*Math.PI/180;
 
 		if (event.target.type === "range") { event.target.blur(); }
 
+		keysPressed.add(event.code);
+
 		switch (event.code){
 			case "Space":
 				event.preventDefault();
@@ -1483,10 +1342,10 @@ rotateSpeed = 3*Math.PI/180;
 			case "KeyR":
 				resetear(); playSound(clickSound);
 				break;
-			case "KeyS":
+			case "KeyE":
 				stepear(); playSound(clickSound);
 				break;
-			case "KeyW":
+			case "KeyQ":
 				hideCPOptions(); //playSound(clickSound);
 				break;
 			case "KeyM":
@@ -1502,38 +1361,29 @@ rotateSpeed = 3*Math.PI/180;
 			case "KeyH":
 				switchVisibilityAttribute(panels);
 				break;
-			case "KeyD":
+			case "KeyT":
 				switchVisibilityAttribute(debugInfo);
 				break;
-			case "ArrowLeft":
+			case camControls.left:
+			case camControls.right:
+			case camControls.forward:
+			case camControls.backward:
+			case camControls.up:
+			case camControls.down:
+			case camControls.rotLeft:
+			case camControls.rotRight:
+			case camControls.test:
 				event.preventDefault();
-				eyePosition[0] -= moveSpeed;
-				renderNewPerspective();
-				break;
-			case "ArrowRight":
-				event.preventDefault();
-				eyePosition[0] += moveSpeed;
-				renderNewPerspective();
-				break;
-			case "ArrowUp":
-				event.preventDefault();
-				eyePosition[2] -= moveSpeed;
-				renderNewPerspective();
-				break;
-			case "ArrowDown":
-				event.preventDefault();
-				eyePosition[2] += moveSpeed;
-				renderNewPerspective();
-				break;
-			case "KeyJ":
-				rotYCurrent -= rotateSpeed;
-				renderNewPerspective()
-				break;
-			case "KeyL":
-				rotYCurrent += rotateSpeed;
-				renderNewPerspective()
+				if (!flags.runningCameraLoop) {
+					requestAnimationFrame(cameraLoop);
+					flags.runningCameraLoop = true;
+				}
 				break;
 		}
+	});
+	document.addEventListener("keyup", (event) => {
+		keysPressed.delete(event.code);
+		if (!keysPressed.size) flags.runningCameraLoop = false;
 	});
 
 	// Creador de elementaries / partículas
@@ -1991,8 +1841,6 @@ rotateSpeed = 3*Math.PI/180;
 	// Tamaño canvas y sonido
 	canvasInfo.innerText = `${canvas.width} x ${canvas.height} (${(canvas.width/canvas.height).toFixed(6)})`;
 	clickSound.volume = volumeRange.value;
-	// Info
-	updatePosInfoPanel();
 
 	// Valores por defecto
 	ambientControls.inputs.friction.placeholder = ambient.friction.toFixed(3);
@@ -2022,22 +1870,33 @@ rotateSpeed = 3*Math.PI/180;
 
 	// Vértices
 	const v = 1; // ojo!: afecta el shader
-	const vertices = new Float32Array([ // Coordenadas en clip space
+	const vertices = new Float32Array([
 		//   X,    Y,
-		-v, -v, // Triangle 1 (Blue)
+		-v, -v, // Triangle 1
 		v, -v,
 		v,  v,
-
-		-v, -v, // Triangle 2 (Red)
-		v,  v,
-		-v,  v,
+				
+		-v,  v,	// Triangle 2 (only new verts)
 	]);
+	const vertIndices = new Uint16Array([
+		0,1,2,	// T1
+		2,3,0,	// T2
+	]);
+
 	const vertexBuffer = device.createBuffer({
 		label: "Particle vertices",
-		size: vertices.byteLength, //12 * 32-bit floats (4 bits c/u) = 48 bytes
+		size: vertices.byteLength,
 		usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
 	});
-	device.queue.writeBuffer(vertexBuffer, /*bufferOffset=*/ 0, vertices);
+	device.queue.writeBuffer(vertexBuffer, 0, vertices);
+
+	const indexBuffer = device.createBuffer({
+		label: "Vertex index for particle vertices",
+		size: vertIndices.byteLength,
+		usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+	});
+	device.queue.writeBuffer(indexBuffer, 0, vertIndices);
+
 	
 	const vertexBufferLayout = {
 		arrayStride: 8, 			// cada vertex ocupa 8 bytes (2 *4-bytes)
@@ -2314,8 +2173,8 @@ rotateSpeed = 3*Math.PI/180;
 	};
 	device.queue.writeBuffer(GPUBuffers.params, 64, paramsArrays.lims);
 	device.queue.writeBuffer(GPUBuffers.scenarioData, 0, paramsArrays.lims);
+	
 	updateCamera();
-
 
 	const scenarioBindGroups = [
 		device.createBindGroup({
@@ -2472,15 +2331,13 @@ function render(encoder, frame) {
 	if (N) {
 		pass.setPipeline(particleRenderPipeline);
 		pass.setVertexBuffer(0, vertexBuffer);
+		pass.setIndexBuffer(indexBuffer, "uint16");
 		pass.setBindGroup(0, bindGroups[frame % 2]);
 		pass.setBindGroup(1, bindGroups[2]);
-		pass.draw(vertices.length /2, N);	// 6 vertices. renderizados N veces
+		pass.drawIndexed(vertIndices.length, N);
 	}
 
-
-
-
-	pass.end(); // finaliza el render pass
+	pass.end();
 }
 
 function computeNextFrame(encoder, frame) {
@@ -2504,39 +2361,92 @@ function computeNextFrame(encoder, frame) {
 
 function updateCamera() {
 
-	projectionMatrix = new Mat4();
 	viewProjectionMatrix = new Mat4();
-	
-	projectionMatrix.perspectiveZO(1.0, canvas.width / canvas.height, 0.1, 3000.0);
-	//projectionMatrix.orthoZO(-canvas.width/2,canvas.width/2,-canvas.height/2,canvas.height/2,0.1,5000);
-
-	//printMatrix(projectionMatrix);
-	
 	viewProjectionMatrix.rotate(rotYCurrent, rotAxis);
-	viewProjectionMatrix.translate(eyePosition.map(x => -x));
+	viewProjectionMatrix.translate(eyePosition.scale(-1,ph));
 	
-	viewProjectionMatrix.multiply2(projectionMatrix);
+	eyeDirection[0] = viewProjectionMatrix[8];
+	eyeDirection[1] = viewProjectionMatrix[9];
+	eyeDirection[2] = -viewProjectionMatrix[10];
 
-	device.queue.writeBuffer(GPUBuffers.renderPerspective, 0, viewProjectionMatrix);
+	projectionMatrix = new Mat4();
+	projectionMatrix.perspectiveZO(1.0, canvas.width / canvas.height, 0.1, 5000);
+	projectionMatrix.multiply(viewProjectionMatrix);
 
-	flags.moveCamera = false;
+	device.queue.writeBuffer(GPUBuffers.renderPerspective, 0, projectionMatrix);
+
+	updatePosInfoPanel();
 }
+
+/* Matrix math testing
+	const A = new Mat4();
+	const B = new Mat4();
+	const C = new Mat4();
+	const D = new Mat4();
+
+	for (let i = 1; i < 16+1; i++) {
+		A[i-1] = i ;//+ 0.235;
+		B[i-1] = i ;//+ 0.05;
+		C[i-1] = i ;//+ 0.235;
+		D[i-1] = i ;//+ 0.05;
+	}
+
+	printMatrix(A.multiply(B), true);
+
+	printMatrix(D.multiply2(C), true)
+
+	const dif = [];
+	for (let i = 0; i < 16; i++) {
+		dif.push(A[i]-D[i]);
+	}
+	console.log(dif)
+
+*/
+
 // ANIMATION LOOP
 
-async function newFrame() {
+function cameraLoop() {
+	//console.log("Camera loop")
 
-	if (flags.moveCamera) {
-		updateCamera();
+	const speedMultiplier = keysPressed.has(camControls.slow) ? 0.2 : 1;
+
+	const camSpeed = baseCamSpeed * speedMultiplier;
+
+	const right = new Vec3(eyeDirection).cross(up).scale(camSpeed);
+	const forward = new Vec3(eyeDirection).scale(camSpeed);
+
+	if (keysPressed.has(camControls.left)) {eyePosition.subtract(right);} //eyePosition[0] -= camSpeed;
+	
+	if (keysPressed.has(camControls.right)) {eyePosition.add(right);}	
+
+	if (keysPressed.has(camControls.forward)) {eyePosition.add(forward);}	
+	
+	if (keysPressed.has(camControls.backward)) {eyePosition.subtract(forward);}
+
+	if (keysPressed.has(camControls.up)) {eyePosition[1] += camSpeed;}
+
+	if (keysPressed.has(camControls.down)) {eyePosition[1] -= camSpeed;}
+	
+	if (keysPressed.has(camControls.rotLeft)) 	rotYCurrent -= rotateSpeed * speedMultiplier;
+	
+	if (keysPressed.has(camControls.rotRight)) 	rotYCurrent += rotateSpeed * speedMultiplier;
+	
+	updateCamera();
+	
+	if (paused) {
 		const encoder = device.createCommandEncoder();
-		render(encoder, frame);
+		render(encoder, Math.max(frame-1, 0));
 		device.queue.submit([encoder.finish()]);
 	}
 
-	if (paused && !stepping) { return; }
+	if (flags.runningCameraLoop) requestAnimationFrame(cameraLoop);
+}
 
-	if (flags.updateSimParams) {	// Rearmar buffers y pipeline
-		updateSimulationParameters();
-	}
+async function newFrame() {
+
+	if (paused && !stepping) return;
+
+	if (flags.updateSimParams) updateSimulationParameters();
 
 	const encoder = device.createCommandEncoder();
 

@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="es">
 	<head>
-		<title id="title">Cells 3D - v0.5</title>
+		<title id="title">Cells 3D - v0.8 Alfa</title>
 		<meta charset="utf-8">
 		<link rel="stylesheet" href="../styles/CellsGPU.css">
 		<link rel="icon" href="../images/logoBLR.png" type="image/icon type">
@@ -11,7 +11,8 @@
 				"imports": {
 					"inicializar-webgpu": "./modules/misFunciones.js",
 					"shaders": "./shaders/shadersCellsGPU.js",
-					"utilities": "./modules/utilities.js"
+					"utilities": "./modules/utilities.js",
+					"classes": "./modules/misClases.js"
 				}
 			}
 		</script>
@@ -67,14 +68,7 @@
 								<span class="tooltiptext long"> Ctrl + Click para convertir en seed manual
 								</span>
 							</div>
-							<!--
-							<button class="button switchedoff hastooltip" id="preloadpositions" >P.P.
-								<span class="tooltiptext">
-									Precargar Posiciones<br>
-									Calcula la posición inicial de las partículas al momento de crearlas, en vez de al iniciar la simulación.
-								</span>
-							</button>  FUERA DE USO: CODE 0, COMPLICA LAS COSAS CON EL COLOCADOR MANUAL-->
-							
+
 							<br>
 							<label for="bgcolorpicker">Color de fondo: </label>
 							<input type="color" id="bgcolorpicker" value="#000000" class="colorinput"><br>
@@ -305,7 +299,7 @@
 						<p id="positioninfo" style="margin: 0;"></p>
 						<p id="performanceinfo" style="margin: 0;"></p>
 						<p style="font-size: small; color:rgba(255, 255, 255, 0.5); max-width: 25ch; margin:0; line-height: 2ch;">
-							Space, W, S, R, M, I, H, D <br> 3D: Flechas, J, L </p>
+							Space, Q, E, R, M, I, H, T <br> 3D: LShift, WASDZX, J, L </p>
 					</div>
 				</div>
 			</div>
@@ -317,7 +311,7 @@
 
 		<div id="dialogs">
 			<dialog id="helpdialog" class="dialogo">
-				<p style="margin: 0;">Controles: <br>Space, W, S, R, M, I, H, D, J, L, Flechas <br><br></p>
+				<p style="margin: 0;">Controles: <br>Space, Q, E, R, M, I, H, T, <br>3D: LShift, WASDZX, J, L<br><br></p>
 				<button id="dialogok" class="button">Ok</button>
 				&nbsp&nbsp&nbsp
 				<button id="dialognvm" class="button">No volver a mostrar</button>

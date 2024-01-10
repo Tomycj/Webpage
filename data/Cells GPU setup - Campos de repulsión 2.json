@@ -1,0 +1,65 @@
+{
+  "name": "Campos de repulsión",
+  "seed": "",
+  "ambient": {
+    "friction": 0.1,
+    "bounce": 10,
+    "maxInitVel": 0,
+    "canvasDims": [
+      "auto",
+      "auto"
+    ]
+  },
+  "elementaries": [
+    {
+      "nombre": "A",
+      "color": [
+        1,
+        1,
+        0,
+        1
+      ],
+      "cantidad": 3000,
+      "radio": 5,
+      "posiciones": [],
+      "velocidades": []
+    },
+    {
+      "nombre": "R",
+      "color": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "cantidad": 0,
+      "radio": 20,
+      "posiciones": [],
+      "velocidades": []
+    }
+  ],
+  "rules": [
+    {
+      "ruleName": "A ← A",
+      "targetName": "A",
+      "sourceName": "A",
+      "intensity": -5,
+      "quantumForce": 0.025,
+      "minDist": 1,
+      "maxDist": 200,
+      "targetIndex": 0,
+      "sourceIndex": 0
+    },
+    {
+      "ruleName": "A ← R",
+      "targetName": "A",
+      "sourceName": "R",
+      "intensity": -50,
+      "quantumForce": 0.025,
+      "minDist": 1,
+      "maxDist": 200,
+      "targetIndex": 0,
+      "sourceIndex": 1
+    }
+  ]
+}

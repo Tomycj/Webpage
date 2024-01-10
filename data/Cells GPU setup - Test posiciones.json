@@ -20,9 +20,9 @@
         1
       ],
       "cantidad": 1,
-      "radio": 10,
-      "posiciones": [350,300,0,0],
-      "velocidades": [-1,-1,0,0]
+      "radio": 50,
+      "posiciones": [0,0,0,0],
+      "velocidades": [3,0,0,0]
     }
   ],
   "rules": [

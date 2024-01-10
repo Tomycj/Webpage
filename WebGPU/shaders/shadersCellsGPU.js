@@ -850,6 +850,7 @@ export function renderShader3D() { return /*wgsl*/`
         @location(2) quadpos: vec2f,
         @location(3) @interpolate(flat) k: u32,
         @location(4) @interpolate(flat) random: f32,
+        @location(5) @interpolate(flat) far: f32,
     };
 
     fn LFSR( z: u32, s1: u32, s2: u32, s3: u32, m:u32) -> u32 {
@@ -883,11 +884,16 @@ export function renderShader3D() { return /*wgsl*/`
         var output: VertexOutput;
         output.pos = vec4f(updatedpositions[idx].xyz, 1);
 
-        output.pos.z += params.lims.z;
-
-        output.pos = perspective * output.pos;  // output.pos must end up in clip space: [x(-1,1) y(-1,1) z(0,1)]/w
+        // output.pos must end up in clip space: [x(-1,1) y(-1,1) z(0,1)]/w ???
+        // al multiplicar se copia la z inicial a la w
+        output.pos = perspective * output.pos;
+        
 
         //output.pos.z = min(output.pos.z, 2);
+
+        if (output.pos.w > 1200) {
+            output.far = 2.0;
+        }
 
         output.pos.x += input.pos.x * diameter;
         output.pos.y += input.pos.y * diameter * ar;
@@ -917,9 +923,11 @@ export function renderShader3D() { return /*wgsl*/`
         let gradient = ( 1 + params.spherical * (sqrt(1 - r*r) - 1) );
         var color_xyz = elems[k].color.xyz * border * gradient * input.random;
 
-        let test = vec3f(input.pos.x,input.pos.y,input.pos.z);
+        //let test = vec3f(input.pos.x,input.pos.y,input.pos.z);
 
-        if input.idx == 3801 {color_xyz = vec3f(0,1,1);}
+        //if input.idx == 3801 {color_xyz = vec3f(0,1,1);}
+        //if input.far > 1 {color_xyz = vec3f(input.pos.z,input.pos.z,input.pos.z);}
+        //if input.pos.z > .999 {color_xyz = vec3f(1,0,0);}
         
         return vec4f(color_xyz, 1); //color_xyz
 
