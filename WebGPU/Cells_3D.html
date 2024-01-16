@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="es">
 	<head>
-		<title id="title">Cells 3D - v0.8 Alfa</title>
+		<title id="title">Cells 3D - v0.8.5 Alfa</title>
 		<meta charset="utf-8">
 		<link rel="stylesheet" href="../styles/CellsGPU.css">
 		<link rel="icon" href="../images/logoBLR.png" type="image/icon type">
@@ -82,6 +82,62 @@
 						</div>
 
 						<div style="position: relative;">
+							<span id="3doptionstitle" class="categoryspan">3D</span>
+							<div id="marker4" hidden class="marker">∗</div>
+						</div>
+
+						<div id="3doptions" hidden>
+
+							<div class="options-row hastooltip">
+								<label for="camspeed" id="camspeedlabel" class="clickable">Rapidez: </label>
+								<input type="range" id="camspeed" value="20" class="rangeinput" min ="0" max="100" step="0.001"><br>
+								<!--
+								<span class="tooltiptext short">
+									Rapidez de la cámara
+								</span>
+								-->
+							</div>
+
+							<div class="options-row hastooltip">
+								<label for="fov" id="fovlabel" class="clickable">FOV: </label>
+								<input type="range" id="fov" value="1" class="rangeinput" min ="0" max="3.14" step="0.001"><br>
+								<!--
+								<span class="tooltiptext short">
+									Rapidez de la cámara
+								</span>
+								-->
+							</div>
+
+							<div class="options-row">
+								<label for="xlim">X:</label>
+								<input type="number" id="xlim" class="numberinput" min="0">
+
+								<button id="bordersbutton" class="button">Bordes
+
+								</button>
+
+							</div>
+
+							<div class="options-row">
+								<label for="ylim">Y:</label>
+								<input type="number" id="ylim" class="numberinput" min="0">
+							</div>
+
+							<div class="options-row">
+								<label for="zlim">Z:</label>
+								<input type="number" id="zlim" class="numberinput" min="0">
+							</div>
+
+							<div class="options-row">
+								<button class="button disabled hastooltip" id="sceneapply">Aplicar
+									<span class="tooltiptext">
+										Aplica configuración 3D
+									</span>
+								</button>
+							</div>
+						</div>
+
+						<div style="position: relative;">
 							<span id ="ambientoptionstitle" class="categoryspan">Entorno</span>
 							<div id="marker1" hidden class="marker">∗</div>
 						</div>
@@ -115,7 +171,7 @@
 							</div>
 
 							<div class="options-row">
-								<button class="button hastooltip" id="ambientupdate">Aplicar
+								<button class="button disabled hastooltip" id="ambientupdate">Aplicar
 									<span class="tooltiptext">
 										Aplica configuración de entorno
 									</span>
@@ -166,6 +222,11 @@
 							<div class="options-row">
 								<label for="c.cant">Cantidad: </label>
 								<input type="number" id="c.cant" class="numberinput" min="0" max="100000" step="1">
+							</div>
+
+							<div class="options-row grayed-out">
+								<span>Cant. actual: </span>
+								<span id="c.cantnow"> 300</span>
 							</div>
 		
 							<div class="options-row hastooltip">
@@ -295,11 +356,11 @@
 					</div>
 
 					<div id="debuginfo" hidden>
-						<p id="canvasinfo" style="margin-top: 8px; margin-bottom: 0;"></p>
-						<p id="positioninfo" style="margin: 0;"></p>
-						<p id="performanceinfo" style="margin: 0;"></p>
+						<p id="canvasinfo" class="info-text"></p>
+						<p id="positioninfo" class="info-text" ></p>
+						<p id="performanceinfo" class ="info-text"></p>
 						<p style="font-size: small; color:rgba(255, 255, 255, 0.5); max-width: 25ch; margin:0; line-height: 2ch;">
-							Space, Q, E, R, M, I, H, T <br> 3D: LShift, WASDZX, J, L </p>
+							Space, Q, E, R, M, I, H, T <br> 3D: LShift, WASDZX, J, L, C </p>
 					</div>
 				</div>
 			</div>
@@ -311,7 +372,7 @@
 
 		<div id="dialogs">
 			<dialog id="helpdialog" class="dialogo">
-				<p style="margin: 0;">Controles: <br>Space, Q, E, R, M, I, H, T, <br>3D: LShift, WASDZX, J, L<br><br></p>
+				<p style="margin: 0;">Controles: <br>Space, Q, E, R, M, I, H, T, <br>3D: LShift, WASDZX, J, L, C<br><br></p>
 				<button id="dialogok" class="button">Ok</button>
 				&nbsp&nbsp&nbsp
 				<button id="dialognvm" class="button">No volver a mostrar</button>

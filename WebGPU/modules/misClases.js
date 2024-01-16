@@ -21,6 +21,7 @@ export class Elementary {
         this.nombre = nombre;
         this.color = color;
         this.cantidad = cantidad;
+		this.cantidadOriginal = cantidad;
         this.radio = radio;
         this.posiciones = posiciones;
         this.velocidades = velocidades;
@@ -107,7 +108,7 @@ export class Rule {
     }
 }
 
-export class Setup {
+export class SetupOld {
     constructor(name, seed, ambient, elementaries, rules) {
 
         this.#validateCanvasDims(ambient.canvasDims);
@@ -164,6 +165,69 @@ export class Setup {
         return output;
     }
 }
+
+export class Setup {
+    constructor(name, seed, ambient, elementaries, rules, scene) {
+
+        this.#validateCanvasDims(ambient.canvasDims);
+        this.#validateObjectArray(elementaries, Elementary);
+        this.#validateObjectArray(rules, Rule);
+
+        this.name = name;
+        this.seed = seed;
+        this.ambient = ambient;
+        this.elementaries = elementaries;
+        this.rules = rules;
+        this.scene = scene;
+    }
+    static fromJsonObjectLit(obj) {
+        return new Setup(
+            obj.name,
+            obj.seed,
+            obj.ambient,
+            obj.elementaries.map(elem => Elementary.fromJsonObjectLit(elem)),
+            obj.rules.map(rule => Rule.fromJsonObjectLit(rule)),
+            obj.scene,
+        );
+    }
+    
+    #validateCanvasDims(dims) {
+        if (!Number.isInteger(dims[0]) && dims[0] !== "auto" && dims[0] !== "previous") {
+            throw new Error("Invalid canvas width.");
+        }
+        if (!Number.isInteger(dims[1]) && dims[1] !== "auto" && dims[1] !== "previous") {
+            throw new Error("Invalid canvas height.");
+        }
+    }
+    #validateObjectArray(array, _class) {
+        for (let obj of array) {
+            if (!(obj instanceof _class)) throw new Error(`${obj} is not instance of ${_class.name}.`);
+        }
+    }
+    #validateRules(rules) {
+        for (let rule of rules) {
+            if (!(rule instanceof Rule)) { throw new Error(`${rule?.ruleName} is not instance of Elementary.`); }
+        }
+    }
+    
+    get asJsonObjectLit() {
+        return {
+            name: this.name,
+            seed: this.seed,
+            ambient: this.ambient,
+            elementaries: this.elementaries.map(elem => elem.asJsonObjectLit),
+            rules: this.rules,
+            scene: this.scene
+        }
+    }
+    get asJsonObjectLitFull() {
+        const output = this.asJsonObjectLit;
+        output.elementaries = this.elementaries.map(elem => elem.asJsonObjectLitFull);
+        return output;
+    }
+}
+
+
 
 /**
  * Represents a 4x4 matrix (column-major)
@@ -452,7 +516,31 @@ export class Mat4 extends Float32Array {
 export class Vec3 extends Float32Array {
 	constructor(v) {
         v && v.length == 3 ? super(v) : super(3);
+
+        this.default = new Float32Array(this);
+        //console.log("New object created")
 	}
+
+    set(v) {
+        this[0] = v[0];
+        this[1] = v[1];
+        this[2] = v[2];
+        return this;
+    }
+
+    setDefault(v) {
+        this.default[0] = v[0];
+        this.default[1] = v[1];
+        this.default[2] = v[2];
+        return this;
+    }
+
+    toDefault() {
+        this[0] = this.default[0];
+        this[1] = this.default[1];
+        this[2] = this.default[2];
+        return this;
+    }
 
 	magnitude() {
 		return Math.hypot(this[0], this[1], this[2]);

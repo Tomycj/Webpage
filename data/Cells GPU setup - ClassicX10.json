@@ -2,7 +2,7 @@
   "name": "Clásico x10",
   "seed": "0.6452130",
   "ambient": {
-    "friction": 0.005,
+    "friction": 0.008,
     "bounce": 80,
     "maxInitVel": 0,
     "canvasDims": [

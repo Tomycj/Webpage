@@ -82,7 +82,7 @@ export async function inicializarCells(showTitle=true){
 	context.configure({
 		device: device,
 		format: canvasFormat, //es el texture format que el context debería usar
-		alphaMode: "premultiplied", // no estoy seguro si hace falta
+		alphaMode: "premultiplied", // "opaque" by default, which ignores alpha
 	});
 	
 	return [device, canvas, canvasFormat, context, timer];
@@ -107,3 +107,4 @@ export function autoCanvasDims(container, dims="widthheight") {
 			throw new Error("dims must be 'width', 'height', or their concatenation");
 	}
 }
+

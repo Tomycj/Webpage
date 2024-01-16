@@ -1,13 +1,16 @@
 import { inicializarCells, autoCanvasDims } from "inicializar-webgpu";
 import { renderShader3D, wallShader3D, computeShader3D } from "shaders";
 import { Mat4, Vec3, Elementary, Rule, Setup} from "classes";
+import { boxMesh, hexString_to_rgba, printCMMatrix, switchClass,
+	setAutomaticInputElementWidth, labelError, importarJson,
+	playSound } from "utilities";
 
 // ref https://www.cg.tuwien.ac.at/research/publications/2023/PETER-2023-PSW/PETER-2023-PSW-.pdf
 
 const 
 SHOW_TITLE = false,
 
-[device, canvas, canvasFormat, context, timer] = await inicializarCells(SHOW_TITLE),
+[device, canvas, canvasFormat, context, gpuTiming] = await inicializarCells(SHOW_TITLE),
 
 SETUPS_FOLDER = "../../data/",
 WORKGROUP_SIZE = 64,
@@ -54,15 +57,23 @@ flags = {
 
 	editAmbient: false,
 	editPStyle: true,
+	editLims: true,
 
 	justLoadedSetup: false,
 
 	runningCameraLoop: false,
+
+	renderScenario: true,
+	indexedScenario: true,
 },
-eyePosition = new Vec3([0,0,1000]),  //camera position in world space
+eyePosition = new Vec3([0, 0, 1000]),  //camera position in world space
 eyeDirection = new Vec3([0, 0, -1]), //camera direction in world space
 up = new Vec3([0, 1, 0]),
+right = new Vec3(),
+forward = new Vec3(),
+rotAxis = new Vec3([0, 1, 0]),
 ph = new Vec3(), //placeholder
+rotateSpeed = 2*Math.PI/180,
 keysPressed = new Set(),
 camControls = {
 	left: "KeyA",
@@ -74,8 +85,18 @@ camControls = {
 	rotLeft: "KeyJ",
 	rotRight: "KeyL",
 	slow: "ShiftLeft",
+	reset: "KeyC",
 	test: "KeyK",
-};
+},
+sceneSettings = {
+	fov: 1.0,
+	fovDefault: 1.0,
+	baseCamSpeed: 20,
+	baseCamSpeedDefault: 20,
+	lims: new Float32Array([500, 300, 500]),
+},
+nearClip = 0.1,
+farClip = 5000;
 
 let 
 N = 0, 	// Cantidad total de partículas
@@ -100,25 +121,20 @@ sampleCount = 1, // Parece que sólo puede ser 1 o 4.
 textureView,
 projectionMatrix = new Mat4(),
 viewProjectionMatrix = new Mat4(),
-rotAxis = new Float32Array([0, 1, 0]),
-rotYCurrent = 0,
-xlim = 500,
-ylim = 300,
-zlim = 500,
-baseCamSpeed = 20,
-rotateSpeed = 2*Math.PI/180;
+rotYCurrent = 0;
 
 // TIMING & DEBUG 
 	const STARTING_SETUP_NUMBER = 1,
-	SETUP_FILENAME = "Cells GPU setup - Campos de repulsión 2",
-	SHOW_DEBUG = true;
+	SETUP_FILENAME = "Cells GPU setup - Test Varios", // case 2
+	SHOW_DEBUG = false;
 	//localStorage.setItem("NEW_USER", 1);
 	//localStorage.setItem("STORED_VERSION_NUMBER", -1);
-	let capacity = 4; //Max number of timestamps 
-	let t = [];
+	const capacity = 3; //Max number of timestamps 
+	const t = new Float32Array(capacity);
+	const dt = new Float64Array(capacity-1);
 	let querySet, queryBuffer;
 
-	if (timer) { // véase https://omar-shehata.medium.com/how-to-use-webgpu-timestamp-query-9bf81fb5344a
+	if (gpuTiming) { // véase https://omar-shehata.medium.com/how-to-use-webgpu-timestamp-query-9bf81fb5344a
 		querySet = device.createQuerySet({
 			type: "timestamp",
 			count: capacity,
@@ -133,23 +149,11 @@ rotateSpeed = 2*Math.PI/180;
 // FUNCIONES VARIAS Y CLASES - TODO: Modularizar
 
 	// General utility
-	function hexString_to_rgba(hexString, alpha) {
-		
-		hexString = hexString.replace("#",""); // remove possible initial #
-
-		const red = parseInt(hexString.substr(0, 2), 16) / 255	;    // Convert red component to 0-1 range
-		const green = parseInt(hexString.substr(2, 2), 16) / 255;  // Convert green component to 0-1 range
-		const blue = parseInt(hexString.substr(4, 2), 16) / 255;   // Convert blue component to 0-1 range
-
-		// console.log(`Returned RGBA array [${[red, green, blue, a]}] from "#${hexString}" [hexString_to_rgba] `);
-
-		return new Float32Array([red, green, blue, alpha]); // Store the RGB values in an array
-	}
 	function randomPosition(elementaryIndex, margin = 0) {
 		return ([
-			(rng() - 0.5) * (xlim*2 - margin), // TODO: así como está es eficiente pero el margen no es el esperado
-			(rng() - 0.5) * (ylim*2 - margin),
-			(rng() - 0.5) * (zlim*2 - margin),
+			(rng() - 0.5) * (sceneSettings.lims[0]*2 - margin), // TODO: así como está es eficiente pero el margen no es el esperado
+			(rng() - 0.5) * (sceneSettings.lims[1]*2 - margin),
+			(rng() - 0.5) * (sceneSettings.lims[2]*2 - margin),
 			elementaryIndex
 		]);
 	}
@@ -206,129 +210,6 @@ rotateSpeed = 2*Math.PI/180;
 		titilarBorde(input, "red");
 		return false;
 	}
-	function importarJson(path="") {
-		const msg = "Error detectado antes de importar."
-
-		if (path) { // Load from server file.
-
-			return new Promise ((resolve, reject) => {
-
-				fetch(path)
-				.then( (response) => { return response.json() })
-				.catch((error) => { reject(labelError(error, msg)); })
-				.then( (json) => { resolve(json); })
-			});
-			/* Async solution expanded
-				const promise = fetch(path);
-				const response = await fetch(path);
-				const json = await response.json();
-				return(json);
-			*/
-		} 
-
-		// Load from user prompt
-		const fileInput = document.createElement("input");
-		fileInput.type = "file";
-		fileInput.accept = ".json";
-
-		return new Promise((resolve, reject) => {
-
-			fileInput.onchange = (event)=> {
-				const file = event.target.files[0];
-				const reader = new FileReader();
-
-				reader.onload = _=> {
-					try {
-						const jsonData = JSON.parse(reader.result);
-						resolve(jsonData);
-					} catch (error) { reject(error); }
-				}
-				reader.onerror = (error) => { reject(labelError(error, msg)); }
-				reader.readAsText(file);
-			};
-			
-			fileInput.click();
-		});
-
-	}
-	function hasSameStructure(obj1, obj2) { 
-		// no revisa la estructura de los arrays de elementaries y rules
-		const keys1 = Object.keys(obj1).sort();
-		const keys2 = Object.keys(obj2).sort();
-
-		if (keys1.length !== keys2.length) {
-			return false;
-		}
-
-		for (let i = 0; i < keys1.length; i++) {
-			const key1 = keys1[i];
-			const key2 = keys2[i];
-
-			if (key1 !== key2 || typeof obj1[key1] !== typeof obj2[key2]) {
-				return false;
-			}
-
-			if (typeof obj1[key1] === "object" && !Array.isArray(obj1[key1])) {
-
-				if (!hasSameStructure(obj1[key1], obj2[key2])) {
-					return false;
-				}
-			}
-		}
-		return true;
-	}
-	function rgba_to_hexString(rgbaArray) {
-		const [r, g, b] = rgbaArray;
-		const hexR = Math.floor(r * 255).toString(16).padStart(2, '0');
-		const hexG = Math.floor(g * 255).toString(16).padStart(2, '0');
-		const hexB = Math.floor(b * 255).toString(16).padStart(2, '0');
-		return `#${hexR}${hexG}${hexB}`;
-	}
-	function labelError(error, label="Default error label") {
-		const labeledError = new Error (label);
-		labeledError.cause = error;
-		return labeledError;
-	}
-	function generateHistogram2(data, lim=1, nBins=10) {
-		const histogram = [];
-
-		// Initialize histogram bins
-		for (let i = 0; i < nBins; i++) {
-			histogram[i] = 0;
-		}
-
-		// Calculate bin size
-		const min = -lim//Math.min(...data);
-		const max = lim//Math.max(...data);
-		const binSize = (max - min) / nBins;
-
-		// Increment bin counts
-		data.forEach((value) => {
-			const binIndex = Math.floor((value - min) / binSize);
-			histogram[binIndex]++;
-		});
-
-		let logLines = "";
-		// Display histogram
-		for (let i = 0; i < nBins; i++) {
-			const binStart = min + i * binSize;
-			const binEnd = binStart + binSize;
-			const binCount = histogram[i];
-			logLines += `[${binStart.toFixed(2)} :: ${binEnd.toFixed(2)}]: ${binCount}\n`
-		}
-		console.log(logLines);
-
-		const sumNeg = histogram.slice(0, 4+1).reduce((a,b)=>a+b,0);
-		const sumPos = histogram.slice(5, 9+1).reduce((a,b)=>a+b,0);
-		let bal = ""
-		if (sumPos>sumNeg) {
-			bal = "+++";
-		} else if (sumPos<sumNeg) {
-			bal = "---"
-		}
-
-		console.log(`          balance: ${sumNeg} // ${sumPos}   (${bal})`)
-	}
 	function mostrarParamsArray (paramsArray, Ne) {
 		const debugHelp = ["N", "Ne", "ancho", "alto",];
 		let offset = 4;
@@ -351,38 +232,9 @@ rotateSpeed = 2*Math.PI/180;
 		}
 		console.table(tabla);
 	}
-	function printMatrix(matrix,raw = false) { //column major
-		
-		const formattedMatrix = [];
-
-		if (!raw) {
-			for (let col = 0; col < 4; col++) {
-				const column = [];
-				for (let row = 0; row < 4; row++) {
-					column.push(parseFloat(matrix[col + row * 4].toFixed(3)));
-				}
-				formattedMatrix.push(column);
-			}
-		} else {
-			for (let col = 0; col < 4; col++) {
-				const column = [];
-				for (let row = 0; row < 4; row++) {
-					column.push(matrix[col + row * 4]);
-				}
-				formattedMatrix.push(column);
-			}
-		}
-
-		console.table(formattedMatrix);
-	}
 
 	// Utilities for some HTML elements
-	function playSound(soundElement, avoidSpam=true) { 
-		if ((avoidSpam && soundElement.currentTime > 0.05) || !avoidSpam) {
-			soundElement.currentTime = 0; 
-		}
-		soundElement.play(); 
-	}
+
 	function titilarBorde(element, color="red") {
 		element.classList.add("titilante");
 		element.style.setProperty("--titil-color", color);
@@ -396,41 +248,8 @@ rotateSpeed = 2*Math.PI/180;
 		//}
 		//$(htmlElement).children().remove();
 	}
-	function switchClass(element, className, state) {
-		// por defecto la alterna. Si tiene una input, lo pone acorde a ella. Devuelve el estado.
-
-		const list = element.classList;
-
-		if (state === undefined) {
-			if (list.contains(className)) {
-				list.remove(className);
-				return false;
-			}
-			else {
-				list.add(className);
-				return true;
-			}
-		}
-
-		if (state) {
-			list.add(className);
-			return true;
-		} else {
-			list.remove(className)
-			return false;
-		}
-
-	}
 	function switchVisibilityAttribute(element) {
 		element.hidden ^= true;
-	}
-	function setAutomaticInputElementWidth (inputElement, min, max, padding) {
-		// falla para xxxxe porque allí value = "" -> length = 0
-
-		if (inputElement.validity.badInput) {return;}
-
-		const ancho = Math.max(inputElement.value.length, inputElement.placeholder.length);
-		inputElement.style.width = `${ Math.min(Math.max(ancho, min) + padding, max) }ch`;
 	}
 	function checkAndGetNumberInput(input, failFlag, strict = true, P=true) {
 		// For chained checks before value usage. Supports exponential notation.
@@ -463,6 +282,17 @@ rotateSpeed = 2*Math.PI/180;
 			element.style.setProperty("border-color","rgba(255, 165, 0, 1)");
 			flag = true;
 		}
+	}
+	function enableIfChanged(button, marker, inputs) {  // shows the button as enabled if any element of inputs is not empty
+		let allFieldsEmpty = true;
+		for (const input in inputs) {
+			if (inputs[input].value) {
+				allFieldsEmpty = false;
+				break;
+			}
+		}
+		switchClass(button, "disabled", allFieldsEmpty);
+		marker.hidden = allFieldsEmpty;
 	}
 
 	// Handling of classes
@@ -603,12 +433,31 @@ rotateSpeed = 2*Math.PI/180;
 		rules = setup.rules;
 		for (let rule of rules) { actualizarRuleSelector(rule); }
 
+		// Load scene
+		if (setup.scene) {
+
+			if (setup.scene.fov) sceneSettings.fov = setup.scene.fov;
+			
+			if (setup.scene.lims) {
+				sceneSettings.lims.set(setup.scene.lims);
+				setPlaceholdersLims();
+				flags.editLims = true;
+			}
+
+		}
+
+		function setPlaceholdersLims() {
+			sceneControls.inputs.lims.x.placeholder = sceneSettings.lims[0];
+			sceneControls.inputs.lims.y.placeholder = sceneSettings.lims[1];
+			sceneControls.inputs.lims.z.placeholder = sceneSettings.lims[2];
+		}
+
+
 		flags.justLoadedSetup = true;
 		resetear(draw);
-		setPlaceholdersParticles();
-		setPlaceholdersRules();
+		setPlaceholdersParticles(true);
+		setPlaceholdersRules(true);
 		console.log("Setup " + setup.name + " cargado.");
-
 	}
 	function exportarSetup(setup, filename = "Cells GPU setup", savePosiVels = false) {
 		
@@ -734,17 +583,38 @@ rotateSpeed = 2*Math.PI/180;
 		option.text = rule.ruleName;
 		ruleControls.selector.appendChild(option);
 	}
-	function setPlaceholdersParticles() {
+	function setPlaceholdersParticles(delIfEmpty=false) {
 		const i = partiControls.selector.selectedIndex;
-		if (i === -1) {return;}
+		if (i === -1) {
+			if (delIfEmpty) {
+				partiControls.nameInput.placeholder = "";
+				partiControls.colorInput.value = "#000000";
+				partiControls.cantInput.placeholder = "";
+				partiControls.radiusInput.placeholder = "";
+				currentCant.innerText = "";
+			}
+			return;
+		}
 		partiControls.nameInput.placeholder = elementaries[i].nombre ?? "";
 		partiControls.colorInput.value = elementaries[i].colorAsHex;//rgba_to_hexString(elementaries[i].color);
-		partiControls.cantInput.placeholder = elementaries[i].cantidad;
+		partiControls.cantInput.placeholder = elementaries[i].cantidadOriginal;
 		partiControls.radiusInput.placeholder = elementaries[i].radio;
+		currentCant.innerText = elementaries[i].cantidad;
 	}
-	function setPlaceholdersRules() {
+	function setPlaceholdersRules(delIfEmpty=false) {
 		const i = ruleControls.selector.selectedIndex;
-		if (i === -1) {return;}
+		if (i === -1) {
+			if (delIfEmpty) {
+				ruleControls.nameInput.placeholder = "";
+				ruleControls.targetSelector.selectedIndex = "";
+				ruleControls.sourceSelector.selectedIndex = "";
+				ruleControls.intens.placeholder = "";
+				ruleControls.qm.placeholder = "";
+				ruleControls.dmin.placeholder = "";
+				ruleControls.dmax.placeholder = "";
+			}
+			return;
+		}
 		ruleControls.nameInput.placeholder = rules[i].ruleName;
 		ruleControls.targetSelector.selectedIndex = elementaries.findIndex(elem => elem.nombre === rules[i].targetName);
 		ruleControls.sourceSelector.selectedIndex = elementaries.findIndex(elem => elem.nombre === rules[i].sourceName);
@@ -772,7 +642,7 @@ rotateSpeed = 2*Math.PI/180;
 	}
 	function hideCPOptions() { 
 		CPOptions.hidden ^= true;
-		if (CPOptions.hidden){ panelTitle.style = "height: 3ch;"; } else { panelTitle.style = ""; }
+		//if (CPOptions.hidden){ panelTitle.style = "line-height: 3ch;"; } else { panelTitle.style = ""; }
 	}
 	function allParticlesDeleted() {
 		borraParticleButton.hidden = true;
@@ -795,7 +665,7 @@ rotateSpeed = 2*Math.PI/180;
 		const placeButtonOff = !partiControls.placeButton.classList.contains("switchedoff");
 		switchClass(borraParticleButton, "disabled", placeButtonOff);
 	}
-	function getDeltas(event) {
+	function getMouseDeltas(event) {
 		const [x1, y1] = [mDownX, mDownY];
 		const [x2, y2] = [event.offsetX, event.offsetY];
 		return [x2 - x1, y2 - y1];
@@ -858,8 +728,7 @@ rotateSpeed = 2*Math.PI/180;
 			console.warn(`Discarded timestamp index ${i} >= ${capacity}`);
 			return;
 		}
-
-		if (timer) {
+		if (gpuTiming) {
 			encoder.writeTimestamp(querySet, i);
 			if (i === capacity - 1) {
 				encoder.resolveQuerySet(
@@ -871,6 +740,37 @@ rotateSpeed = 2*Math.PI/180;
 				);
 			}
 		} else { t[i] = window.performance.now(); }
+	}
+	async function displayTimestampResults() {
+		let text = "";
+		if (gpuTiming) {
+			// Leer el storage buffer y mostrarlo en debug info (debe estar después de encoder.finish())
+			const arrayBuffer = await readBuffer(device, queryBuffer);
+			const timingsNanoseconds = new BigInt64Array(arrayBuffer);
+			for (let i = 0; i < capacity; i++) {
+				dt[i] = Number(timingsNanoseconds[i+1]-timingsNanoseconds[i]) / 1_000_000;
+			}
+		} else {
+			for (let i = 0; i < capacity; i++) {
+				dt[i] = (t[i+1] - t[i]);
+			}
+			text +="⚠ GPU Timing desact.\n";
+		}
+		text += `Draw: ${dt[0].toFixed(3)} ms\
+				\nCompute: ${dt[1].toFixed(3)} ms`;
+		
+		if (dt.reduce((a, v) => a + v, 0) > 30) {
+			text += "\nGPU: Brrrrrrrrrrr";
+		}
+		displayTiming.innerText = text;
+	}
+	async function readPrintResetAtomic(device, buffer, reset = true) {
+		const resultAtomic = new Uint32Array(await readBuffer(device, buffer));
+		console.log(resultAtomic[0]);
+		if (reset) {
+			resultAtomic[0] = 0;
+			device.queue.writeBuffer(GPUBuffers.atomicStorage, 0, resultAtomic);
+		}
 	}
 	function createPosiVelsGPUBuffers (sizeP, sizeV) {
 		GPUBuffers.positionBuffers = [
@@ -900,11 +800,34 @@ rotateSpeed = 2*Math.PI/180;
 		});
 		return texture.createView();
 	}
+	async function debuggingRead(device, buffer) {
+
+		const cond = frame % 60 === 30;
+
+		if (cond) {
+
+			//const values = new Float32Array(await readBuffer(device, GPUBuffers.positionBuffers[0]));
+			const values = new Float32Array(await readBuffer(device, buffer));
+	
+			const values2 = [];
+			//for (let i=2; i<values.length; i += 4) { values2.push(values[i]); } // read the w component of velocities
+			//generateHistogram2(values2, 0.6, 10);
+	
+			//const pos = values.slice(3801*4, 3801*4+4);
+
+			//console.log(values2[0]);
+			//console.log(values[2]);
+	
+			const wOfVels = values.filter((element, index) => element !== 0 && (index + 1) % 4 === 0).length;
+			console.log(wOfVels);
+		}
+	}
 
 	// Prepare to edit buffers (or do so if immediately possible)
 	function applyCanvas() {
 		[canvas.width, canvas.height] = ambient.canvasDims;
 		canvasInfo.innerText = `${canvas.width} x ${canvas.height} (${(canvas.width/canvas.height).toFixed(6)})`;
+
 		textureView = getTextureView(ambient.canvasDims);
 		flags.updateCanvas = true;
 		flags.updateSimParams = true;
@@ -974,74 +897,166 @@ rotateSpeed = 2*Math.PI/180;
 		styleSettings.particleStyle = particleStyles[i];
 
 		if (paused) {
-			writePStyleToBuffer()
-			const encoder = device.createCommandEncoder();
-			render(encoder, Math.max(frame - 1, 0));
-			device.queue.submit([encoder.finish()]);
+			writePStyleToBuffer();
+			console.log("Updated buffer: PStyle");
+			renderIfPaused();
 		} else {
 			flags.editPStyle = true;
 			flags.updateSimParams = true;
+		}
+	}
+	async function applyLims() {
+
+		// validate inputs
+		let invalidInput = false, xlim, ylim, zlim;
+		
+		[xlim, invalidInput] = checkAndGetNumberInput(sceneControls.inputs.lims.x, invalidInput, true);
+		[ylim, invalidInput] = checkAndGetNumberInput(sceneControls.inputs.lims.y, invalidInput, true);
+		[zlim, invalidInput] = checkAndGetNumberInput(sceneControls.inputs.lims.z, invalidInput, true);
+
+		if (!invalidInput) {
+
+			// set internal variables
+			sceneSettings.lims.set([xlim, ylim, zlim])
+
+			// set posivels, cantidades de cada elementary, y N
+
+			const posArray = new Float32Array(await readBuffer(device, GPUBuffers.positionBuffers[frame%2]));
+			const velArray = new Float32Array(await readBuffer(device, GPUBuffers.velocities));
+
+			let k = 0; // current last empty index in new array
+			let ke = new Uint32Array(elementaries.length);
+			let r = 0.0;
+			let elemIndex = 0;
+			for (let i = 0; i < posArray.length; i += 4) {
+				
+				elemIndex = posArray[i+3];
+				r = elementaries[elemIndex].radio;
+
+				if (
+					Math.abs(posArray[i    ]) + r> sceneSettings.lims[0] ||
+					Math.abs(posArray[i + 1]) + r> sceneSettings.lims[1] || 
+					Math.abs(posArray[i + 2]) + r> sceneSettings.lims[2] 
+					) { continue; } 
+				else {
+
+					/* No funciona, no sé por qué
+						posArray.copyWithin(k, i, i + 4 );
+						velArray.copyWithin(k, i, i + 4 );
+
+						elementaries[elemIndex].posiciones.set(posArray.slice(k,k+4),ke[elemIndex]);
+						elementaries[elemIndex].velocidades.set(velArray.slice(k,k+4),ke[elemIndex]);
+					*/
+					elementaries[elemIndex].posiciones.set(posArray.slice(i, i + 4), ke[elemIndex]);
+					elementaries[elemIndex].velocidades.set(velArray.slice(i, i + 4), ke[elemIndex]);
+	
+					ke[elemIndex] += 4;
+					k += 4;
+				}
+			}
+	
+			// Crop outdated values at the end of the arrays
+			for (let i = 0; i < elementaries.length; i++) {
+				elementaries[i].cantidad = ke[i] / 4;
+				elementaries[i].posiciones = elementaries[i].posiciones.slice(0,ke[i]);
+				elementaries[i].velocidades = elementaries[i].velocidades.slice(0,ke[i]);
+				// this doesn't work for some reason:
+				//elementaries[i].velocidades = new Float32Array(elementaries[i].velocidades.buffer, 0, ke[i]);
+			}
+			N = k / 4;
+
+			// set placeholders
+			sceneControls.inputs.lims.x.placeholder = xlim;
+			sceneControls.inputs.lims.y.placeholder = ylim;
+			sceneControls.inputs.lims.z.placeholder = zlim;
+			currentCant.innerText = elementaries[partiControls.selector.selectedIndex].cantidad;
+
+			// clear inputs
+			sceneControls.inputs.lims.x.value = "";
+			sceneControls.inputs.lims.y.value = "";
+			sceneControls.inputs.lims.z.value = "";
+
+			// disable button and clear marker
+			switchClass(sceneControls.applyButton, "disabled", true);
+			markers[4].hidden = true;
+			
+			// call to update buffers
+			flags.editLims = true;
+			flags.updateSimParams = true;
+			if (paused) stepear();
 		}
 	}
 
 	// Functions to edit buffers (usually used by editBuffers())
 	function writeCanvasToBuffer() {
 		paramsArrays.canvasDims.set(ambient.canvasDims);
-		device.queue.writeBuffer(GPUBuffers.params, 0, paramsArrays.canvasDims);
+		device.queue.writeBuffer(GPUBuffers.params, paramsArrays.canvasDims.byteOffset, paramsArrays.canvasDims);
 		flags.updateCanvas = false;
 	}
 	function writeAmbientToBuffer() {
 		paramsArrays.ambient.set([1 - ambient.friction, ambient.bounce / 100]);
-		device.queue.writeBuffer(GPUBuffers.params, 28, paramsArrays.ambient);
+		device.queue.writeBuffer(GPUBuffers.params, paramsArrays.ambient.byteOffset, paramsArrays.ambient);
 		flags.editAmbient = false;
 	}
-	function updateDatosElementariesBuffer(Ne) {
+	function updateDatosElementariesBuffer() {
 
-		const datosElemsSize = (3 * 4 + 4 + 16) * Ne; // 3 cants, radio, color
+		const Ne = elementaries.length;
+
+		const bytesPerElementary = 16 + 4 + 4 + 8; // color, radio, cantidad (de partículas en elementary), padding
+		const datosElemsSize = bytesPerElementary * Ne;
+
 		const datosElementariesArrBuffer = new ArrayBuffer(datosElemsSize);
 		N = 0;
+		for (let i = 0; i < Ne; i++) {  // N, radios, colores, cantidades
+
+			let cant;
+			if (flags.resetParts) {
+				cant = elementaries[i].cantidadOriginal;
+				elementaries [i].cantidad = cant;
+			}
+			else {cant = elementaries[i].cantidad };
 	
-		for (let i = 0; i < Ne; i++) {  //N, radios, colores, cantidades
-	
-			const nLocal = elementaries[i].cantidad;
-			N += nLocal; // N también hace de acumulador para este for.
-	
-			const cants = new Uint32Array(datosElementariesArrBuffer, i * 8*4, 3);
-			const radioColor = new Float32Array(datosElementariesArrBuffer, (i * 8*4) + 3*4, 5);
-	
-			cants.set([nLocal, N, N-nLocal]);	// [cants, cantsacum, cantsAcum2]
-			radioColor.set([elementaries[i].radio]);
-			radioColor.set(elementaries[i].color,1);
+			N += cant;
+
+			const colorRadio = new Float32Array(datosElementariesArrBuffer, i * bytesPerElementary, 5);
+			colorRadio.set([...elementaries[i].color, elementaries[i].radio]);
+
+			const cants = new Uint32Array(datosElementariesArrBuffer, i * bytesPerElementary + 5*4, 1);
+			cants.set([cant]);
 		}
-	
+		
+		currentCant.innerText = elementaries[partiControls.selector.selectedIndex].cantidad;
+
 		paramsArrays.N.set([N]);
-		device.queue.writeBuffer(GPUBuffers.params, 8, paramsArrays.N);
+		device.queue.writeBuffer(GPUBuffers.params, paramsArrays.N.byteOffset, paramsArrays.N);
 	
 		GPUBuffers.datosElementaries = device.createBuffer({
 			label: "Buffer: datos elementaries",
 			size: datosElemsSize,
 			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
 		})
-		device.queue.writeBuffer(GPUBuffers.datosElementaries, 0, datosElementariesArrBuffer, 0, datosElemsSize);
+		device.queue.writeBuffer(GPUBuffers.datosElementaries, 0, datosElementariesArrBuffer);
 	}
 	function updateParticlesBuffers() {
 
 		const Ne = elementaries.length;
 	
 		paramsArrays.Ne.set([Ne]);
-		device.queue.writeBuffer(GPUBuffers.params, 12, paramsArrays.Ne);
+		device.queue.writeBuffer(GPUBuffers.params, paramsArrays.Ne.byteOffset, paramsArrays.Ne);
 		
-		updateDatosElementariesBuffer(Ne);
+		updateDatosElementariesBuffer();
 		
 		if (flags.justLoadedSetup) { flags.resetParts = false; }
 	
-		for (let elem of elementaries) {
-			const L = elem.cantidad * 4;
-			const posiVelsIncompleto = (elem.posiciones.length !== L || elem.velocidades.length !== L);
-			if (posiVelsIncompleto) {
-				flags.resetParts = true;
-				console.warn("Detectadas partículas faltantes, reseteando posiciones y velocidades...");
-				break;
+		if (!flags.resetParts) {
+			for (let elem of elementaries) {
+				const L = elem.cantidad * 4;
+				const posiVelsIncompleto = (elem.posiciones.length !== L || elem.velocidades.length !== L);
+				if (posiVelsIncompleto) {
+					flags.resetParts = true;
+					console.warn("Detectadas partículas faltantes, reseteando posiciones y velocidades...");
+					break;
+				}
 			}
 		}
 	
@@ -1114,18 +1129,18 @@ rotateSpeed = 2*Math.PI/180;
 			// llenar positionsArray y velocitiesArray
 			for (let i = 0; i<Ne; i++) {
 				if (flags.resetParts) {
-					[pos, vel] = crearPosiVel(elementaries[i].cantidad, i, elementaries[i].radio * 2);
+					[pos, vel] = crearPosiVel(elementaries[i].cantidadOriginal, i, elementaries[i].radio * 2);
 					elementaries[i].posiciones = pos;
 					elementaries[i].velocidades = vel;
 				} else {
 					pos = elementaries[i].posiciones;
 					vel = elementaries[i].velocidades;
 				}
-	
+				
 				positionsArray.set(pos, offset);
 				velocitiesArray.set(vel, offset);
 	
-				offset += elementaries[i].cantidad*4;
+				offset += elementaries[i].cantidadOriginal*4;
 			}
 	
 			createPosiVelsGPUBuffers (positionsArray.byteLength, velocitiesArray.byteLength);
@@ -1140,29 +1155,44 @@ rotateSpeed = 2*Math.PI/180;
 		}
 		flags.updateParticles = false;
 	}
+	function cropParticlesBuffers() {
+
+		const buffer = new ArrayBuffer(N*32) //16 bytes pos, 16 bytes vel
+
+		const newPosArray = new Float32Array(buffer, 0, N*4);
+		const newVelArray = new Float32Array(buffer, N*16);
+
+		for (let i=0, offset=0; i < elementaries.length; i++) {
+			newPosArray.set(elementaries[i].posiciones, offset);
+			newVelArray.set(elementaries[i].velocidades, offset);
+			offset += elementaries[i].posiciones.length;
+		}
+
+		// we also have to update N and cant in the buffer:
+		updateDatosElementariesBuffer();
+
+		createPosiVelsGPUBuffers(newPosArray.byteLength, newVelArray.byteLength);
+
+		device.queue.writeBuffer(GPUBuffers.positionBuffers[frame%2], 0, newPosArray);
+		device.queue.writeBuffer(GPUBuffers.velocities, 0, newVelArray);
+
+	}
 	function updateActiveRules() {
-		const Ne = elementaries.length;
 		const activeRules = [];
-		const m = new Uint8Array(Ne**2);
-		
+
 		for (let rule of rules) {
 			const targetIndex = elementaries.findIndex(elementary => {return elementary.nombre == rule.targetName});
 			const sourceIndex = elementaries.findIndex(elementary => {return elementary.nombre == rule.sourceName});
 	
 			if (targetIndex === -1 || sourceIndex ===-1) { continue; }
 			activeRules.push(rule);
-	
-			const [f, c] = [targetIndex, sourceIndex].sort();
-	
-			const index = (f * Ne) + c;
-			m[index]++;
 		}
 	
 		const Nr = activeRules.length;
 	
 		paramsArrays.Nr.set([Nr]);
-		device.queue.writeBuffer(GPUBuffers.params, 16, paramsArrays.Nr);
-		return [activeRules, Nr, m];
+		device.queue.writeBuffer(GPUBuffers.params, paramsArrays.Nr.byteOffset, paramsArrays.Nr);
+		return activeRules;
 	}
 	function updateRulesBuffer(activeRules) {
 		const Nr = activeRules.length;
@@ -1197,7 +1227,7 @@ rotateSpeed = 2*Math.PI/180;
 	function writePStyleToBuffer() {
 		const data = new Float32Array([styleSettings.particleStyle.borderWidth, styleSettings.particleStyle.spherical])
 		paramsArrays.pStyle.set(data);
-		device.queue.writeBuffer(GPUBuffers.params, 36, paramsArrays.pStyle);
+		device.queue.writeBuffer(GPUBuffers.params, paramsArrays.pStyle.byteOffset, paramsArrays.pStyle);
 		flags.editPStyle = false;
 	}
 	function writeRNGSeedToBuffer() {
@@ -1207,9 +1237,24 @@ rotateSpeed = 2*Math.PI/180;
 			1 + rng(),
 			1 + rng(), // seed.zw
 		])
-		device.queue.writeBuffer(GPUBuffers.params, 48, paramsArrays.seeds);
+		device.queue.writeBuffer(GPUBuffers.params, paramsArrays.seeds.byteOffset, paramsArrays.seeds);
 	}
-	
+	function writeLimsToBuffer() {
+		paramsArrays.lims.set(sceneSettings.lims);
+		device.queue.writeBuffer(GPUBuffers.params, paramsArrays.lims.byteOffset, paramsArrays.lims);
+		device.queue.writeBuffer(GPUBuffers.scenarioData, 0, paramsArrays.lims);
+		flags.editLims = false;
+	}
+
+	// Other
+	function renderIfPaused(offset = -1) {
+		if (paused) {
+			const encoder = device.createCommandEncoder();
+			render(encoder, Math.max(frame + offset, 0)); // -1 porque al final del loop anterior se incrementó.
+			device.queue.submit([encoder.finish()]);
+		}
+	}
+
 //
 
 // ELEMENTOS HTML
@@ -1233,6 +1278,7 @@ rotateSpeed = 2*Math.PI/180;
 		1: document.getElementById("marker1"),
 		2: document.getElementById("marker2"),
 		3: document.getElementById("marker3"),
+		4: document.getElementById("marker4"),
 	},
 	// opciones
 	pauseButton = document.getElementById("pausebutton"),
@@ -1240,13 +1286,32 @@ rotateSpeed = 2*Math.PI/180;
 	resetButton = document.getElementById("resetbutton"),
 
 	seedInput = document.getElementById("seed"),
-	//preloadPosButton = document.getElementById("preloadPositions"), CODE 0
 
 	bgColorPicker = document.getElementById("bgcolorpicker"),
 	pStyleRange = document.getElementById("pstyle"),
 
 	volumeRange = document.getElementById("volume"),
 	clickSound = document.getElementById("clicksound"),
+
+	sceneOptionsTitle = document.getElementById("3doptionstitle"),
+	sceneOptionsPanel = document.getElementById("3doptions"),
+	sceneControls = {
+		inputs: {
+			camSpeed: document.getElementById("camspeed"),
+			fov: document.getElementById("fov"),
+			lims: {
+				x: document.getElementById("xlim"),
+				y: document.getElementById("ylim"),
+				z: document.getElementById("zlim"),
+			},
+			initialEyePos: 1,
+			initialYRot: 1,
+		},
+		applyButton: document.getElementById("sceneapply"),
+		bordersButton: document.getElementById("bordersbutton"),
+	},
+	camSpeedLabel = document.getElementById("camspeedlabel"),
+	fovLabel = document.getElementById("fovlabel"),
 
 	ambientOptionsTitle = document.getElementById("ambientoptionstitle"),
 	ambientOptionsPanel = document.getElementById("ambientoptions"),
@@ -1272,6 +1337,7 @@ rotateSpeed = 2*Math.PI/180;
 		placeButton: document.getElementById("c.place"),
 	},
 	borraParticleButton = document.getElementById("borraparticula"),
+	currentCant = document.getElementById("c.cantnow"),
 
 	creadorReglasTitle = document.getElementById("creadorreglasTitle"),
 	creadorReglasPanel = document.getElementById("creadorreglas"),
@@ -1325,10 +1391,10 @@ rotateSpeed = 2*Math.PI/180;
 
 	// Controles
 	document.addEventListener("keydown", function(event) {
-		
-		const isTextInput = event.target.tagName === "INPUT" && event.target.type === "text";
-		
-		if (isTextInput || event.ctrlKey) { return; }
+
+		const isTextOrNumberInput = event.target.type === "text" || event.target.type === "number";
+
+		if (isTextOrNumberInput || event.ctrlKey) { return; }
 
 		if (event.target.type === "range") { event.target.blur(); }
 
@@ -1346,7 +1412,7 @@ rotateSpeed = 2*Math.PI/180;
 				stepear(); playSound(clickSound);
 				break;
 			case "KeyQ":
-				hideCPOptions(); //playSound(clickSound);
+				hideCPOptions();
 				break;
 			case "KeyM":
 				muted = !muted;
@@ -1364,6 +1430,7 @@ rotateSpeed = 2*Math.PI/180;
 			case "KeyT":
 				switchVisibilityAttribute(debugInfo);
 				break;
+			case camControls.reset:
 			case camControls.left:
 			case camControls.right:
 			case camControls.forward:
@@ -1400,7 +1467,6 @@ rotateSpeed = 2*Math.PI/180;
 
 		[cant, returnFlag] = checkAndGetNumberInput(partiControls.cantInput, returnFlag);
 		partiControls.radiusInput.max = Math.min(canvas.height, canvas.width)/2;
-		//console.log(partiControls.radiusInput.max);
 		[radius, returnFlag] = checkAndGetNumberInput(partiControls.radiusInput, returnFlag);
 		
 		if (returnFlag) { return; }
@@ -1583,6 +1649,7 @@ rotateSpeed = 2*Math.PI/180;
 
 	// Ocultar interfaces
 	panelTitle.onclick = _=> hideCPOptions();
+	sceneOptionsTitle.onclick = _=> switchVisibilityAttribute(sceneOptionsPanel);
 	ambientOptionsTitle.onclick = _=> switchVisibilityAttribute(ambientOptionsPanel);
 	creadorPartTitle.onclick = _=> switchVisibilityAttribute(creadorPartPanel);
 	creadorReglasTitle.onclick = _=> switchVisibilityAttribute(creadorReglasPanel);
@@ -1594,16 +1661,11 @@ rotateSpeed = 2*Math.PI/180;
 			seedInput.value = seedInput.placeholder;
 		}
 	}
-	//preloadPosButton.onclick = _=> { preloadPositions = !preloadPositions; switchClass(preloadPosButton); }
 
 	// Canvas color
 	bgColorPicker.oninput = _=> {
 		styleSettings.bgColor = hexString_to_rgba(bgColorPicker.value, 1);
-		if (paused) {
-			const encoder = device.createCommandEncoder();
-			render(encoder, Math.max(frame - 1, 0)); // -1 porque al final del loop anterior se incrementó.
-			device.queue.submit([encoder.finish()]);
-		}
+		renderIfPaused();
 	}
 
 	// Particles stye 
@@ -1656,7 +1718,7 @@ rotateSpeed = 2*Math.PI/180;
 			return;
 		}
 		
-		const [dx, dy] = getDeltas(ev);
+		const [dx, dy] = getMouseDeltas(ev);
 
 		const d = Math.sqrt(dx*dx + dy*dy);
 		const a = Math.atan2(dy,dx);
@@ -1686,7 +1748,7 @@ rotateSpeed = 2*Math.PI/180;
 		arrowEnd.hidden = true;
 		panels.style.pointerEvents = "auto";
 
-		const [dx, dy] = getDeltas(ev);
+		const [dx, dy] = getMouseDeltas(ev);
 
 		const i = partiControls.selector.selectedIndex
 		const elem = elementaries[i];
@@ -1738,7 +1800,8 @@ rotateSpeed = 2*Math.PI/180;
 			newPartC.hidden = false;
 		}
 
-		partiControls.cantInput.placeholder = elem.cantidad;
+		// partiControls.cantInput.placeholder = elem.cantidad;
+		currentCant.innerText = elementaries[i].cantidad;
 
 		// Levantar flags
 		flags.updateSimParams = true;
@@ -1783,19 +1846,9 @@ rotateSpeed = 2*Math.PI/180;
 	}
 
 	// Opciones del ambiente/simulación
-	function enableIfChanged(inputs) {
-		let allFieldsEmpty = true;
-		for (const input in inputs) {
-			if (inputs[input].value) {
-				allFieldsEmpty = false;
-				break;
-			}
-		}
-		switchClass(ambientControls.updateButton, "disabled", allFieldsEmpty);
-		markers[1].hidden = allFieldsEmpty;
-	}
+
 	for (const input in ambientControls.inputs) {
-		ambientControls.inputs[input].onchange = _=> enableIfChanged(ambientControls.inputs);
+		ambientControls.inputs[input].onchange = _=> enableIfChanged(ambientControls.updateButton, markers[1], ambientControls.inputs);
 	}
 	ambientControls.inputs.bounce.oninput = _=> setAutomaticInputElementWidth(ambientControls.inputs.bounce, 3, 12, 0);
 	ambientControls.updateButton.onclick = _=> {
@@ -1803,7 +1856,45 @@ rotateSpeed = 2*Math.PI/180;
 		playSound(clickSound);
 		applyAmbient();
 	}
-//
+
+	// 3D / scene
+	for (const input in sceneControls.inputs.lims) {
+		sceneControls.inputs.lims[input].onchange = _=> enableIfChanged(sceneControls.applyButton, markers[4], sceneControls.inputs.lims);
+	}
+	sceneControls.applyButton.onclick = _=> {
+		if (sceneControls.applyButton.classList.contains("disabled")) { return; }
+		playSound(clickSound);
+		applyLims();
+	}
+	sceneControls.inputs.fov.oninput = _=> {
+		sceneSettings.fov = parseFloat(sceneControls.inputs.fov.value);
+		updateCamera();
+		renderIfPaused();
+	}
+	fovLabel.onclick = _=> {
+		sceneSettings.fov = sceneSettings.fovDefault;
+		sceneControls.inputs.fov.value = sceneSettings.fov;
+		updateCamera();
+		renderIfPaused();
+		playSound(clickSound);
+	}
+	sceneControls.inputs.camSpeed.oninput = _=> {
+		sceneSettings.baseCamSpeed = parseFloat(sceneControls.inputs.camSpeed.value);
+	}
+	camSpeedLabel.onclick = _=> {
+		sceneSettings.baseCamSpeed = sceneSettings.baseCamSpeedDefault;
+		sceneControls.inputs.camSpeed.value = sceneSettings.baseCamSpeed;
+		playSound(clickSound);
+	}
+	sceneControls.bordersButton.onclick = _=> {
+		flags.renderScenario = !flags.renderScenario;
+		renderIfPaused();
+		switchClass(sceneControls.bordersButton, "switchedoff");
+	}
+
+	// Window focus
+	window.onfocus = _=> keysPressed.clear();
+//	
 
 // INICIALIZACIÓN
 	// Interfaz
@@ -1847,7 +1938,15 @@ rotateSpeed = 2*Math.PI/180;
 	ambientControls.inputs.bounce.placeholder = ambient.bounce;
 	ambientControls.inputs.vel.placeholder = ambient.maxInitVel;
 
+	sceneControls.inputs.lims.x.placeholder = sceneSettings.lims[0];
+	sceneControls.inputs.lims.y.placeholder = sceneSettings.lims[1];
+	sceneControls.inputs.lims.z.placeholder = sceneSettings.lims[2];
+
+	sceneControls.inputs.camSpeed.value = sceneSettings.baseCamSpeedDefault;
+	sceneControls.inputs.fov.value = sceneSettings.fovDefault;
+
 	// Inicializar seed o importar
+	
 	switch (STARTING_SETUP_NUMBER) {
 		case 0:
 			setRNG(seedInput.value);
@@ -1864,7 +1963,12 @@ rotateSpeed = 2*Math.PI/180;
 			generarSetupDebug(10, "");
 			break;
 	}
+	
 //
+/*
+hideCPOptions();
+switchVisibilityAttribute(sceneOptionsPanel);
+switchVisibilityAttribute(creadorPartPanel);*/
 
 // INICIALIZAR WEBGPU
 
@@ -1897,7 +2001,6 @@ rotateSpeed = 2*Math.PI/180;
 	});
 	device.queue.writeBuffer(indexBuffer, 0, vertIndices);
 
-	
 	const vertexBufferLayout = {
 		arrayStride: 8, 			// cada vertex ocupa 8 bytes (2 *4-bytes)
 		attributes:[{ 				// array que es un atributo que almacena cada vertice (BLENDER!!!)
@@ -1907,71 +2010,41 @@ rotateSpeed = 2*Math.PI/180;
 		}]
 	};
 
-	const scenarioVertices = new Float32Array([
-		// X, Y, Z
-		-xlim, -ylim, -zlim, // left wall upper triangle
-		-xlim, ylim, zlim,
-		-xlim, ylim, -zlim,
+	// Scenario vertices and indices. The vertices are scaled to lims by the vertex shader
+	const [vertices2, vertIndices2] = boxMesh([1, 1, 1], true); 
 
-		-xlim, -ylim, -zlim, // left wall lower triangle
-		-xlim, -ylim, zlim,
-		-xlim, ylim, zlim,
-
-		xlim, -ylim, -zlim, // right wall upper triangle
-		xlim, ylim, zlim,
-		xlim, ylim, -zlim,
-
-		xlim, -ylim, -zlim, // right wall lower triangle
-		xlim, -ylim, zlim,
-		xlim, ylim, zlim,
-
-		-xlim, -ylim, -zlim, // bottom wall near triangle
-		xlim, -ylim, -zlim,
-		xlim, -ylim, zlim,
-
-		-xlim, -ylim, -zlim, // bottom wall far triangle
-		xlim, -ylim, zlim,
-		-xlim, -ylim, zlim,
-
-		-xlim, ylim, -zlim, // upper wall near triangle
-		xlim, ylim, -zlim,
-		xlim, ylim, zlim,
-
-		-xlim, ylim, -zlim, // upper wall far triangle
-		xlim, ylim, zlim,
-		-xlim, ylim, zlim,
-
-		-xlim, -ylim, -zlim, // front wall lower triangle
-		xlim, -ylim, -zlim,
-		xlim, ylim, -zlim,
-
-		-xlim, -ylim, -zlim, // front wall upper triangle
-		xlim, ylim, -zlim,
-		-xlim, ylim, -zlim,
-
-		-xlim, -ylim, zlim, // back wall lower triangle
-		xlim, -ylim, zlim,
-		xlim, ylim, zlim,
-
-		-xlim, -ylim, zlim, // back wall upper triangle
-		xlim, ylim, zlim,
-		-xlim, ylim, zlim
-	])
 	const vertexBuffer2 = device.createBuffer({
-		label: "Walls vertices",
-		size: scenarioVertices.byteLength, // 12 tris * 3 vert per tri * 12 bytes per tri
+		label: "Walls vertices indexed",
+		size: vertices2.byteLength, // 12 tris * 3 vert per tri * 12 bytes per tri
 		usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
 	});
-	device.queue.writeBuffer(vertexBuffer2, 0, scenarioVertices);
+	device.queue.writeBuffer(vertexBuffer2, 0, vertices2);
+
+	const indexBuffer2 = device.createBuffer({
+		label: "Vertex index for walls vertices",
+		size: vertIndices2.byteLength,
+		usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+	});
+	device.queue.writeBuffer(indexBuffer2, 0, vertIndices2);
+
+	// Non-indexed scenario vertices (for testing).
+	const vertices3 = boxMesh([1, 1, 1]);
+	const vertexBuffer3 = device.createBuffer({
+		label: "Walls vertices",
+		size: vertices3.byteLength,
+		usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+	});
+	device.queue.writeBuffer(vertexBuffer3, 0, vertices3);
 
 	// texture y su view, para multisampling (MSAA)
-	if (!textureView) { textureView = getTextureView(ambient.canvasDims); }
 
-	const depthTexture = device.createTexture({
+	textureView = getTextureView(ambient.canvasDims);
+
+	const depthTextureView = device.createTexture({
 		size: [canvas.width, canvas.height],
 		format: 'depth24plus',
 		usage: GPUTextureUsage.RENDER_ATTACHMENT,
-	});
+	}).createView();
 
 	const renderPassDescriptor = {	// Parámetros para el render pass que se ejecutará cada frame
 		colorAttachments: [{		// es un array, de momento sólo hay uno, su @location en el fragment shader es entonces 0
@@ -1982,13 +2055,12 @@ rotateSpeed = 2*Math.PI/180;
 			storeOp: "store",
 		}],
 		depthStencilAttachment: {
-			view: depthTexture.createView(),
+			view: depthTextureView,
 			depthClearValue: 1.0,
-			depthLoadOp: 'clear',
-			depthStoreOp: 'store',
+			depthLoadOp: "clear",
+			depthStoreOp: "store",
 		},
 	};
-
 
 	// Shaders
 
@@ -2043,6 +2115,10 @@ rotateSpeed = 2*Math.PI/180;
 			binding: 6, // render perspective
 			visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
 			buffer: { type: "uniform"}
+		}, {
+			binding: 7, // atomic
+			visibility: GPUShaderStage.COMPUTE,
+			buffer: { type: "storage"}
 		}]
 	});
 
@@ -2066,7 +2142,19 @@ rotateSpeed = 2*Math.PI/180;
 			module: particleShaderModule,
 			entryPoint: "fragmentMain",
 			targets: [{
-				format: canvasFormat
+				format: canvasFormat,
+				blend: { //blend mode with default values
+					color: {
+						operation: "add",
+						srcFactor: "one",
+						dstFactor: "one-minus-src-alpha", // default "zero"
+					},
+					alpha: {
+						operation: "add",
+						srcFactor: "one",
+						dstFactor: "one-minus-src-alpha",
+					},
+				}
 			}]
 		},
 		multisample: {
@@ -2113,14 +2201,30 @@ rotateSpeed = 2*Math.PI/180;
 			module: wallShaderModule,
 			entryPoint: "fragmentMain",
 			targets: [{
-				format: canvasFormat
+				format: canvasFormat,
+				blend: { //blend mode with default values
+					color: {
+						operation: "add",
+						srcFactor: "one",
+						dstFactor: "one-minus-src-alpha", // default "zero"
+					},
+					alpha: {
+						operation: "add",
+						srcFactor: "one",
+						dstFactor: "one-minus-src-alpha",
+					},
+				}
 			}],
 		},
+		multisample: {
+			count: sampleCount,
+		},
 		depthStencil: {
-			depthWriteEnabled: true,
-			depthCompare: "always",
+			depthWriteEnabled: false, //permite que esta pipeline escriba al depth
+			depthCompare: "less",
 			format: "depth24plus",
 		},
+		
 	})
 
 
@@ -2131,27 +2235,45 @@ rotateSpeed = 2*Math.PI/180;
 
 	// Parámetros de longitud fija (por lo tanto buffers de size fijo)
 
-	const paramsBufferSize = 8 + 4 + 4 + 4 + 4 + 4 + 8 + 8 + 4 + 16 + 12 + 4;
-	// [canvasDims], N, Ne, Nr, Nd, Npi, [frictionInv, bounceF], [borderStart, spherical], padding, [4 RNGSeeds], [3 lims], padding
+	const paramsBufferSize =
+		8 + 4 + 4 +		// [canvasDims], N, Ne
+		4 + 8 + 4 +   	// Nr, [frictionInv, bounceF], padding
+		8 + 8 + 		// [borderStart, spherical], padding
+		16 + 			// [4 RNGSeeds]
+		12 + 4;			// [3 lims], padding
+
 	const paramsArrBuffer = new ArrayBuffer(paramsBufferSize);
 
 	const paramsArrays = {
+
 		canvasDims: new Float32Array(paramsArrBuffer, 0, 2), // offset en bytes, longitud en cant de elementos
-		N: new Uint32Array(paramsArrBuffer, 8, 1),		//  Cantidad total de partículas
-		Nr: new Uint32Array(paramsArrBuffer, 16, 1),	//  Cantidad de reglas activas (que involucran elementaries cargados)
-		Nd: new Uint32Array(paramsArrBuffer, 20, 1),	//  Cantidad total de distancias a precalcular (deprecated)
-		Ne: new Uint32Array(paramsArrBuffer, 12, 1),	//  Cantidad de elementaries
-		Npi: new Uint32Array(paramsArrBuffer, 24, 1),	//  Cantidad de pares de interacción distintos 
-		ambient: new Float32Array(paramsArrBuffer, 28, 2),	// Parámetros de entorno
-		pStyle: new Float32Array(paramsArrBuffer, 36, 2),	// Estilo visual de las partículas
+		N: new Uint32Array(paramsArrBuffer, 8, 1),			//  Cantidad total de partículas
+		Ne: new Uint32Array(paramsArrBuffer, 12, 1),		//  Cantidad de elementaries
+
+		Nr: new Uint32Array(paramsArrBuffer, 16, 1),		//  Cantidad de reglas activas (que involucran elementaries cargados)
+		ambient: new Float32Array(paramsArrBuffer, 20, 2),	// Parámetros de entorno
 		// 4 bytes of padding
+
+		pStyle: new Float32Array(paramsArrBuffer, 32, 2),	// Estilo visual de las partículas
+		// 8 bytes of padding
+
 		seeds: new Float32Array(paramsArrBuffer, 48, 4),	// Seed para el rng en los shaders
+
 		lims: new Float32Array(paramsArrBuffer, 64, 3),		// Paredes para colisiones
+		// 4 bytes of padding
+
 	}
 
-	paramsArrays.lims.set([xlim, ylim, zlim])
+
+	paramsArrays.lims.set(sceneSettings.lims)
 
 	const GPUBuffers = {
+
+		positionBuffers: [],
+		velocities: undefined,
+		datosElementaries: undefined,
+		rules: undefined,
+
 		params: device.createBuffer({
 			label: "Params buffer",
 			size: paramsBufferSize,
@@ -2170,8 +2292,13 @@ rotateSpeed = 2*Math.PI/180;
 			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
 		}),
 
+		atomicStorage: device.createBuffer({
+			label: "Atomic storage buffer",
+			size: 4,
+			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
+		})
 	};
-	device.queue.writeBuffer(GPUBuffers.params, 64, paramsArrays.lims);
+	
 	device.queue.writeBuffer(GPUBuffers.scenarioData, 0, paramsArrays.lims);
 	
 	updateCamera();
@@ -2215,10 +2342,16 @@ function editBuffers() {
 		msg += "posivels/";
 	}
 
+	// Escena (lims)
+	if (flags.editLims) {
+		writeLimsToBuffer();
+		cropParticlesBuffers();
+		msg += "lims/";
+	}
+
 	// Reglas
 	if (flags.updateRules) {
-		const [activeRules, Nr, m] = updateActiveRules(); // Reglas parte A
-		
+		const activeRules = updateActiveRules(); // Reglas parte A
 		updateRulesBuffer(activeRules); // Reglas parte B
 		msg += "rules/";
 	}
@@ -2240,7 +2373,11 @@ function updateSimulationParameters() {
 	// CREACIÓN DE BUFFERS
 	const msg = editBuffers();
 
-	if (N === 0) { flags.updateSimParams = false; return;}
+	if (N === 0) {
+		console.log("Updated sim params: " + msg + ".");
+		flags.updateSimParams = false;
+		return;
+	}
 
 	// Shaders pueden ir acá
 
@@ -2285,9 +2422,12 @@ function updateSimulationParameters() {
 				}, {
 					binding: 4,
 					resource: { buffer: GPUBuffers.datosElementaries }
-				}, {
+				}, { // binding 5 is reserved for legacy reasons
 					binding: 6,
 					resource: { buffer: GPUBuffers.renderPerspective }
+				}, {
+					binding: 7,
+					resource: { buffer: GPUBuffers.atomicStorage }
 				}
 			],
 		}),
@@ -2310,10 +2450,10 @@ function render(encoder, frame) {
 	// Actualizar color de fondo.
 	renderPassDescriptor.colorAttachments[0].clearValue = styleSettings.bgColor; 
 
-	// Actualizar matriz de proyección
-
 	if (sampleCount > 1) {
+		// view is the the texture view that will be written to at the end 
 		renderPassDescriptor.colorAttachments[0].view = textureView;
+		// resolveTarget is the texture view that will be written to after rendering each sample
 		renderPassDescriptor.colorAttachments[0].resolveTarget = context.getCurrentTexture().createView();
 	} else {
 		renderPassDescriptor.colorAttachments[0].view = context.getCurrentTexture().createView();
@@ -2322,12 +2462,7 @@ function render(encoder, frame) {
 	
 	const pass = encoder.beginRenderPass(renderPassDescriptor);
 
-	/*
-	pass.setPipeline(wallRenderPipeline);
-	pass.setVertexBuffer(0,vertexBuffer2);
-	pass.setBindGroup(0, scenarioBindGroups[0]);
-	pass.draw(scenarioVertices.length/3);*/
-	
+	// draw opaque stuff first
 	if (N) {
 		pass.setPipeline(particleRenderPipeline);
 		pass.setVertexBuffer(0, vertexBuffer);
@@ -2337,13 +2472,26 @@ function render(encoder, frame) {
 		pass.drawIndexed(vertIndices.length, N);
 	}
 
+	// draw transparent stuff
+	if (flags.renderScenario) {
+		pass.setPipeline(wallRenderPipeline);
+		if (flags.indexedScenario) {
+			pass.setVertexBuffer(0,vertexBuffer2);
+			pass.setIndexBuffer(indexBuffer2, "uint16");
+			pass.setBindGroup(0, scenarioBindGroups[0]);
+			pass.drawIndexed(vertIndices2.length);
+		} else {
+			pass.setVertexBuffer(0,vertexBuffer3); // It's a box that surrounds the particles
+			pass.setBindGroup(0, scenarioBindGroups[0]);
+			pass.draw(vertices3.length/3);
+		}
+	}
+
 	pass.end();
 }
 
 function computeNextFrame(encoder, frame) {
 	if (N) { // Aunque no haya reglas activas, las partículas pueden estar moviéndose. Hay que calcular su pos.
-
-		timestamp(2, encoder); // Compute dist
 
 		writeRNGSeedToBuffer();
 		
@@ -2355,22 +2503,22 @@ function computeNextFrame(encoder, frame) {
 		/* El compute shader se ejecutará N veces. El workgroup size es 64, entonces despacho ceil(N/64) workgroups, todos en el eje x. */
 		computePass.dispatchWorkgroups(workgroupCount, 1, 1); // Este vec3<u32> tiene su propio @builtin en el compute shader.
 		computePass.end();
-
-	} else {timestamp(2, encoder);}  // render - compute all (=0)
+	}
 }
 
 function updateCamera() {
 
 	viewProjectionMatrix = new Mat4();
 	viewProjectionMatrix.rotate(rotYCurrent, rotAxis);
-	viewProjectionMatrix.translate(eyePosition.scale(-1,ph));
+	viewProjectionMatrix.translate(eyePosition.scale(-1, ph));
 	
 	eyeDirection[0] = viewProjectionMatrix[8];
 	eyeDirection[1] = viewProjectionMatrix[9];
 	eyeDirection[2] = -viewProjectionMatrix[10];
 
 	projectionMatrix = new Mat4();
-	projectionMatrix.perspectiveZO(1.0, canvas.width / canvas.height, 0.1, 5000);
+
+	projectionMatrix.perspectiveZO(sceneSettings.fov, canvas.width / canvas.height, nearClip, farClip);
 	projectionMatrix.multiply(viewProjectionMatrix);
 
 	device.queue.writeBuffer(GPUBuffers.renderPerspective, 0, projectionMatrix);
@@ -2378,72 +2526,48 @@ function updateCamera() {
 	updatePosInfoPanel();
 }
 
-/* Matrix math testing
-	const A = new Mat4();
-	const B = new Mat4();
-	const C = new Mat4();
-	const D = new Mat4();
-
-	for (let i = 1; i < 16+1; i++) {
-		A[i-1] = i ;//+ 0.235;
-		B[i-1] = i ;//+ 0.05;
-		C[i-1] = i ;//+ 0.235;
-		D[i-1] = i ;//+ 0.05;
-	}
-
-	printMatrix(A.multiply(B), true);
-
-	printMatrix(D.multiply2(C), true)
-
-	const dif = [];
-	for (let i = 0; i < 16; i++) {
-		dif.push(A[i]-D[i]);
-	}
-	console.log(dif)
-
-*/
-
 // ANIMATION LOOP
 
 function cameraLoop() {
-	//console.log("Camera loop")
 
-	const speedMultiplier = keysPressed.has(camControls.slow) ? 0.2 : 1;
+	if (keysPressed.has(camControls.reset)) {
+		eyePosition.toDefault();
+		rotYCurrent = 0;
+	} else {
 
-	const camSpeed = baseCamSpeed * speedMultiplier;
+		const speedMultiplier = keysPressed.has(camControls.slow) ? 0.2 : 1;
 
-	const right = new Vec3(eyeDirection).cross(up).scale(camSpeed);
-	const forward = new Vec3(eyeDirection).scale(camSpeed);
-
-	if (keysPressed.has(camControls.left)) {eyePosition.subtract(right);} //eyePosition[0] -= camSpeed;
+		const camSpeed = sceneSettings.baseCamSpeed * speedMultiplier;
 	
-	if (keysPressed.has(camControls.right)) {eyePosition.add(right);}	
-
-	if (keysPressed.has(camControls.forward)) {eyePosition.add(forward);}	
+		eyeDirection.cross(up, right).scale(camSpeed); 	// update right vec3
+		eyeDirection.scale(camSpeed, forward)			// update forward vec3
 	
-	if (keysPressed.has(camControls.backward)) {eyePosition.subtract(forward);}
-
-	if (keysPressed.has(camControls.up)) {eyePosition[1] += camSpeed;}
-
-	if (keysPressed.has(camControls.down)) {eyePosition[1] -= camSpeed;}
+		if (keysPressed.has(camControls.left)) {eyePosition.subtract(right);} //eyePosition[0] -= camSpeed;
+		
+		if (keysPressed.has(camControls.right)) {eyePosition.add(right);}	
 	
-	if (keysPressed.has(camControls.rotLeft)) 	rotYCurrent -= rotateSpeed * speedMultiplier;
+		if (keysPressed.has(camControls.forward)) {eyePosition.add(forward);}	
+		
+		if (keysPressed.has(camControls.backward)) {eyePosition.subtract(forward);}
 	
-	if (keysPressed.has(camControls.rotRight)) 	rotYCurrent += rotateSpeed * speedMultiplier;
+		if (keysPressed.has(camControls.up)) {eyePosition[1] += camSpeed;}
 	
-	updateCamera();
-	
-	if (paused) {
-		const encoder = device.createCommandEncoder();
-		render(encoder, Math.max(frame-1, 0));
-		device.queue.submit([encoder.finish()]);
+		if (keysPressed.has(camControls.down)) {eyePosition[1] -= camSpeed;}
+		
+		if (keysPressed.has(camControls.rotLeft)) 	rotYCurrent -= rotateSpeed * speedMultiplier;
+		
+		if (keysPressed.has(camControls.rotRight)) 	rotYCurrent += rotateSpeed * speedMultiplier;
 	}
+
+	updateCamera();
+
+	renderIfPaused()
 
 	if (flags.runningCameraLoop) requestAnimationFrame(cameraLoop);
 }
 
 async function newFrame() {
-
+	
 	if (paused && !stepping) return;
 
 	if (flags.updateSimParams) updateSimulationParameters();
@@ -2452,58 +2576,23 @@ async function newFrame() {
 
 	timestamp(0, encoder);
 
-	render(encoder, frame); 
+	render(encoder, frame);
 
 	timestamp(1, encoder);
 
 	computeNextFrame(encoder, frame);
 
-	timestamp(3, encoder);
+	timestamp(2, encoder);
 
 	device.queue.submit([encoder.finish()]);
 
+	if (frame % 30 === 0) displayTimestampResults();
 
-	if ( false && (frame % 60 === 30)) { //frame % 60 === 30
 
-		const values = new Float32Array(await readBuffer(device, GPUBuffers.positionBuffers[0]));
+	//readPrintResetAtomic(device, GPUBuffers.atomicStorage);
+	//debuggingRead(device, GPUBuffers.velocities);
 
-		const values2 = [];
-		//for (let i=2; i<values.length; i += 4) { values2.push(values[i]); } // read the z component of velocities
-		//generateHistogram2(values2, 0.6, 10);
-
-		const pos = values.slice(3801*4, 3801*4+4);
-		console.log(`${pos[0].toFixed(0)} ${pos[1].toFixed(0)} ${pos[2].toFixed(0)} ${pos[3].toFixed(0)}`);
-		
-		//console.log(values2[0]);
-		//console.log(values[2]);
-		//console.log(values[0]);
-	}
 	
-	if (frame % 30 === 0) {	// Leer el storage buffer y mostrarlo en debug info (debe estar después de encoder.finish())
-		let dif1, dif2, dif3, text = "";
-		if (timer) {
-			const arrayBuffer = await readBuffer(device, queryBuffer);
-			const timingsNanoseconds = new BigInt64Array(arrayBuffer);
-			dif1 = (Number(timingsNanoseconds[1]-timingsNanoseconds[0])/1_000_000);
-			dif2 = (Number(timingsNanoseconds[2]-timingsNanoseconds[1])/1_000_000);
-			dif3 = (Number(timingsNanoseconds[3]-timingsNanoseconds[2])/1_000_000);
-		} else {
-			dif1 = (t[1] - t[0]);
-			dif2 = (t[2] - t[1]);
-			dif3 = (t[3] - t[2]);
-			text +="⚠ GPU Timing desact.\n"
-		}
-		text += `Draw: ${dif1.toFixed(3)} ms\
-				\nCompute 1: ${dif2.toFixed(3)} ms\
-				\nCompute 2: ${dif3.toFixed(3)} ms\
-				\nCompute T: ${(dif2+dif3).toFixed(3)} ms`;
-		
-		if (dif1 + dif2 + dif3 > 30) {
-			text += "\nGPU: Brrrrrrrrrrr";
-		}
-		displayTiming.innerText = text;
-	}
-
 	frame++; frameCounter++;
 	ageInfo.innerText = frame; // "Edad = frame drawn on screen + 1"
 
@@ -2519,6 +2608,11 @@ async function newFrame() {
 }
 
 //TODO:
+
+//bug: clic derecho mientras se mueve la camara
+
+// probar performance si paso todo lo que puedo a per-instance vertex attributes
+
 /*
 PERMITIR APLICAR PARTÍCULAS SIN RESETEAR POSIVELS. WE HAVE THE TECHNOLOGY!
 */

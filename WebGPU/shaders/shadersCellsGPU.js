@@ -638,18 +638,25 @@ export function computeShader3D(sz) { return /*wgsl*/`
         ne: u32,
 
         nr: u32,
-        nd: u32,
-        lp: u32,
         frictionInv: f32,
-
         bounceF: f32,
-        borderStart: f32, // not used in compute shader
-        spherical: f32,
-        padding: f32,   // to get to 48 bytes.
+        padding1: f32,
 
-        seeds: vec4f, // requires to be aligned to 16 bytes
+        borderStart: f32,
+        spherical: f32,
+        padding2: vec2f,
+
+        seeds: vec4f,
 
         lims: vec3f,
+        padding3: f32,
+    }
+
+    struct DatosElementaries {
+        color: vec4f,
+        radio: f32,
+        cant: u32,
+        padding: vec2f,
     }
 
     struct Rule { 
@@ -663,14 +670,6 @@ export function computeShader3D(sz) { return /*wgsl*/`
         pad2: f32,
     }
 
-    struct DatosElementaries {
-        cant: u32,
-        cantAcum: u32,
-        cantAcum2: u32,
-        radio: f32,
-        color: vec4f,
-    }
-
     // Bindings 
         @group(0) @binding(0) var<storage, read> positionsIn: array<vec4f>; // read only
         @group(0) @binding(1) var<storage, read_write> positionsOut: array<vec4f>; //al poder write, lo uso como output del shader
@@ -679,6 +678,7 @@ export function computeShader3D(sz) { return /*wgsl*/`
         @group(1) @binding(1) var<storage, read_write> velocities: array<vec4f>; //al poder write, lo uso como output del shader
         @group(1) @binding(2) var<storage> rules: array<Rule>;
         @group(1) @binding(4) var<storage> elems: array<DatosElementaries>;
+        @group(1) @binding(7) var<storage, read_write> ndeleted: atomic<u32>;
     //
     
     // rng mostrado en Hello Triangle demos:
@@ -720,13 +720,39 @@ export function computeShader3D(sz) { return /*wgsl*/`
             return;
         }
 
+        var pos = positionsIn[i].xyz;
+
+        let bordex = params.lims.x;
+        let bordey = params.lims.y;
+        let bordez = params.lims.z;
+
+
+        /* atomic variables testing
+            if abs(pos.x) > bordex || abs(pos.y) > bordey || abs(pos.z) > bordez {
+
+                if (abs(pos.x) > bordex) {
+                    pos.x = bordex * sign(pos.x);
+                }
+
+                pos.x = sign(pos.x) * min(pos.x, bordex) + sign(pos.x) * max(pos.x, bordex);
+
+                if (abs(pos.y) > bordey) {
+                    pos.y = bordey * sign(pos.y);
+                }
+
+                if (abs(pos.z) > bordez) {
+                    pos.z = bordez * sign(pos.z);
+                }
+
+                atomicAdd(&ndeleted,1);
+
+            }
+        */
+
         init_rng2(i, params.seeds);
 
-        //var iterations = u32(); // debug iterations counter
-        
         let k = u32(positionsIn[i].w); // pos.w is used as elementary index.
-
-        var pos = positionsIn[i].xyz;
+        
         var vel = velocities[i].xyz;
         var deltav = vec3f();
         var kj = u32(); // elementary index de pj
@@ -743,13 +769,11 @@ export function computeShader3D(sz) { return /*wgsl*/`
                 
                 kj = u32(positionsIn[pj].w);
                 
-                //iterations++;
                 // revisar si esta regla le afecta y pj es source
                 if kj == u32(rules[r].srcInd) {
 
                     // Obtengo la posición de pj
                     let posj = positionsIn[pj].xyz;
-                    let ilj = pj - elems[kj].cantAcum2; // índice local de pj
 
                     // Obtengo la distancia a pj
                     let d = distance(pos, posj);
@@ -763,25 +787,39 @@ export function computeShader3D(sz) { return /*wgsl*/`
 
         pos += vel;
 
-        let bordex = params.lims.x;
-        let bordey = params.lims.y;
-        let bordez = params.lims.z;
-
         let r = elems[k].radio;
+        var test = f32(0);
 
+        
         if abs(pos.x) > bordex - r {
-            pos.x = 2 * sign(vel.x) * (bordex - r) - (pos.x); // parece que es seguro usar sign: vel nunca es 0 aquí.
+
+            if vel.x != 0 {
+                pos.x = 2 * sign(vel.x) * (bordex - r) - (pos.x);
+            } else {
+                test += 1;
+            }
             vel.x *= -params.bounceF;
         }
         if abs(pos.y) > bordey - r {
-            pos.y = 2 * sign(vel.y) * (bordey - r) - (pos.y);
+            if vel.y != 0 {
+                pos.y = 2 * sign(vel.y) * (bordey - r) - (pos.y);
+            } else {
+                test += 1;
+            }
             vel.y *= -params.bounceF;
         }
         if abs(pos.z) > bordez - r {
-            pos.z = 2 * sign(vel.z) * (bordez - r) - (pos.z);
+            if vel.z != 0 {
+                pos.z = 2 * sign(vel.z) * (bordez - r) - (pos.z);
+            }else {
+                test +=1;
+            }
             vel.z *= -params.bounceF;
         }
-
+        
+        
+        //pos = clamp(pos, -params.lims, params.lims);
+  
         positionsOut[i].x = pos.x;
         positionsOut[i].y = pos.y;
         positionsOut[i].z = pos.z;
@@ -790,7 +828,7 @@ export function computeShader3D(sz) { return /*wgsl*/`
         velocities[i].x = vel.x;
         velocities[i].y = vel.y;
         velocities[i].z = vel.z;
-        //velocities[0].w = ;// for debugging
+        velocities[i].w = test; // for debugging
     }
     `;
 }
@@ -804,27 +842,25 @@ export function renderShader3D() { return /*wgsl*/`
         ne: u32,
 
         nr: u32,
-        nd: u32,
-        lp: u32,
         frictionInv: f32,
-
         bounceF: f32,
+        padding: f32,
+
         borderStart: f32,
         spherical: f32,
-        padding: f32,
+        padding2: vec2f,
 
         seeds: vec4f,
 
         lims: vec3f,
-        
+        padding3: f32,
     }
 
     struct DatosElementaries {
-        cant: u32,
-        cantAcum: u32,
-        cantAcum2: u32,
-        radio: f32,
         color: vec4f,
+        radio: f32,
+        cant: u32,
+        padding: vec2f,
     }
 
     // Bindings
@@ -850,7 +886,6 @@ export function renderShader3D() { return /*wgsl*/`
         @location(2) quadpos: vec2f,
         @location(3) @interpolate(flat) k: u32,
         @location(4) @interpolate(flat) random: f32,
-        @location(5) @interpolate(flat) far: f32,
     };
 
     fn LFSR( z: u32, s1: u32, s2: u32, s3: u32, m:u32) -> u32 {
@@ -876,8 +911,8 @@ export function renderShader3D() { return /*wgsl*/`
         let alto = params.alto;
         let ar = ancho/alto;
 
-        let k = u32(updatedpositions[idx].w); // elementary index.
-        
+        var k = u32(updatedpositions[idx].w); // elementary index.
+
         let diameter = f32(elems[k].radio);// * 2 / ancho; // diámetro en pixeles. Dividido ancho da en clip space  [-1 1]
 
         // OUTPUT
@@ -890,10 +925,6 @@ export function renderShader3D() { return /*wgsl*/`
         
 
         //output.pos.z = min(output.pos.z, 2);
-
-        if (output.pos.w > 1200) {
-            output.far = 2.0;
-        }
 
         output.pos.x += input.pos.x * diameter;
         output.pos.y += input.pos.y * diameter * ar;
@@ -928,7 +959,8 @@ export function renderShader3D() { return /*wgsl*/`
         //if input.idx == 3801 {color_xyz = vec3f(0,1,1);}
         //if input.far > 1 {color_xyz = vec3f(input.pos.z,input.pos.z,input.pos.z);}
         //if input.pos.z > .999 {color_xyz = vec3f(1,0,0);}
-        
+        //color_xyz = vec3f(1,1,1);
+
         return vec4f(color_xyz, 1); //color_xyz
 
     }
@@ -947,28 +979,95 @@ export function wallShader3D() { return /*wgsl*/`
 
     struct VertexOutput{
         @builtin (position) pos: vec4f,
-        @location(1) vpos: vec3f,
+        @location(1) pos_norm: vec3f,
+        @location(2) pos_abs: vec3f,
     };
-
 
     @vertex
     fn vertexMain(input:VertexInput) -> VertexOutput {
 
-        let limsx = lims.x;
-        let pers = perspective[0][0];
-
         var output: VertexOutput;
-        output.pos = perspective * vec4f(input.pos, 1);
-
-        output.vpos = vec3f(input.pos/lims);
-
+        output.pos_abs = vec3f(input.pos * lims);
+        output.pos = perspective * vec4f(output.pos_abs, 1);
+        output.pos_norm = vec3f(input.pos);
+        
         return output;
     }
 
     @fragment   
     fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
+
+        let x = input.pos_abs.x;
+        let y = input.pos_abs.y;
+        let z = input.pos_abs.z;
+
+        let color = vec3f(0.3, 0.3, 0.3);
+        let alfa = 0.2;
+        let color_premul = color * alfa;
+
+        let d = 25.0; // distance between bars
+        let e = 5.0;  // bar width (espesor)
+
+        let m = 1.0/d;
+        let ed = e/d;
+        let a = ed/2;
+
+        let cond = fract(fma(input.pos_abs, vec3f(m), vec3f(a)));
+
+        if cond.x < ed && cond.y < ed && cond.z < ed {
+            return vec4f(color_premul, alfa);
+        } else { 
+            return vec4f(0, 0, 0, 0);
+        }
         
-        return vec4f(input.vpos, 1);
+    }
+
+    struct FragInput {
+        @builtin (position) pos: vec4f,
+        @location(1) pos_norm: vec3f,
+        @location(2) pos_abs: vec3f,
+        @builtin (front_facing) front_facing: bool,
+    };
+    struct FragOutput {
+        @location(0) frag: vec4f,
+        @builtin (frag_depth) depth: f32,
+    };
+    @fragment 
+    fn fragmentMain2(input: FragInput) -> FragOutput {
+
+        var out: FragOutput;
+
+        let x = input.pos_abs.x;
+        let y = input.pos_abs.y;
+        let z = input.pos_abs.z;
+
+        let color = vec3f(0.2, 0.2, 0.2);
+        let alfa = 0.5;
+
+        let d = 25.0; // distance between bars
+        let e = 20.0;  // bar width (espesor)
+
+        let m = 1.0/d;
+        let ed = e/d;
+        let a = ed/2;
+
+        let cond = fract(fma(input.pos_abs, vec3f(m), vec3f(a)));
+
+        if cond.x < ed && cond.y < ed && cond.z < ed {
+            
+            out.frag = vec4f(0.2,0.2,0.2, 0.5);
+
+        } else { 
+            
+            out.frag = vec4f(0, 0, 0, 0);
+            //discard;
+        }
+        
+        //out.depth = select(500.0, 0.0, input.front_facing);
+        out.depth = input.pos.w/5000;
+
+        return out;
+        
     }
     `;
 }

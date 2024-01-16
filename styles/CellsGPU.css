@@ -12,6 +12,7 @@ body {
 	background-color: black;
 	color: white;
 	overflow-y: scroll;
+	font-family: Calibri;
 }
 body::-webkit-scrollbar {
 	width: 0.6em;
@@ -25,7 +26,11 @@ body::-webkit-scrollbar-corner {
 }
 
 label {
-	pointer-events:none;
+	pointer-events: none;
+}
+.clickable {
+	pointer-events: auto;
+	cursor: pointer;
 }
 p {
 	cursor: default;
@@ -71,7 +76,7 @@ span {
 	left: 0;
 	padding-left: 8px;
 	padding-right: 8px;
-	width: 23.5ch;
+	width: 23ch;
 	border-bottom-right-radius: 10px;
 	user-select: none;
 }
@@ -123,6 +128,9 @@ span {
 	font-weight: bold;
 	cursor: pointer;
 }
+.categoryspan:hover {
+	background-color: var(--transparentWhiteB);
+}
 .marker {
 	position: absolute;
 	top: 0;
@@ -131,7 +139,10 @@ span {
 .options-row {
 	position:relative;
 }
-
+.grayed-out {
+	color:rgba(255, 255, 255, 0.5);
+	font-size: 15px;
+}
 .numberinput {
 	width: 7ch;
 	color: white;
@@ -354,5 +365,12 @@ input[type=number] {
 	max-width: 65ch;
 	overflow-y: auto;
 	max-height: calc(100vh - 150px);
+}
+.info-text {
+	margin: 0;
+	line-height: 3ch;
+	font-family: Times New Roman;
+	margin-top: 8px;
+	margin-bottom: 4px;
 }
 

@@ -21,7 +21,7 @@
       ],
       "cantidad": 1,
       "radio": 300,
-      "posiciones": [0, 0, 0, 1],
+      "posiciones": [0, 0, 0, 0],
       "velocidades": [0, 0, 0, 0]
     }
   ],

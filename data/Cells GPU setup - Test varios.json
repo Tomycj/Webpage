@@ -1,0 +1,29 @@
+{
+  "name": "Test varios",
+  "seed": "",
+  "ambient": {
+    "friction": 0,
+    "bounce": 100,
+    "maxInitVel": 1,
+    "canvasDims": [
+      "auto",
+      "auto"
+    ]
+  },
+  "elementaries": [
+    {
+      "nombre": "A",
+      "color": [
+        0,
+        0.8352941274642944,
+        1,
+        1
+      ],
+      "cantidad": 10000,
+      "radio": 30,
+      "posiciones": [],
+      "velocidades": []
+    }
+  ],
+  "rules": []
+}
