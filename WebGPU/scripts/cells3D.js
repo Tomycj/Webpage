@@ -1676,7 +1676,11 @@ rotYCurrent = 0;
 
 	// Particle placing
 	canvas.onmousedown = (ev)=> {
-		if (!placePartOnClic || ev.buttons !==1) { return; }
+		if (ev.buttons !==1) { 
+			keysPressed.clear();
+			return;
+		} else if (!placePartOnClic) return;
+
 		mouseIsDown = true;
 		canvas.style.cursor = "none";
 		panels.style.pointerEvents = "none";

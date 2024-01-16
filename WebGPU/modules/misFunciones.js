@@ -60,6 +60,7 @@ export async function inicializarCells(showTitle=true){
 		//minStorageBufferOffsetAlignment: 16
 		//maxStorageBuffersPerShaderStage: 8
 	}
+
 	try{
 		device = await adapter.requestDevice({
 			requiredFeatures: ["timestamp-query"],
