@@ -3,4 +3,3 @@ WebGPU/shaders/syntax_check.wgsl
 WebGPU/.vscode/
 Test samples
 PWA
-.gitignore

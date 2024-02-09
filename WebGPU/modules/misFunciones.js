@@ -63,13 +63,14 @@ export async function inicializarCells(showTitle=true){
 
 	try{
 		device = await adapter.requestDevice({
-			requiredFeatures: ["timestamp-query"],
+			//requiredFeatures: ["timestamp-query"],
 			/* ^ Guarda que es inseguro porque facilita ataques que usan el timing de la gpu 
 			C:\Program Files (x86)\Google\Chrome\Application>chrome.exe --disable-dawn-features=disallow_unsafe_apis */
 			requiredLimits: requiredLimits
 		});
-		console.log("Advertencia: usando device con timestamp-query.");
-		timer = true;
+		//console.log("Advertencia: usando device con timestamp-query.");
+		console.log("Se solicitó timestamp-query pero actualmente no está preparado. No se usará GPU Timing.");
+		timer = false;
 	} catch(error) {
 		device = await adapter.requestDevice({
 			requiredLimits: requiredLimits,

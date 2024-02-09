@@ -119,6 +119,7 @@ mDownX = 0, mDownY = 0,
 newParticles = [], // PosiVels de partículas creadas manualmente para cada elementary
 sampleCount = 1, // Parece que sólo puede ser 1 o 4.
 textureView,
+depthTextureView,
 projectionMatrix = new Mat4(),
 viewProjectionMatrix = new Mat4(),
 rotYCurrent = 0;
@@ -131,7 +132,6 @@ rotYCurrent = 0;
 	//localStorage.setItem("STORED_VERSION_NUMBER", -1);
 	const capacity = 3; //Max number of timestamps 
 	const t = new Float32Array(capacity);
-	const dt = new Float64Array(capacity-1);
 	let querySet, queryBuffer;
 
 	if (gpuTiming) { // véase https://omar-shehata.medium.com/how-to-use-webgpu-timestamp-query-9bf81fb5344a
@@ -446,13 +446,6 @@ rotYCurrent = 0;
 
 		}
 
-		function setPlaceholdersLims() {
-			sceneControls.inputs.lims.x.placeholder = sceneSettings.lims[0];
-			sceneControls.inputs.lims.y.placeholder = sceneSettings.lims[1];
-			sceneControls.inputs.lims.z.placeholder = sceneSettings.lims[2];
-		}
-
-
 		flags.justLoadedSetup = true;
 		resetear(draw);
 		setPlaceholdersParticles(true);
@@ -628,6 +621,11 @@ rotYCurrent = 0;
 		const B = elementaries[ruleControls.sourceSelector.selectedIndex].nombre;
 		ruleControls.nameInput.placeholder = A + " ← " + B;
 	}
+	function setPlaceholdersLims() {
+		sceneControls.inputs.lims.x.placeholder = sceneSettings.lims[0];
+		sceneControls.inputs.lims.y.placeholder = sceneSettings.lims[1];
+		sceneControls.inputs.lims.z.placeholder = sceneSettings.lims[2];
+	}
 	function removePartiControlsValues() {
 		partiControls.nameInput.value = "";
 		partiControls.cantInput.value = "";
@@ -742,14 +740,16 @@ rotYCurrent = 0;
 		} else { t[i] = window.performance.now(); }
 	}
 	async function displayTimestampResults() {
+		const dt = new Float64Array(capacity-1);
 		let text = "";
 		if (gpuTiming) {
 			// Leer el storage buffer y mostrarlo en debug info (debe estar después de encoder.finish())
 			const arrayBuffer = await readBuffer(device, queryBuffer);
 			const timingsNanoseconds = new BigInt64Array(arrayBuffer);
-			for (let i = 0; i < capacity; i++) {
+			for (let i = 0; i < dt.length; i++) {
 				dt[i] = Number(timingsNanoseconds[i+1]-timingsNanoseconds[i]) / 1_000_000;
 			}
+
 		} else {
 			for (let i = 0; i < capacity; i++) {
 				dt[i] = (t[i+1] - t[i]);
@@ -800,6 +800,13 @@ rotYCurrent = 0;
 		});
 		return texture.createView();
 	}
+	function getDepthTextureView(dims) {
+		return device.createTexture({
+			size: dims,
+			format: 'depth24plus',
+			usage: GPUTextureUsage.RENDER_ATTACHMENT,
+		}).createView();
+	}
 	async function debuggingRead(device, buffer) {
 
 		const cond = frame % 60 === 30;
@@ -827,8 +834,8 @@ rotYCurrent = 0;
 	function applyCanvas() {
 		[canvas.width, canvas.height] = ambient.canvasDims;
 		canvasInfo.innerText = `${canvas.width} x ${canvas.height} (${(canvas.width/canvas.height).toFixed(6)})`;
-
 		textureView = getTextureView(ambient.canvasDims);
+		depthTextureView = getDepthTextureView(ambient.canvasDims);
 		flags.updateCanvas = true;
 		flags.updateSimParams = true;
 	}
@@ -969,7 +976,7 @@ rotYCurrent = 0;
 			sceneControls.inputs.lims.x.placeholder = xlim;
 			sceneControls.inputs.lims.y.placeholder = ylim;
 			sceneControls.inputs.lims.z.placeholder = zlim;
-			currentCant.innerText = elementaries[partiControls.selector.selectedIndex].cantidad;
+			currentCant.innerText = elementaries[partiControls.selector.selectedIndex]?.cantidad ?? "";
 
 			// clear inputs
 			sceneControls.inputs.lims.x.value = "";
@@ -1025,7 +1032,7 @@ rotYCurrent = 0;
 			cants.set([cant]);
 		}
 		
-		currentCant.innerText = elementaries[partiControls.selector.selectedIndex].cantidad;
+		currentCant.innerText = elementaries[partiControls.selector.selectedIndex]?.cantidad ?? "";
 
 		paramsArrays.N.set([N]);
 		device.queue.writeBuffer(GPUBuffers.params, paramsArrays.N.byteOffset, paramsArrays.N);
@@ -1430,6 +1437,8 @@ rotYCurrent = 0;
 			case "KeyT":
 				switchVisibilityAttribute(debugInfo);
 				break;
+			case "KeyB":
+				sceneControls.bordersButton.click();
 			case camControls.reset:
 			case camControls.left:
 			case camControls.right:
@@ -2044,11 +2053,7 @@ switchVisibilityAttribute(creadorPartPanel);*/
 
 	textureView = getTextureView(ambient.canvasDims);
 
-	const depthTextureView = device.createTexture({
-		size: [canvas.width, canvas.height],
-		format: 'depth24plus',
-		usage: GPUTextureUsage.RENDER_ATTACHMENT,
-	}).createView();
+	depthTextureView = getDepthTextureView(ambient.canvasDims);
 
 	const renderPassDescriptor = {	// Parámetros para el render pass que se ejecutará cada frame
 		colorAttachments: [{		// es un array, de momento sólo hay uno, su @location en el fragment shader es entonces 0
@@ -2462,6 +2467,7 @@ function render(encoder, frame) {
 	} else {
 		renderPassDescriptor.colorAttachments[0].view = context.getCurrentTexture().createView();
 		renderPassDescriptor.colorAttachments[0].resolveTarget = undefined;
+		renderPassDescriptor.depthStencilAttachment.view = depthTextureView;
 	}
 	
 	const pass = encoder.beginRenderPass(renderPassDescriptor);
