@@ -21,6 +21,7 @@ CHANGELOG = `\
 	${CURRENT_VERSION}
 
 	* En desarrollo, pero casi todo lo fundamental ya está hecho :D
+	* Así va a quedar de momento.
 	* Aviso: cambiaron varios controles.
 
 `,

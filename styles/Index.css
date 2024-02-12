@@ -44,19 +44,13 @@ button:hover {
 .bold {
 	font-weight: bold;
 }
-
-#imageContainer {
+#image-container {
+	box-shadow: 0 0 3px 3px rgba(0, 0, 0, .2);
 	position: relative;
 	display: inline-block;
-	box-shadow: 0 4px 10px 0 rgba(0, 0, 0, .3), 0 6px 20px 0 rgba(0, 0, 0, 1);
 	text-align: center;
 }
-#imageContainer img {
-	display: block;
-	max-width: 600px;
-	height: auto;
-}
-#imageContainer .imageLabel {
+.image-label {
 	position: absolute;
 	top: 4px;
 	left: 4px;
@@ -66,6 +60,16 @@ button:hover {
 	font-family: Arial;
 	font-size: 10px;
 }
+@keyframes from-blur {
+	from {
+		filter: blur(0.5rem);
+		box-shadow: none;
+	}
+	to {
+		filter: blur(0);
+		box-shadow: 0 4px 10px 0 rgba(0, 0, 0, .3), 0 6px 20px 0 rgba(0, 0, 0, 1);
+	}
+}
 #btclogo {
 	position: fixed;
 	bottom: 20px;
@@ -74,8 +78,18 @@ button:hover {
 	width: 30px;
 	height: auto;
 }
-.notaInline {
+.inline-note {
 	margin: 0;
 	display: inline-block;
 	font-size: 14px;
+}
+@keyframes rotate {
+	from { transform: rotate(360deg); }
+	to { transform: rotate(0deg); }
+}
+.loading-indicator {
+	font-size: 200px;
+	margin: 0;
+	opacity: 10%;
+	animation: rotate 2s linear infinite;
 }

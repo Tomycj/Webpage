@@ -25,30 +25,36 @@
 		</h1>
 
 		<div>
-			Esta es una simple página web de prueba. Capaz se puede hostear gratis de alguna otra forma o con un nombre de dominio personalizado.
+			Esta es una simple página web de prueba. <s>Capaz se puede hostear gratis de alguna otra forma o con un nombre de dominio personalizado.</s> Logrado!
 			<br>
 			Funciona bien en móvil pero para cierta feature es más cómodo desde una PC.
 			
 			<br><br>
 			<button onclick="location.href = './WebGPU/Cells_GPU.html';" class="bold">Ir a Cells GPU</button>
-			<p class="notaInline" >Simulador de partículas customizable</p>  
+			<p class="inline-note" >Simulador de partículas customizable</p>  
 			<br><br>
 			<button onclick="location.href = './WebGPU/Cells_3D.html';" class="bold">Ir a Cells 3D</button>
-			<p class="notaInline" >Serious business</p>  
+			<p class="inline-note" >33% más direcciones!</p>  
 			<br><br>
 			<button onclick="location.href = './WebGPU/N-Body_GPU.html';" >Ir a N-Body</button>
 			<button onclick="location.href = './WebGPU/Bouncers_GPU.html';">Ir a Bouncers</button>
-			<p class="notaInline" >Controles: Space/W/S/R</p>
+			<p class="inline-note" >Controles: Space/W/S/R</p>
 			<br><br>
 			<button onclick="location.href = './WebGPU/GoL_Main.html';">Ir a GoL en GPU</button>
 
 		</div>
 
 		<br>
-		<h2 style="text-align: center; margin: 0;">
-			<div id="imageContainer"></div>
+		<div style="text-align: center; margin: 0;">
+			<div id="image-container">
+				<a id="image-link" href="./Cells.html" title="Ir a Cells"></a>
+				<div id="image-label" class="image-label" hidden></div>
+				<div id="loading-zone">
+					<div class="loading-indicator"> ↺ </div>
+				</div>
+			</div>
 			<script src="./scripts/cargarImagen.js"></script>
-		</h2>
+		</div>
 		<br>
 		
 		<div style="width: 90%;">
