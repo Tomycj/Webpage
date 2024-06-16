@@ -40,7 +40,7 @@ export async function inicializarCells(showTitle=true){
 		estatus.innerText = "Error: No se detectó GPU. Asegúrese de usar un dispositivo con GPU (placa de video / acelerador de gráficos).";
 		throw new Error("No se encontró GPUAdapter.");
 	} // si no hay adapter, puede devolver null
-	
+
 	const canvas = document.querySelector("canvas");
 	const container = document.getElementById("canvascontainer");
 
@@ -63,14 +63,14 @@ export async function inicializarCells(showTitle=true){
 
 	try{
 		device = await adapter.requestDevice({
-			//requiredFeatures: ["timestamp-query"],
+			requiredFeatures: ["timestamp-query"],
 			/* ^ Guarda que es inseguro porque facilita ataques que usan el timing de la gpu 
 			C:\Program Files (x86)\Google\Chrome\Application>chrome.exe --disable-dawn-features=disallow_unsafe_apis */
 			requiredLimits: requiredLimits
 		});
-		//console.log("Advertencia: usando device con timestamp-query.");
-		console.log("Se solicitó timestamp-query pero actualmente no está preparado. No se usará GPU Timing.");
-		timer = false;
+		console.log("Advertencia: usando device con timestamp-query.");
+		//console.log("Se solicitó timestamp-query pero actualmente no está preparado. No se usará GPU Timing.");
+		timer = true;
 	} catch(error) {
 		device = await adapter.requestDevice({
 			requiredLimits: requiredLimits,

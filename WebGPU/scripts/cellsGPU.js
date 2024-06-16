@@ -6,8 +6,8 @@ import { renderShader, computeShader, computeDistancesShader } from "shaders";
 const 
 SHOW_TITLE = false,
 
-[device, canvas, canvasFormat, context, timer] = await inicializarCells(SHOW_TITLE),
-
+[device, canvas, canvasFormat, context, timerDeprecated] = await inicializarCells(SHOW_TITLE),
+timer = false, // provisional
 SETUPS_FOLDER = "../../data/",
 WORKGROUP_SIZE = 64,
 NEW_USER = localStorage.getItem("NEW_USER"),

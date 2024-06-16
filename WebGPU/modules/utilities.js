@@ -75,7 +75,6 @@ export function boxMesh(vec, indexed = false) {
 }
 
 
-
 // Basic:
 
 export function hexString_to_rgba(hexString, alpha) {
@@ -242,6 +241,49 @@ export function generateHistogram2(data, lim=1, nBins=10) {
     }
 
     console.log(`          balance: ${sumNeg} // ${sumPos}   (${bal})`)
+}
+export class RollingAverages {
+    #samples;
+    #cursor = 0;
+    #sums;
+    constructor(numSamples, sampleLength) {
+        this.#sums = Array(sampleLength).fill(0);
+        this.#samples = Array.from({ length: numSamples }, () => Array(sampleLength).fill(0));
+    }
+    add(arr) {
+
+        if (arr.length !== this.#sums.length) {
+            throw new Error("Input array length must match sample length.");
+        }
+
+        for (let i = 0; i < this.#sums.length; i++) {
+            this.#sums[i] -= this.#samples[this.#cursor][i];
+            this.#sums[i] += arr[i];
+        }
+        this.#samples[this.#cursor] = arr;
+
+        this.#cursor++;
+        this.#cursor %= this.#samples.length;
+    }
+    get averages() {
+        return this.#sums.map( x => x/this.#samples.length);
+    }
+    get sums() {
+        return Array.from(this.#sums);
+    }
+    printSamples() {
+        for (const sample of this.#samples) {
+            console.log(sample.toString())
+        }
+    }
+    /*const roller = new RollingAverages(3, 2);
+    roller.add([1, 1]);
+    roller.add([2, 2]);
+    roller.add([3, 3]);
+    console.log(roller.averages);
+    roller.add([8, 8]);
+    console.log(roller.averages);
+    roller.printSamples();*/
 }
 
 // HTML:

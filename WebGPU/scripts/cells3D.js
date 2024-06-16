@@ -4,6 +4,7 @@ import { Mat4, Vec3, Elementary, Rule, Setup} from "classes";
 import { boxMesh, hexString_to_rgba, printCMMatrix, switchClass,
 	setAutomaticInputElementWidth, labelError, importarJson,
 	playSound } from "utilities";
+import { Timer } from "utilitiesWebGPU";
 
 // ref https://www.cg.tuwien.ac.at/research/publications/2023/PETER-2023-PSW/PETER-2023-PSW-.pdf
 
@@ -126,25 +127,13 @@ viewProjectionMatrix = new Mat4(),
 rotYCurrent = 0;
 
 // TIMING & DEBUG 
+	const timer = new Timer(device, gpuTiming, 2);
 	const STARTING_SETUP_NUMBER = 1,
 	SETUP_FILENAME = "Cells GPU setup - Test Varios", // case 2
 	SHOW_DEBUG = false;
 	//localStorage.setItem("NEW_USER", 1);
 	//localStorage.setItem("STORED_VERSION_NUMBER", -1);
-	const capacity = 3; //Max number of timestamps 
-	const t = new Float32Array(capacity);
-	let querySet, queryBuffer;
-
-	if (gpuTiming) { // véase https://omar-shehata.medium.com/how-to-use-webgpu-timestamp-query-9bf81fb5344a
-		querySet = device.createQuerySet({
-			type: "timestamp",
-			count: capacity,
-		});
-		queryBuffer = device.createBuffer({
-			size: 8 * capacity,
-			usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
-		});
-	}
+	
 //
 
 // FUNCIONES VARIAS Y CLASES - TODO: Modularizar
@@ -720,50 +709,6 @@ rotYCurrent = 0;
 		device.queue.submit([copyEncoder.finish()]);
 		await gpuReadBuffer.mapAsync(GPUMapMode.READ);
 		return gpuReadBuffer.getMappedRange();
-	}
-	function timestamp(timestampIndex, encoder) {
-		const i = timestampIndex;
-		if (i >= capacity) {
-			console.warn(`Discarded timestamp index ${i} >= ${capacity}`);
-			return;
-		}
-		if (gpuTiming) {
-			encoder.writeTimestamp(querySet, i);
-			if (i === capacity - 1) {
-				encoder.resolveQuerySet(
-					querySet,
-					0,				// index of first query to resolve 
-					capacity,		// number of queries to resolve
-					queryBuffer,
-					0				// destination offset
-				);
-			}
-		} else { t[i] = window.performance.now(); }
-	}
-	async function displayTimestampResults() {
-		const dt = new Float64Array(capacity-1);
-		let text = "";
-		if (gpuTiming) {
-			// Leer el storage buffer y mostrarlo en debug info (debe estar después de encoder.finish())
-			const arrayBuffer = await readBuffer(device, queryBuffer);
-			const timingsNanoseconds = new BigInt64Array(arrayBuffer);
-			for (let i = 0; i < dt.length; i++) {
-				dt[i] = Number(timingsNanoseconds[i+1]-timingsNanoseconds[i]) / 1_000_000;
-			}
-
-		} else {
-			for (let i = 0; i < capacity; i++) {
-				dt[i] = (t[i+1] - t[i]);
-			}
-			text +="⚠ GPU Timing desact.\n";
-		}
-		text += `Draw: ${dt[0].toFixed(3)} ms\
-				\nCompute: ${dt[1].toFixed(3)} ms`;
-		
-		if (dt.reduce((a, v) => a + v, 0) > 30) {
-			text += "\nGPU: Brrrrrrrrrrr";
-		}
-		displayTiming.innerText = text;
 	}
 	async function readPrintResetAtomic(device, buffer, reset = true) {
 		const resultAtomic = new Uint32Array(await readBuffer(device, buffer));
@@ -2056,6 +2001,7 @@ switchVisibilityAttribute(creadorPartPanel);*/
 
 	depthTextureView = getDepthTextureView(ambient.canvasDims);
 
+
 	const renderPassDescriptor = {	// Parámetros para el render pass que se ejecutará cada frame
 		colorAttachments: [{		// es un array, de momento sólo hay uno, su @location en el fragment shader es entonces 0
 			view: textureView,
@@ -2071,6 +2017,11 @@ switchVisibilityAttribute(creadorPartPanel);*/
 			depthStoreOp: "store",
 		},
 	};
+	const computePassDescriptor = {}
+	if (gpuTiming) {
+		renderPassDescriptor.timestampWrites = timer.generateTimestampWrites(0, 1);
+		computePassDescriptor.timestampWrites = timer.generateTimestampWrites(2, 3);
+	}
 
 	// Shaders
 
@@ -2237,7 +2188,6 @@ switchVisibilityAttribute(creadorPartPanel);*/
 		
 	})
 
-
 	// Crear compute pipelines
 	const simulationPipeline = device.createComputePipeline(simulationPipelineDescriptor);
 
@@ -2275,7 +2225,7 @@ switchVisibilityAttribute(creadorPartPanel);*/
 	}
 
 
-	paramsArrays.lims.set(sceneSettings.lims)
+	paramsArrays.lims.set(sceneSettings.lims);
 
 	const GPUBuffers = {
 
@@ -2507,7 +2457,7 @@ function computeNextFrame(encoder, frame) {
 		writeRNGSeedToBuffer();
 		
 		// Calcular simulación (actualizar posiciones y velocidades)
-		const computePass = encoder.beginComputePass();
+		const computePass = encoder.beginComputePass(computePassDescriptor);
 		computePass.setPipeline(simulationPipeline);
 		computePass.setBindGroup(0, bindGroups[frame % 2]); // posiciones alternantes
 		computePass.setBindGroup(1, bindGroups[2]); // lo demás
@@ -2585,19 +2535,23 @@ async function newFrame() {
 
 	const encoder = device.createCommandEncoder();
 
-	timestamp(0, encoder);
+	timer.jsTimestamp(0);
 
 	render(encoder, frame);
 
-	timestamp(1, encoder);
+	timer.jsTimestamp(1);
 
 	computeNextFrame(encoder, frame);
 
-	timestamp(2, encoder);
+	timer.jsTimestamp(2);
+	timer.gpuResolveTimestampQueries(encoder);
 
 	device.queue.submit([encoder.finish()]);
 
-	if (frame % 30 === 0) displayTimestampResults();
+	//if (frame % 30 === 0) displayTimestampResults();
+
+	timer.getAndDisplayResults(displayTiming);
+
 
 
 	//readPrintResetAtomic(device, GPUBuffers.atomicStorage);

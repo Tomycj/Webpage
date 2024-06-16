@@ -1,5 +1,4 @@
 
-
 export class Elementary {
     constructor(nombre, color, cantidad, radio, posiciones, velocidades) {
         // Check input parameter types and sizes
@@ -226,7 +225,6 @@ export class Setup {
         return output;
     }
 }
-
 
 
 /**
