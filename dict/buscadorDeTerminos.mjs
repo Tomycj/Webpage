@@ -1,7 +1,7 @@
 import Fuse from "./fuse.basic.min.mjs";
 
 if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("/serviceWorker.mjs");
+    navigator.serviceWorker.register("./serviceWorker.mjs");
 } else {
     displayInfo("⚠ Service worker no disponible, es posible que la página no funcione.");
 }
