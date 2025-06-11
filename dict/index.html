@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link rel="stylesheet" href="./styles/index.css">
+        <link rel="icon" type="image/x-icon" href="./favicon.png">
+        <link rel="manifest" href="./install/manifest.json"/>
+        <title>Buscador de términos</title>
+    </head>
+    <body>
+        <div id="main-screen">
+
+            <div class="inline-button-container">
+                <button id="options-button">Opciones</button>
+                <button id="import-2">Importar datos</button>
+                <button id="install" hidden>Instalar app</button>
+            </div>
+
+            <div id="options-container" class="options-container" hidden>
+                <button id="download">Descargar datos</button>
+                <button id="delete-all">Borrar todo</button>
+            </div>
+
+            <h1>Buscador de términos</h1>
+
+            <input id="search" type="search" autocomplete="off" placeholder="Buscar o crear...">
+
+            <div id="add-term-menu" hidden>
+                <h1>Agregar Término</h1>
+
+                <div id="required-entries">
+                <div class="add-item-entry">
+                    <label for="add-term-eng">ENG: </label>
+                    <input id="add-term-eng" type="text" placeholder="English expression" tabindex="1">
+                </div>
+
+                <div class="add-item-entry">
+                    <label for="add-term-esp">ESP: </label>
+                    <input id="add-term-esp" type="text" placeholder="Spanish expression" tabindex="2">
+                </div>
+                </div>
+
+                <div class="add-item-entry">
+                    <label for="add-term-categ">Categoría (opc): </label>
+                    <input id="add-term-categ" type="text" placeholder="General" tabindex="3">
+                </div>
+
+                <div class="add-item-entry">
+                    <label for="add-term-notes">Notas (opc): </label>
+                    <input id="add-term-notes" type="text" tabindex="4">
+                </div>
+
+                <div class="inline-button-container">
+                    <button id="add-term" tabindex="5" disabled>Agregar</button>
+                    <button id="add-term-return" tabindex="6">Volver</button>
+                </div>
+
+            </div>
+            
+            <div id="items-display-container" class=grid-strip></div>
+
+            <div id="tile-options" class="inline-button-container" style="display: none;">
+                <button id="tile-options-edit">Editar</button>
+                <button id="tile-options-cancel">Cancelar</button>
+                <button id="tile-options-delete">Borrar</button>
+            </div>
+
+            <div id="info-msg" style="font-size: 2ch" 
+                class="fadeOut fixed-bottom" onanimationend="this.innerText = '';">
+            </div>
+
+        </div>
+
+        <script type="module" src="./buscadorDeTerminos.mjs"></script>
+    </body>
+</html>
