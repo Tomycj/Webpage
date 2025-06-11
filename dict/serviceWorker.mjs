@@ -1,11 +1,11 @@
 const CACHE_NAME = "offline-cache-v1";
 const ASSETS = [
-    "/",
-    "/index.html",
-    "/styles/index.css",
-    "/buscadorDeTerminos.mjs",
-    "/fuse.basic.min.mjs",
-    "/favicon.png"
+    "./",
+    "./index.html",
+    "./styles/index.css",
+    "./buscadorDeTerminos.mjs",
+    "./fuse.basic.min.mjs",
+    "./favicon.png"
 ];
 
 const noServerResponse = new Response(null, {status: 503, statusText: "Server not available."});
