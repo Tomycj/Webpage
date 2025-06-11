@@ -11,7 +11,7 @@ let fullList = [
     ["Example entry", "Entrada de ejemplo", "Si tiene anotaciones, aparecerán aquí. No son buscadas.", 0, null,
         "Example entry Entrada de ejemplo"
     ],
-    ["Para comenzar", "importe datos (json)", "", 0, null, "Para comenzar importe datos json"],
+    ["Para comenzar", "importe datos (json) o añada entradas manualmente", "", 0, null, "Para comenzar importe datos json o añada entradas manualmente"],
     ["Formato del json", "array de subarrays con formato:", "[eng, esp, notas, índice de categoría], siendo el primer subarray" + 
         " una lista de los nombres de las categorías: [\"categoría\", \"ejemplo\"]", 1, null,
         "Formato del json array de subarrays con formato:"
@@ -20,8 +20,8 @@ let fullList = [
         "Algunos caracteres son ignorados por la búsqueda:"
     ],
 ]
-
 let idToCategory = ["categoría","ejemplo"];
+let usingDemoValues = true;
 
 const fuseOptions = {
     keys: ["5"], // must match formatImportedEntries// [{name: "searchabale fields", getFn: (item) => [item[0], item[1]]}],
@@ -81,9 +81,9 @@ const database = await (async ()=>{
 
     const [db, hasBeenUpdated] = await createDB();
 
-    function store(entries, retrieveKeys = false, updateCategories = false) {
+    function storeBulk(entries, retrieveKeys = false) {
 
-        console.log("Storing...");
+        console.log("Storing multiple entries...");
 
         return new Promise((resolve, reject)=> {
 
@@ -101,24 +101,15 @@ const database = await (async ()=>{
             if (retrieveKeys) {
 
                 entries.forEach((entry, i)=>{
-
                     if (!entry) console.warn("  Storing empty entry");
-
                     const addRequest = entriesStore.add(entry);
                     addRequest.onsuccess = (key)=>{keys[i] = key}
-                })
+                });
 
             } else {
                 entries.forEach(entry=>{
                     entriesStore.add(entry);
                 });
-            }
-
-            if (updateCategories) {
-                entriesStore.openCursor().onsuccess = (ev)=>{
-                    const req = ev.target.result?.update(idToCategory)
-                    req.onsuccess = ()=>console.log("  Categories updated!")
-                }
             }
 
             transaction.oncomplete = ()=> {
@@ -127,6 +118,47 @@ const database = await (async ()=>{
             };
         });
     }
+
+    function storeSingle(entry, updateCategories = false) {
+        console.log(`Storing entry${updateCategories ? " with new category" : ""}...`);
+
+        return new Promise((resolve, reject)=>{
+            const transaction = db.transaction(OBJ_STORE_NAME, "readwrite");
+
+            transaction.onerror = (ev)=> {
+                console.log("  Storing transaction error!:", ev.target.error);
+                reject(ev.target.error);
+            }
+
+            const entriesStore = transaction.objectStore(OBJ_STORE_NAME);
+
+            let key;
+
+            if (!updateCategories) {
+                entriesStore.add(entry).onsuccess = (res)=>{key = res};
+            } else {
+                entriesStore.openCursor().onsuccess = (ev)=>{
+                    const cursor = ev.target.result;
+
+                    if (cursor === null) {
+                        entriesStore.add(idToCategory);
+                    } else {
+                        cursor.update(idToCategory);
+                    }
+                    entriesStore.add(entry).onsuccess = (res)=>{key = res};
+                }
+            }
+
+            transaction.oncomplete = ()=> {
+                console.log("  Storing transaction completed!");
+                resolve(key);
+            };
+
+
+        })
+
+    }
+
 
     function retrieveAll(withKeys = false) {
         return new Promise((resolve, reject)=> {
@@ -190,7 +222,8 @@ const database = await (async ()=>{
     return {
         db,
         retrieveAll,
-        store,
+        storeBulk,
+        storeSingle,
         clear,
         remove,
     }
@@ -271,15 +304,25 @@ const addTermMenu = (()=>{
 
         //const outcomeDisplay = addVtoReturnButton.parentElement.insertAdjacentElement("afterend", document.createElement("div"));
 
+        if (usingDemoValues) {
+            idToCategory = [];
+        }
+
         let catId = idToCategory.indexOf(categ);
-        const isNewCategory = catId === -1;
+        let isNewCategory = catId === -1;
         catId = isNewCategory ? idToCategory.push(categ) - 1 : catId;
 
         const entry = [engTerm, espTerm, notes, catId, null, getSearchableString([engTerm, espTerm])];
 
+        if (usingDemoValues) {
+            fullList = [];
+            fuse.setCollection(fullList);
+            usingDemoValues = false;
+        }
+
         fuse.add(entry);
 
-        database.store([entry.slice(0, 4)], true, isNewCategory)
+        database.storeSingle(entry.slice(0, 4), true, isNewCategory)
         .then(key=>{entry[4] = key});
 
         clearInputs();
@@ -335,7 +378,7 @@ const translationsGrid = (()=> {
 
             selectedWrapper.remove();
             selectedWrapper = null;
-            database.remove(databaseKey);
+            if (databaseKey) database.remove(databaseKey);
             return;
         }
     }
@@ -430,11 +473,10 @@ const translationsGrid = (()=> {
         
         fill(startIndex = 0, maxAmount = 250) {
 
-            maxAmount = Math.min(maxAmount, fullList.length);
             this.clear();
 
             let i = startIndex, count = 0;
-            while (count < maxAmount) { //Must handle sparse arrays
+            while (count < maxAmount && i < fullList.length) { //Must handle sparse arrays
                 
                 if (!(i in fullList)) {i++; continue;}
 
@@ -494,7 +536,7 @@ document.getElementById("import-2").addEventListener("click", async _=>{
                     if (!Array.isArray(jsonArray)) {throw new TypeError("Loaded JSON is not an array")}
 
                     database.clear()
-                    .then(_=>database.store(jsonArray))
+                    .then(_=>database.storeBulk(jsonArray))
                     .then(_=>database.retrieveAll(true))
                     .then(handleRetrievedEntries)
                     .catch(err=>console.error("Database error:", err));
