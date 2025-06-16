@@ -72,7 +72,7 @@ const database = await (async ()=>{
             }
 
             openRq.onsuccess = (ev)=> {
-                console.log("Returning database...");
+                console.log("Database is now open.");
                 const db = ev.target.result;    
                 resolve([db, hasRequiredUpgrade]);
             }
@@ -120,6 +120,7 @@ const database = await (async ()=>{
     }
 
     function storeSingle(entry, updateCategories = false) {
+        console.log(updateCategories)
         console.log(`Storing entry${updateCategories ? " with new category" : ""}...`);
 
         return new Promise((resolve, reject)=>{
@@ -135,7 +136,7 @@ const database = await (async ()=>{
             let key;
 
             if (!updateCategories) {
-                entriesStore.add(entry).onsuccess = (res)=>{key = res};
+                entriesStore.add(entry).onsuccess = (ev)=>{key = ev.target.result};
             } else {
                 entriesStore.openCursor().onsuccess = (ev)=>{
                     const cursor = ev.target.result;
@@ -145,7 +146,7 @@ const database = await (async ()=>{
                     } else {
                         cursor.update(idToCategory);
                     }
-                    entriesStore.add(entry).onsuccess = (res)=>{key = res};
+                    entriesStore.add(entry).onsuccess = (ev)=>{key = ev.target.result};
                 }
             }
 
@@ -309,7 +310,7 @@ const addTermMenu = (()=>{
         }
 
         let catId = idToCategory.indexOf(categ);
-        let isNewCategory = catId === -1;
+        const isNewCategory = catId === -1;
         catId = isNewCategory ? idToCategory.push(categ) - 1 : catId;
 
         const entry = [engTerm, espTerm, notes, catId, null, getSearchableString([engTerm, espTerm])];
@@ -322,7 +323,7 @@ const addTermMenu = (()=>{
 
         fuse.add(entry);
 
-        database.storeSingle(entry.slice(0, 4), true, isNewCategory)
+        database.storeSingle(entry.slice(0, 4), isNewCategory)
         .then(key=>{entry[4] = key});
 
         clearInputs();
@@ -672,6 +673,7 @@ function handleRetrievedEntries(entries) {
 
     if (entries.length === 0) return 0;
 
+    usingDemoValues = false;
     idToCategory = entries.shift().slice(0, -1) || [];
     fullList = formatImportedEntries(entries);
     //fuse = new Fuse(fullList, fuseOptions);
