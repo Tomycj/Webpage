@@ -1,9 +1,9 @@
 import { inicializarCells } from "inicializar-webgpu";
 import { renderShaderNBody, computeShaderNBody, } from "shaders N-Body";
-
+import { WGPUTimer } from "utilitiesWebGPU";
 
 // INITIAL VARIABLES
-const [device, canvas, canvasFormat, context, timer] = await inicializarCells(); //TODO: ver en misFunciones
+const [device, canvas, canvasFormat, context, gpuTiming] = await inicializarCells(); //TODO: ver en misFunciones
 let N = 10000; // number of particles
 let pdiam = 0.005; // size of particles
 let rmin = 3.0;
@@ -11,12 +11,9 @@ let rmax = 6000;
 let g = 2;
 let colorshift = 0.0;
 let fric = 0;
-//const rngSeed = Math.random().toString();
-//console.log(rngSeed);
-//var rng = new alea(rngSeed);
-const VELOCITY_FACTOR = 0.1;
 let frame = 0; // simulation steps
 let animationId, paused = true;
+const VELOCITY_FACTOR = 0.1;
 const WORKGROUP_SIZE = 64;
 const canvasDims = new Float32Array ([canvas.width, canvas.height]);
 
@@ -27,21 +24,9 @@ let uiSettings = {
 	bgColor : [0, 0, 0, 1],
 }
 
-// TIMING & DEBUG -- véase https://omar-shehata.medium.com/how-to-use-webgpu-timestamp-query-9bf81fb5344a
+// TIMING & DEBUG
+const timer = new WGPUTimer(device, gpuTiming, 2);
 
-let capacity, querySet, queryBuffer;
-let t0, t1, t2;
-if (timer) {
-	capacity = 3; //Max number of timestamps we can store
-	querySet = device.createQuerySet({
-		type: "timestamp",
-		count: capacity,
-	});
-	queryBuffer = device.createBuffer({
-		size: 8 * capacity,
-		usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
-	});
-}
 async function readBuffer(device, buffer) {
 	const size = buffer.size;
 	const gpuReadBuffer = device.createBuffer({size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
@@ -465,8 +450,8 @@ function updateSimulationParameters(){
 			module: particleShaderModule,
 			entryPoint: "fragmentMain",
 			targets: [{ // targets es un array de diccionarios GPUColorTargetState
-				format: canvasFormat, // es un elemento requerido de GPUColorTargetState
-/* 				blend: {				// GPUBlendState, es un diccionaro que requiere color y alpha
+				format: canvasFormat, // es un elemento requerido de GPUColorTargetState 
+ 				/*blend: {				// GPUBlendState, es un diccionaro que requiere color y alpha
 					color: {			// GPUBlendComponent color
 						srcFactor: "src-alpha",	//GPUBlendFactor (es un enum, parece una lista de strings). default to "one"
 						dstFactor: "one",		//GPUBlendFactor (es un enum, parece una lista de strings). default to "zero"
@@ -503,8 +488,12 @@ const renderPassDescriptor = {	//Parámetros para el render pass que se ejecutar
 		clearValue: uiSettings.bgColor,
 		storeOp: "store",
 	}]
-};
-
+};	
+const computePassDescriptor = {}
+if (gpuTiming) {
+	renderPassDescriptor.timestampWrites = timer.generateTimestampWrites(0, 1);
+	computePassDescriptor.timestampWrites = timer.generateTimestampWrites(2, 3);
+}
 
 // Lo que sigue es rendering (y ahora compute) code, lo pongo adentro de una función para loopearlo
 updateSimulationParameters() // Generate initial parameters
@@ -523,13 +512,10 @@ async function newFrame(){
 	}
 
 	const encoder = device.createCommandEncoder();
+	
+	timer.jsTimestamp(0);
 
-	if (timer) {	 // Initial timestamp - before compute pass
-		encoder.writeTimestamp(querySet, 0);
-	} else {
-		t0 = window.performance.now();
-	}
-	const computePass = encoder.beginComputePass();
+	const computePass = encoder.beginComputePass(computePassDescriptor);
 	
 
 	computePass.setPipeline(simulationPipeline);
@@ -542,12 +528,8 @@ async function newFrame(){
 
 	computePass.end();
 
-	if (timer) {	 // Timestamp - after compute pass
-		encoder.writeTimestamp(querySet, 1);
-	} else {
-		t1 = window.performance.now();
-	}
-	
+	timer.jsTimestamp(1);
+
 	frame++;
 	
 	// Iniciar un render pass (que usará los resultados del compute pass)
@@ -565,46 +547,18 @@ async function newFrame(){
 
 	pass.end(); // finaliza el render pass
 
-	if (timer) {	 // Timestamp - after render pass
-		encoder.writeTimestamp(querySet, 2);
-		encoder.resolveQuerySet(
-			querySet, 
-			0, // index of first query to resolve 
-			capacity, //number of queries to resolve
-			queryBuffer, 
-			0); // destination offset
-	} else {
-		t2 = window.performance.now();
-	}
+	timer.jsTimestamp(2);
+	timer.gpuResolveTimestampQueries(encoder);
 
 	device.queue.submit([encoder.finish()]);
-	t2 = window.performance.now();
+
+	timer.getAndDisplayResults(displayTiming);
 
 	//if ((frame + 30) % 60 == 0) {
 		//const values = new Float32Array( await readBuffer(device, velocityBuffer ));
 		//console.log(values)
 	//}
 
-	if (frame % 60 == 0) {	// Leer el storage buffer y mostrarlo en debug info (debe estar después de encoder.finish())
-
-		let dif1, dif2, text = "";
-		if (timer) {
-			const arrayBuffer = await readBuffer(device, queryBuffer);
-			const timingsNanoseconds = new BigInt64Array(arrayBuffer);
-			dif1 = Number(timingsNanoseconds[1]-timingsNanoseconds[0])/1_000_000;
-			dif2 = Number(timingsNanoseconds[2]-timingsNanoseconds[1])/1_000_000;
-		} else {
-			dif1 = (t1 - t0).toFixed(4);
-			dif2 = (t2 - t1).toFixed(4);
-			text +="⚠ GPU Timing desact.\n"
-		}
-		text += `Compute: ${dif1} ms\nDraw: ${dif2} ms`
-		if (dif1+dif2 > 30) {
-			text = text + "\nGPU: Brrrrrrrrrrr";
-		}
-		displayTiming.innerText = text;
-
-	}
 
 	if ( !stepping ){	// Iniciar nuevo frame
 		animationId = requestAnimationFrame(newFrame);

@@ -4,7 +4,8 @@
 		<title id="title">Cells 3D - v0.8.5 Beta</title>
 		<meta charset="utf-8">
 		<link rel="stylesheet" href="../styles/CellsGPU.css">
-		<link rel="icon" href="../images/logoBLR.png" type="image/icon type">
+		<link rel="icon" href="../images/logo_cells.png">
+		
 		<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"> <!--Fuerza a re-cargar el cache-->
 		<script type="importmap">
 			{
@@ -26,7 +27,7 @@
 
 		<audio id="clicksound" preload="auto" src="../sounds/79624_click.wav"></audio>
 		
-		<p id="estatus" style="text-align: center;" >  Iniciando... </p>  <!-- mensaje de estatus -->
+		<p id="estatus" style="text-align: center;" >  Iniciando... </p>
 		
 		<div id="canvascontainer" class="overlayed">
 
@@ -34,9 +35,9 @@
 
 				<canvas id="canvas" hidden width="100" height="100"></canvas>
 
-				<span id="circle" hidden class="circle"></span>
-				<span id="arrowend" hidden class="circle arrowend"> › </span>
-				<span id="line" hidden class="circle line"></span>
+				<span id="circle" hidden class="particle-placer circle"></span>
+				<span id="arrowend" hidden class="particle-placer arrowend"> › </span>
+				<span id="line" hidden class="particle-placer line"></span>
 
 				<div id="temporarycircles"> <!-- Podría haber usado SVG circles y lines -->
 
@@ -89,33 +90,21 @@
 
 						<div id="3doptions" hidden>
 
-							<div class="options-row hastooltip">
+							<div class="options-row">
 								<label for="camspeed" id="camspeedlabel" class="clickable">Rapidez: </label>
 								<input type="range" id="camspeed" value="20" class="rangeinput" min ="0" max="100" step="0.001"><br>
-								<!--
-								<span class="tooltiptext short">
-									Rapidez de la cámara
-								</span>
-								-->
 							</div>
 
-							<div class="options-row hastooltip">
+							<div class="options-row">
 								<label for="fov" id="fovlabel" class="clickable">FOV: </label>
 								<input type="range" id="fov" value="1" class="rangeinput" min ="0" max="3.14" step="0.001"><br>
-								<!--
-								<span class="tooltiptext short">
-									Rapidez de la cámara
-								</span>
-								-->
 							</div>
 
 							<div class="options-row">
 								<label for="xlim">X:</label>
 								<input type="number" id="xlim" class="numberinput" min="0">
 
-								<button id="bordersbutton" class="button">Bordes
-
-								</button>
+								<button id="bordersbutton" class="button">Bordes</button>
 
 							</div>
 
@@ -131,9 +120,7 @@
 
 							<div class="options-row">
 								<button class="button disabled hastooltip" id="sceneapply">Aplicar
-									<span class="tooltiptext">
-										Aplica configuración 3D
-									</span>
+									<span class="tooltiptext">Aplica configuración 3D</span>
 								</button>
 							</div>
 						</div>
@@ -173,9 +160,7 @@
 
 							<div class="options-row">
 								<button class="button disabled hastooltip" id="ambientupdate">Aplicar
-									<span class="tooltiptext">
-										Aplica configuración de entorno
-									</span>
+									<span class="tooltiptext">Aplica configuración de entorno</span>
 								</button>
 							</div>
 						</div>
@@ -188,7 +173,6 @@
 						<div class="creador", id="creadorparticulas">
 
 							<div class="options-row" id="particlemanager">
-								<!-- <label for="particleselect">Partículas: </label> -->
 								<select id="particleselect" class="selector" style="width: 8ch;">
 								
 								</select>
@@ -386,7 +370,7 @@
 					
 					<button id="dialogok2" class="button">Ok</button>
 					&nbsp&nbsp&nbsp
-					<button id="dialognvm2" class="button">Hasta la próxima</button>
+					<button id="dialognvm2" class="button">No volver a mostrar</button>
 				</div>
 			</dialog>
 		</div>

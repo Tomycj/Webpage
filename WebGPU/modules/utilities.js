@@ -242,49 +242,59 @@ export function generateHistogram2(data, lim=1, nBins=10) {
 
     console.log(`          balance: ${sumNeg} // ${sumPos}   (${bal})`)
 }
+
+/** Performs a rolling average of numeric array-like samples (element-wise). */
 export class RollingAverages {
     #samples;
     #cursor = 0;
-    #sums;
+    #rollingSums;
+    /** Performs a rolling average of numeric array-like samples (element-wise).
+     * @param {Integer} numSamples - Number of samples to average.
+     * @param {Integer} sampleLength - Number of elements in each sample array.
+     */
     constructor(numSamples, sampleLength) {
-        this.#sums = Array(sampleLength).fill(0);
+        this.#rollingSums = Array(sampleLength).fill(0);
         this.#samples = Array.from({ length: numSamples }, () => Array(sampleLength).fill(0));
     }
+    /** Add a new sample to the rolling average.
+     * @param {ArrayLike<Number>} arr
+     */
     add(arr) {
 
-        if (arr.length !== this.#sums.length) {
+        if (arr.length !== this.#rollingSums.length) {
             throw new Error("Input array length must match sample length.");
         }
 
-        for (let i = 0; i < this.#sums.length; i++) {
-            this.#sums[i] -= this.#samples[this.#cursor][i];
-            this.#sums[i] += arr[i];
+        for (let i = 0; i < this.#rollingSums.length; i++) {
+            this.#rollingSums[i] -= this.#samples[this.#cursor][i];
+            this.#rollingSums[i] += arr[i];
         }
         this.#samples[this.#cursor] = arr;
 
         this.#cursor++;
         this.#cursor %= this.#samples.length;
+        return this;
     }
-    get averages() {
-        return this.#sums.map( x => x/this.#samples.length);
+    /** A new Array containing the rolling averages. */
+    get rollingAverages() {
+        return this.#rollingSums.map( x => x/this.#samples.length);
     }
-    get sums() {
-        return Array.from(this.#sums);
+    /** A new Array containing the rolling sums. */
+    get rollingSums() {
+        return Array.from(this.#rollingSums);
     }
+    /** The number of elements in each sample array. */
+    get sampleLength() {
+        return this.#rollingSums.length;
+    }
+    /** Logs the current samples to the console. */
     printSamples() {
         for (const sample of this.#samples) {
-            console.log(sample.toString())
+            console.log(sample.toString());
         }
     }
-    /*const roller = new RollingAverages(3, 2);
-    roller.add([1, 1]);
-    roller.add([2, 2]);
-    roller.add([3, 3]);
-    console.log(roller.averages);
-    roller.add([8, 8]);
-    console.log(roller.averages);
-    roller.printSamples();*/
 }
+
 
 // HTML:
 

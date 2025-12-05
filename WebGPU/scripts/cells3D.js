@@ -4,7 +4,7 @@ import { Mat4, Vec3, Elementary, Rule, Setup} from "classes";
 import { boxMesh, hexString_to_rgba, printCMMatrix, switchClass,
 	setAutomaticInputElementWidth, labelError, importarJson,
 	playSound } from "utilities";
-import { Timer } from "utilitiesWebGPU";
+import { WGPUTimer, readBuffer} from "utilitiesWebGPU";
 
 // ref https://www.cg.tuwien.ac.at/research/publications/2023/PETER-2023-PSW/PETER-2023-PSW-.pdf
 
@@ -127,7 +127,8 @@ viewProjectionMatrix = new Mat4(),
 rotYCurrent = 0;
 
 // TIMING & DEBUG 
-	const timer = new Timer(device, gpuTiming, 2);
+	const timer = new WGPUTimer(device, gpuTiming, 2);
+	timer.setLabels(["Render", "Compute"]);
 	const STARTING_SETUP_NUMBER = 1,
 	SETUP_FILENAME = "Cells GPU setup - Test Varios", // case 2
 	SHOW_DEBUG = false;
@@ -701,15 +702,6 @@ rotYCurrent = 0;
 	}
 
 	// WebGPU utilities
-	async function readBuffer(device, buffer) {
-		const size = buffer.size;
-		const gpuReadBuffer = device.createBuffer({size, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
-		const copyEncoder = device.createCommandEncoder();
-		copyEncoder.copyBufferToBuffer(buffer, 0, gpuReadBuffer, 0, size);
-		device.queue.submit([copyEncoder.finish()]);
-		await gpuReadBuffer.mapAsync(GPUMapMode.READ);
-		return gpuReadBuffer.getMappedRange();
-	}
 	async function readPrintResetAtomic(device, buffer, reset = true) {
 		const resultAtomic = new Uint32Array(await readBuffer(device, buffer));
 		console.log(resultAtomic[0]);
@@ -1922,7 +1914,7 @@ rotYCurrent = 0;
 			generarSetupDebug(10, "");
 			break;
 	}
-	
+
 //
 /*
 hideCPOptions();
@@ -1986,7 +1978,7 @@ switchVisibilityAttribute(creadorPartPanel);*/
 	});
 	device.queue.writeBuffer(indexBuffer2, 0, vertIndices2);
 
-	// Non-indexed scenario vertices (for testing).
+	// Non-indexed scenario vertices (as an alternative)
 	const vertices3 = boxMesh([1, 1, 1]);
 	const vertexBuffer3 = device.createBuffer({
 		label: "Walls vertices",
@@ -2186,7 +2178,7 @@ switchVisibilityAttribute(creadorPartPanel);*/
 			format: "depth24plus",
 		},
 		
-	})
+	});
 
 	// Crear compute pipelines
 	const simulationPipeline = device.createComputePipeline(simulationPipelineDescriptor);
@@ -2411,13 +2403,13 @@ function render(encoder, frame) {
 	renderPassDescriptor.colorAttachments[0].clearValue = styleSettings.bgColor; 
 
 	if (sampleCount > 1) {
-		// view is the the texture view that will be written to at the end 
-		renderPassDescriptor.colorAttachments[0].view = textureView;
-		// resolveTarget is the texture view that will be written to after rendering each sample
+		// resolveTarget is the the texture view that will be written to at the end 
 		renderPassDescriptor.colorAttachments[0].resolveTarget = context.getCurrentTexture().createView();
+		//  view is the texture view that will be written to after rendering each sample
+		renderPassDescriptor.colorAttachments[0].view = textureView;
 	} else {
-		renderPassDescriptor.colorAttachments[0].view = context.getCurrentTexture().createView();
 		renderPassDescriptor.colorAttachments[0].resolveTarget = undefined;
+		renderPassDescriptor.colorAttachments[0].view = context.getCurrentTexture().createView();
 		renderPassDescriptor.depthStencilAttachment.view = depthTextureView;
 	}
 	
@@ -2522,7 +2514,7 @@ function cameraLoop() {
 
 	updateCamera();
 
-	renderIfPaused()
+	renderIfPaused();
 
 	if (flags.runningCameraLoop) requestAnimationFrame(cameraLoop);
 }
@@ -2548,15 +2540,10 @@ async function newFrame() {
 
 	device.queue.submit([encoder.finish()]);
 
-	//if (frame % 30 === 0) displayTimestampResults();
-
 	timer.getAndDisplayResults(displayTiming);
-
-
 
 	//readPrintResetAtomic(device, GPUBuffers.atomicStorage);
 	//debuggingRead(device, GPUBuffers.velocities);
-
 	
 	frame++; frameCounter++;
 	ageInfo.innerText = frame; // "Edad = frame drawn on screen + 1"
