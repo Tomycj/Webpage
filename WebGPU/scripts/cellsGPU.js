@@ -397,16 +397,6 @@ textureView;
 		}
 		console.table(tabla);
 	}
-	function MAX_SAFE_Ingeter () {
-		let n = 0;
-		try{
-		while (n+1 > n-1) {
-			++n;
-		}} catch(error) {
-			return n-2; // security margin
-		}
-		return n
-	}
 
 	// Utilities for some HTML elements
 	function playSound(soundElement, avoidSpam=true) { 
@@ -984,7 +974,6 @@ textureView;
 	}
 	function hideCPOptions() { 
 		CPOptions.hidden ^= true;
-		if (CPOptions.hidden){ panelTitle.style = "height: 3ch;"; } else { panelTitle.style = ""; }
 	}
 	function allParticlesDeleted() {
 		borraParticleButton.hidden = true;
@@ -1887,10 +1876,11 @@ textureView;
 		const d = Math.sqrt(dx*dx + dy*dy);
 		const a = Math.atan2(dy,dx);
 
+		
 		line.style.width = d + "px";
-		line.style.setProperty("--rot", a + "rad")
-
-		arrowEnd.style.setProperty("--rot", a + "rad")
+		line.style.setProperty("--rot", a + "rad");
+		
+		arrowEnd.style.setProperty("--rot", a + "rad");
 		arrowEnd.style.left = ev.offsetX + "px";
 		arrowEnd.style.top = ev.offsetY + "px";
 
