@@ -1,7 +1,7 @@
 import Alea from "./modules/aleaRng.js";
 import { RollingAverages } from "./modules/utilities.js";
 import { barnesHutWasm } from "./modules/wasmInterface.js";
-import { FrameLoopController_Worker } from "./modules/WebWorkerUtils.js";
+import { FrameLoopController_Worker } from "./modules/webWorkerUtils.js";
 
 const HASH_FREEZE_FRAME = null;
 const PERFORMANCE_LOG_PERIOD = 15;
