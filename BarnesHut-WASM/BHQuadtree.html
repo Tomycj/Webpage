@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="es">
+	<head>
+		<title id="title">Quadtree Barnes-Hut</title>
+		<link rel="icon" type="image/x-icon" href="../images/logoBLR.png">
+		<meta charset="utf-8">
+		<link rel="stylesheet" href="../styles/BHQuadtree.css">
+		<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+	</head>
+
+	<body>
+		<div id="canvascontainer" class="overlayed" style="--numberinputWidth: 5ch;">
+
+			<div id="canvaswrapper">
+				<canvas id="canvas" width="600" height="600"></canvas>
+			</div>
+			
+			<div id="panels">
+				<div id="controlPanel" class="overlay left">
+					
+					<div id = timeControls class="options-row with-gap">
+						<button id="pausebutton" class="button">Iniciar</button>
+						<button id="stepbutton" class="button">Step</button>
+						<button id="resetbutton" class="button hastooltip">Reiniciar</button>
+					</div>
+
+					<span id="controlPanelTitle" class="categoryspan">Panel de control</span>
+
+					<div id="controlPanelOptions" hidden>
+
+						<div id ="firstoptions">
+
+							<div class="options-row">
+								<input type="checkbox" id="param-enableWasm" class="checkbox-input" checked>
+								<label for="param-enableWasm">Usar WebAssembly</label>
+							</div>
+
+							<div class="options-row">
+								<input type="number" id="param-N" class="numberinput" value="300" min="0" max="10000" step="1">
+								<label for="param-N" class="cl">N</label>
+							</div>
+							 
+							<div class="options-row">
+								<input type="number" id="param-dt" class="numberinput" value="0.02" min="0" max="10" step="any">
+								<label for="param-dt">Delta T</label>
+							</div>
+
+							<div class="options-row">
+								<input type="number" id="param-stepsPerFrame" class="numberinput" value="10" min="0" max="1000" step="1">
+								<label for="param-stepsPerFrame">Iters. por fotgma.</label>
+							</div>
+
+							<div class="options-row">
+								<input type="number" id="param-g" class="numberinput" value="1" min="0" step="any">
+								<label for="param-g">G</label>
+							</div>
+
+							<div class="options-row">
+								<input type="number" id="param-epsilon" class="numberinput" value="1" min="0" step="any">
+								<label for="param-epsilon">Epsilon</label>
+							</div>
+
+							<div class="options-row">
+								<input type="number" id="param-theta" class="numberinput" value="0.5" min="0" step="any">
+								<label for="param-theta">Tita</label>
+							</div>
+
+							<div class="options-row">
+								<input type="number" id="param-maxTreeDepth" class="numberinput" value="8" min="0" step="1">
+								<label for="param-maxTreeDepth">Subdiv. máx. quadtr.</label>
+							</div>
+
+							<div class="options-row">
+								<input type="text" id="param-seed" class="textinput" style="width: 7ch;" placeholder="Random" step="1">
+								<label for="param-seed" class="cl">Semilla RNG</label>
+							</div>
+	
+						</div>
+
+						<span id="vis-options" class="categoryspan">Visualización</span>
+						<div id="vis-options">
+
+							<div class="options-row">
+								<input type="checkbox" id="param-drawLeaves" class="checkbox-input" checked>
+								<label for="param-drawLeaves">Hojas</label>
+							</div>
+
+							<div class="options-row">
+								<input type="checkbox" id="param-drawRoot" class="checkbox-input" checked>
+								<label for="param-drawRoot">Raíz</label>
+							</div>
+
+							<div class="options-row">
+								<input type="checkbox" id="param-drawBHMargin" class="checkbox-input">
+								<label for="param-drawBHMargin">Margen B.H.</label>
+							</div>
+
+							<div class="options-row">
+								<input type="checkbox" id="param-drawFps" class="checkbox-input" checked>
+								<label for="param-drawFps">FPS</label>
+							</div>
+
+							<div class="options-row">
+								<input type="checkbox" id="param-drawFrameNumber" class="checkbox-input" checked>
+								<label for="param-drawFrameNumber">Fotograma</label>
+							</div>
+							
+
+						</div>
+
+						<span id="init-options" class="categoryspan">Cond. iniciales</span>
+						<div id="init-options">
+
+							<div class="options-row">
+								<input type="number" id="param-vmax" class="numberinput" value="5" min="0" step="any">
+								<label for="param-vmax">Vel máx.</label>
+							</div>
+							
+							<div class="options-row">
+								<input type="number" id="param-outliers" class="numberinput" value="10" min="0" max="100" step="any">
+								<label for="param-outliers">% grandes m</label>
+							</div>
+
+							<div class="options-row">
+								<input type="number" id="param-vmaxOutliers" class="numberinput" value="2" min="0" step="any">
+								<label for="param-vmaxOutliers">V. máx. grandes m</label>
+							</div>
+
+
+						</div>
+
+						
+						<hr style="border-color: rgba(255, 0255, 255, 0.3); margin: 3px;">
+
+						<div class="options-row with-gap">
+							<button class="button" id="mostrarinfo">Info</button>
+							<button class="button" id="button-help">Guía</button>
+						</div>
+
+					</div>
+
+				</div>
+
+				<div id="infopanel" class="overlay right">
+
+					<div id="debuginfo">
+						<p id="canvasinfo" class="info-text"></p>
+						<p id="positioninfo" class="info-text" ></p>
+						<p id="performanceinfo" class ="info-text"></p>
+						
+						<p style="font-size: small; color:rgba(255, 255, 255, 0.5); max-width: 25ch; margin:0; line-height: 2ch;">
+							Space, S, R, Q, I, H, T</p>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<div id="backbutton" style="text-align: center; padding: 4px;">
+			<button onclick="location.href = '../';" class="button" >Volver</button>
+		</div>
+
+		<dialog id="help-dialog" class="dialogo" closedby="any" style="font-family: Calibri; font-size: 16px;">
+
+			<p>Simulador de N-cuerpos usando el algoritmo de Barnes-Hut</p>
+			
+			<p>Controles: Space, S, R, Q, I, H, T</p>
+
+			<p style="text-align: left; width: 50ch; line-height: normal;">
+				Por cada fotograma realiza la cantidad especificada de iteraciones.
+				En cada iteración, se calcula la atracción gravitacional entre N partículas de
+				distintas masas.
+				Para la partición espacial se usa un quadtree organizado en un único array.
+			</p>
+			<p>Parámetros</p>
+			<div style="text-align: left; width: 50ch; line-height: normal;">
+
+				<p>Usar WebAssembly: El cálculo de las iteracciones y actualización de las posiciones se realizará
+					con un módulo de WASM (WebAssembly). Se podrá observar un mejor rendimiento, pero cabe aclarar que
+					la implementación en javascript no está optimizada al máximo, para facilitar el cambio
+					a WASM durante la simulación.
+				</p>
+				
+				<p>Delta T: Intervalo de tiempo entre cada iteración. A menor valor, mayor precisión en la simulación.</p>
+				
+				<p>G: Afecta proporcionalmente la intensidad de la fuerza gravitacional.</p>
+				
+				<p>Epsilon: Pequeña distancia sumada a la distancia entre partículas para evitar
+					singularidades a la hora de calcular la fuerza de atracción entre ellas.
+					Medida en píxeles. A mayor valor, mayor estabilidad pero menor precisión.
+				</p>
+
+				<p>Tita: Parámetro para el algoritmo de Barnes-Hut. A mayor valor, más burda es la
+					aproximación (véase Margen B.H.).
+				</p>
+
+				<p>Margen B.H. Muestra, para una partícula, qué nodos se toman para aproximar
+					a las partículas que los contienen. Se muestra en centro de masa de dichos nodos,
+					y una línea que muestra la distancia a partir de la cual se realiza la
+					aproximación. No está implementado en WASM.
+				</p>
+
+			</div>
+
+			<button class="button" onclick="document.getElementById('help-dialog').close()">Cerrar</button>
+		</dialog>
+
+		<script type="module" src="./BHQuadtree_Main.js"></script>
+
+	</body>
+</html>

@@ -1,0 +1,336 @@
+:root {
+	--transparentBlack: rgba(0, 0, 0, 0.3);
+	--transparentWhiteA: rgba(255, 255, 255, 0.3);
+	--transparentWhiteB: rgba(255, 255, 255, 0.2);
+	--inputBg: transparent;
+	--borderHighlightColor: white;
+	--numberinputWidth: 7ch;
+}
+
+body {
+	background-color: black;
+	color: white;
+	overflow-y: scroll;
+	font-family: Calibri;
+	margin: 0;
+}
+body::-webkit-scrollbar {
+	width: 0.6em;
+	height: 0.6em;
+}
+body::-webkit-scrollbar-thumb {
+	background-color: rgba(64,64,64,1);
+}
+body::-webkit-scrollbar-corner {
+	background-color: black;
+}
+label {
+	flex: 1;
+	display: inline;
+	gap: 0;
+	padding-left: 0.5ch;
+}
+.clickable {
+	pointer-events: auto;
+	cursor: pointer;
+}
+p {
+	cursor: default;
+}
+span {
+	cursor: default;
+}
+#canvas {
+	user-select: none;
+	image-rendering: pixelated;
+}
+#canvaswrapper {
+	position: relative;
+	display: inline-block;
+}
+
+.overlayed {
+    position: relative;
+	/*overflow: visible;
+	width: 100%;*/
+	text-align: center;
+	margin: 8px;
+}
+.overlay {
+	text-align: left;
+	top: 0;
+	position: absolute;
+	padding-bottom: 6px;
+	background: var(--transparentBlack);
+	z-index: 1;
+}
+.overlay:hover {
+	background: rgba(0, 0, 0, 0.8);
+}
+.right {
+	right: 0;
+	padding-left: 8px;
+	padding-right: 8px;
+	text-align: right;
+	border-bottom-left-radius: 10px;
+}
+.left {
+	left: 0;
+	padding-left: 8px;
+	padding-right: 8px;
+	width: 23ch;
+	border-bottom-right-radius: 10px;
+	user-select: none;
+}
+
+.categoryspan {
+	display: block;
+	text-align: center;
+	font-weight: bold;
+	cursor: pointer;
+	line-height: 2;
+}
+.categoryspan:hover {
+	background-color: var(--transparentWhiteB);
+}
+.options-row {
+	position: relative;
+	display: flex;
+	align-items: center;
+	height: 2em;
+}
+.with-gap {
+	gap: 0.4ch;
+}
+.grayed-out {
+	color:rgba(255, 255, 255, 0.5);
+	font-size: 15px;
+}
+.numberinput {
+	width: var(--numberinputWidth);
+	color: white;
+	background: var(--inputBg);
+	border: 2px solid black;
+	border-color: var(--transparentWhiteB);
+	padding-left: 3px;
+}
+.numberinput:hover {
+	border-color: var(--borderHighlightColor);
+}
+
+.textinput {
+	width: 10ch;
+	color: white;
+	background: var(--inputBg);
+	border: 2px solid;
+	border-color: var(--transparentWhiteB);
+	padding-left: 5px;
+}
+.textinput:hover {
+	border-color: var(--borderHighlightColor);
+}
+
+.fileinput {
+	background: var(--inputBg);
+	border: 2px solid;
+	border-color: var(--transparentWhiteB);
+	padding: 2px 5px;
+	cursor: pointer;
+	pointer-events: auto;
+}
+.fileinput:hover {
+	border-color: var(--borderHighlightColor);
+}
+.fileinput:active:not(.disabled){
+	background-color: white;
+	color: black
+}
+
+.rangeinput {
+	--thumbg: rgba(255, 255, 255, 1);
+	-webkit-appearance: none;
+	appearance: none;
+	width: 60%;
+	height: 3px;
+	background: var(--transparentWhiteA);
+	cursor: pointer;
+}
+/* Chrome, Safari, Edge, Opera */
+.rangeinput::-webkit-slider-thumb {
+	-webkit-appearance: none;
+	height: 15px;
+	width: 6px;
+	border-top: 6px solid var(--thumbg);
+	border-bottom: 6px solid var(--thumbg);
+	background: var(--thumbg);
+	cursor: ew-resize;
+}
+.rangeinput::-webkit-slider-runnable-track  {
+	-webkit-appearance: none;
+	box-shadow: none;
+	border: none;
+	background: var(--inputBg);
+}
+.discrete::-webkit-slider-thumb {
+	--col: var(--transparentWhiteA);
+	width: calc(100% / 17);
+	background: none;
+	border-top: 6px solid var(--col);
+	border-bottom: 6px solid var(--col);
+}
+.discrete::-webkit-slider-thumb:hover {
+	border-top: 15px solid var(--borderHighlightColor);
+	border-bottom: 0;
+}
+/* TODO: Firefox */
+
+.button {
+	border: 2px solid;
+	border-color: var(--transparentWhiteB);
+	background-color: var(--inputBg);
+	color: white;
+	cursor: pointer;
+}
+.button:hover:not(.disabled) {
+	border-color: var(--borderHighlightColor);
+}
+.button:active:not(.disabled){
+	background-color: white;
+	color: black
+}
+.switchedoff {
+	color: var(--transparentWhiteA);
+}
+.disabled {
+	border-color: rgba(255, 255, 255, 0.1);
+	color: var(--transparentWhiteB);
+	cursor: default;
+}
+.non-clickable {
+	pointer-events: none;
+}
+#pausebutton {
+	width: 9ch;
+}
+
+.selector {
+	width: 8ch;
+	background-color: var(--inputBg);
+	color: white;
+	border-width: 2px;
+	border-color: var(--transparentWhiteB);
+	cursor: pointer;
+}
+.selector option {
+	background-color: rgba(16, 16, 16, 1);
+	color: white;
+}/*
+option:hover{
+	background-color: rgba(64, 64, 64, 1);
+}*/
+.selector:hover {
+	border-color: var(--borderHighlightColor);
+}
+
+.colorinput {
+	position: relative;
+	top: 0.3ch;
+	width: 30%;
+	height: 2.5ch;
+	outline: none;
+	border-width: 0;
+	border-style: none;
+	cursor: pointer;
+	background-color: var(--transparentWhiteA);
+	padding: 2px;
+}
+.colorinput:hover {
+	background-color: var(--borderHighlightColor);
+}
+input::-webkit-color-swatch-wrapper {
+	padding: 0;
+}
+input::-webkit-color-swatch {
+	border: 0;
+}
+/* Chrome, Safari, Edge, Opera */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+	-webkit-appearance: none;
+	margin: 0;
+}
+/* Firefox */
+input[type=number] {
+	-moz-appearance: textfield;
+	appearance: textfield;
+}
+
+.checkbox-input {
+	accent-color: black;
+	width: 2.5ch;
+	height: 2.5ch;
+	vertical-align: middle;
+}
+.checkbox-input:hover {
+	accent-color: white;
+}
+
+.hidden {
+	display: none;
+}
+
+.hastooltip {
+	position: relative;
+}
+.tooltiptext {
+	visibility: hidden;
+	width: 30ch;
+	background-color: rgba(0, 0, 0, 1);
+	color: white;
+	text-align: center;
+	border-radius: 4px;
+	padding: 5px;
+	line-height: 1.2;
+	font-family: Arial;
+	font-size: 14px;
+	/* Position the tooltip */
+	position: absolute;
+	top: -5px;
+	margin-left: 2ch;
+	z-index: 1;
+}
+.short {
+	width: 25ch;
+}
+.long {
+	width: 35ch;
+}
+.hastooltip:hover .tooltiptext {
+	visibility: visible;
+	transition-delay: 0.5s;
+}
+
+.smallp {
+	margin: 0;
+	text-align: left;
+}
+.monospaced {
+	font-family: 'Courier New', Courier, monospace;
+}
+
+.dialogo {
+	color: white;
+	padding: 1ch;
+	line-height: 2ch;
+	text-align: center;
+	background: rgba(0, 0, 0, 0.9);
+	font-family: Arial;
+	overscroll-behavior: contain;
+}
+.info-text {
+	margin: 0;
+	line-height: 3ch;
+	font-family: Times New Roman;
+	margin-top: 8px;
+	margin-bottom: 4px;
+}
