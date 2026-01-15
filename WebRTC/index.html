@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link rel="stylesheet" href="./styles/index.css">
+        <link rel="icon" type="image/x-icon" href="./favicon.png">
+        <link rel="manifest" href="manifest.json"/>
+        <title>WebRTC Audio Relay</title>
+    </head>
+    <body>
+        <h1>WebRTC Audio Relay</h1>
+        
+        <p>
+            <select id="microphone-selector" class="selector">
+                <option id="selector-options-info" value="info">Buscando entradas de audio...</option>
+            </select>
+            <label id="mic-selector-label" for="microphone-selector">Entrada de audio</label>
+        </p>
+
+        <p>
+            <button id="connect-button-A">Enviar audio</button>
+            <button id="connect-button-B">Recibir audio</button>
+            <button id="disconnect" disabled>Desconectar</button>
+            <span id="connect-status"></span>
+        </p>
+
+        <p>
+            <button id="message-button">Enviar mensaje</button>
+        </p>
+
+        <p>
+            <button id="download-certificate-button">Descargar certificado</button>
+            <input type="text" id="certificate-download-password" placeholder="Contraseña">
+            <span id="certificate-download-status"></span>
+        </p>
+
+        <p id="info-msg" style="font-size: 12px; margin: 0; height: 15px;" class="fadeOut" onanimationend="this.innerText = '';"></p>
+
+        <button id="language-switch">🌐</button>
+
+        <script type="module" src="./webrtcClient.mjs"></script>
+    </body>
+</html>
