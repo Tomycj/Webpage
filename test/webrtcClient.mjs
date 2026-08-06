@@ -3,11 +3,9 @@
 const ssConnectButton = document.getElementById("ss-connect");
 
 ssConnectButton.onclick = _=> {
-
-    const ip = document.getElementById("ss-ip").value;
+    
     const status = document.getElementById("ss-status");
-
-    const url = ip === "" ? "https://tomycj.ddnsfree.com/client" : ip;
+    const url = "https://tomycj.ddnsfree.com/ping";
 
     fetch(url)
     .then(res=>res.text())
