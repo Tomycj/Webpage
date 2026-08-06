@@ -8,7 +8,7 @@ ssConnectButton.onclick = _=> {
 
     console.log(ip)
 
-    fetch(`http://[${ip}]`, {
+    fetch(`https://[${ip}]`, {
         method: "GET",
     }).then((res)=>{
 
