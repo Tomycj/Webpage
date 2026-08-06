@@ -6,9 +6,9 @@ ssConnectButton.onclick = _=> {
 
     const ip = document.getElementById("ss-ip").value;
 
-    console.log(ip)
+    const url = ip === "" ? "https://tomycj.ddnsfree.com/client" : ip;
 
-    fetch(`https://tomycj.ddnsfree.com/client`, {
+    fetch(url, {
         method: "GET",
     }).then((res)=>{
 
@@ -17,3 +17,4 @@ ssConnectButton.onclick = _=> {
     })
 
 }
+
