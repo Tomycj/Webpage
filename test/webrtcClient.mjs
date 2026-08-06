@@ -8,7 +8,7 @@ ssConnectButton.onclick = _=> {
 
     console.log(ip)
 
-    fetch(`https://[${ip}]`, {
+    fetch(`https://tomycj.ddnsfree.com/client`, {
         method: "GET",
     }).then((res)=>{
 
